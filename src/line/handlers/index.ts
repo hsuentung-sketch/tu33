@@ -6,7 +6,7 @@ import { tryConsumeBindingCode } from '../../modules/core/auth/auth.service.js';
 import { handleQuotationCommand } from './quotation.handler.js';
 import { handleSalesCommand, handleSalesText } from './sales.handler.js';
 import { handlePurchaseCommand, handlePurchaseText } from './purchase.handler.js';
-import { handleAccountingCommand } from './accounting.handler.js';
+import { handleAccountingCommand, handleAccountingText } from './accounting.handler.js';
 import { handleMasterCommand } from './master.handler.js';
 import { handleVoiceMessage, handleImageMessage } from './media.handler.js';
 
@@ -129,6 +129,7 @@ async function routeTextCommand(text: string, ctx: TextCommandContext): Promise<
   // Consume text for any active multi-step session first.
   if (await handleSalesText(text, ctx)) return;
   if (await handlePurchaseText(text, ctx)) return;
+  if (await handleAccountingText(text, ctx)) return;
 
   if (text.startsWith('報價')) {
     return handleQuotationCommand('quotation:menu', { ...ctx, event: pseudoEvent, params: new URLSearchParams() });

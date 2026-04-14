@@ -19,7 +19,7 @@ export interface OcrCard {
 }
 
 export interface Session {
-  flow: 'sales:create' | 'purchase:create' | 'quotation:create' | 'ocr:customer';
+  flow: 'sales:create' | 'purchase:create' | 'quotation:create' | 'ocr:customer' | 'ar:pay' | 'ap:pay';
   step: 'party' | 'items' | 'confirm';
   data: {
     partyId?: string;

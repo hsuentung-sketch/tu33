@@ -119,6 +119,8 @@ export async function create(tenantId: string, data: SalesOrderCreateInput) {
     });
 
     eventBus.emit('salesOrder:created', { tenantId, salesOrderId: created.id });
+    // LINE flow treats creation as user-confirmed — trigger inventory decrement.
+    eventBus.emit('salesOrder:confirmed', { tenantId, salesOrderId: created.id });
 
     return created;
   });

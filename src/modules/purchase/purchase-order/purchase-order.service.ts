@@ -127,6 +127,8 @@ export async function create(tenantId: string, data: PurchaseOrderCreateInput) {
       purchaseOrderId: created.id,
       supplierId: created.supplierId,
     });
+    // LINE flow records receipts after-the-fact — treat creation as completed to trigger stock-in.
+    eventBus.emit('purchaseOrder:completed', { tenantId, purchaseOrderId: created.id });
 
     return created;
   });
