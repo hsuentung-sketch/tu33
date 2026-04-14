@@ -47,6 +47,7 @@
     </div>
     <div id="items"></div>
     <div class="empty" id="empty-items">尚未新增品項</div>
+    <datalist id="product-list"></datalist>
   </div>
 
   <div class="card totals">
@@ -99,7 +100,7 @@
         const div = document.createElement('div');
         div.className = 'row';
         div.innerHTML = `
-          <input placeholder="品項名稱" value="${it.name || ''}" data-i="${i}" data-k="name" />
+          <input placeholder="品項關鍵字" value="${it.name || ''}" data-i="${i}" data-k="name" list="product-list" autocomplete="off" />
           <input type="number" placeholder="數量" value="${it.qty || ''}" data-i="${i}" data-k="qty" />
           <input type="number" placeholder="單價" value="${it.price || ''}" data-i="${i}" data-k="price" />
           <button class="btn-danger" data-del="${i}">刪</button>
@@ -123,13 +124,52 @@
       render();
     };
 
+    // Cache: maps product full-name → { name, salePrice }
+    const productCache = new Map();
+    let productTimer;
+
     itemsEl.addEventListener('input', (e) => {
       const t = e.target;
-      if (t.dataset.i != null && t.dataset.k) {
-        items[+t.dataset.i][t.dataset.k] = t.value;
-        recalc();
+      if (t.dataset.i == null || !t.dataset.k) return;
+      const idx = +t.dataset.i;
+      items[idx][t.dataset.k] = t.value;
+
+      if (t.dataset.k === 'name') {
+        const q = t.value.trim();
+        clearTimeout(productTimer);
+        if (q.length >= 2) {
+          productTimer = setTimeout(() => searchProducts(q), 200);
+        }
+        // If the typed value matches a cached product, auto-fill unit price.
+        const hit = productCache.get(t.value);
+        if (hit && !items[idx].price) {
+          items[idx].price = hit.salePrice;
+          render();
+          return;
+        }
       }
+      recalc();
     });
+
+    async function searchProducts(q) {
+      if (!idToken) return;
+      try {
+        const res = await fetch(`/api/products?q=${encodeURIComponent(q)}`, {
+          headers: { Authorization: `Bearer ${idToken}` },
+        });
+        if (!res.ok) return;
+        const list = await res.json();
+        const dl = document.getElementById('product-list');
+        dl.innerHTML = '';
+        list.forEach((p) => {
+          const opt = document.createElement('option');
+          opt.value = p.name;
+          opt.label = `$${Number(p.salePrice).toLocaleString()}`;
+          dl.appendChild(opt);
+          productCache.set(p.name, { name: p.name, salePrice: Number(p.salePrice) });
+        });
+      } catch (_) { /* noop */ }
+    }
 
     itemsEl.addEventListener('click', (e) => {
       const idx = e.target.dataset.del;
@@ -173,7 +213,7 @@
         hintEl.textContent = '尚未登入，請稍候…';
         return;
       }
-      const res = await fetch(`/api/customers?search=${encodeURIComponent(q)}`, {
+      const res = await fetch(`/api/customers?q=${encodeURIComponent(q)}`, {
         headers: { Authorization: `Bearer ${idToken}` },
       });
       if (!res.ok) {

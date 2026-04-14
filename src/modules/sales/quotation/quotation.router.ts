@@ -22,7 +22,8 @@ const createSchema = z.object({
   paymentTerms: z.string().optional(),
   validUntil: z.string().optional(),
   note: z.string().optional(),
-  createdBy: z.string().min(1),
+  // createdBy is injected server-side from the authenticated employee.
+  createdBy: z.string().min(1).optional(),
   items: z.array(itemSchema).min(1),
 });
 
@@ -79,7 +80,8 @@ quotationRouter.post('/', async (req: Request, res: Response, next: NextFunction
     if (!parsed.success) {
       throw new ValidationError(parsed.error.issues.map((i) => i.message).join(', '));
     }
-    const result = await quotationService.create(req.tenantId, parsed.data);
+    const payload = { ...parsed.data, createdBy: parsed.data.createdBy ?? req.employee.id };
+    const result = await quotationService.create(req.tenantId, payload);
     res.status(201).json(result);
   } catch (err) {
     next(err);
