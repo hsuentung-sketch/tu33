@@ -19,7 +19,10 @@ services:
     plan: free
     region: singapore  # Closest Render region to Taiwan
     branch: main
-    buildCommand: npm ci && npx prisma generate && npm run build
+    # --include=dev is required because typescript + @types/* live in
+    # devDependencies and Render sets NODE_ENV=production which otherwise
+    # skips them during install.
+    buildCommand: npm ci --include=dev && npx prisma generate && npm run build
     startCommand: npm start
     healthCheckPath: /health
     autoDeploy: true
