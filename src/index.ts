@@ -7,7 +7,7 @@ import { AppError } from './shared/errors.js';
 
 const app = express();
 
-// LINE webhook needs raw body for signature verification
+// LINE webhook needs raw body for signature verification (mounted before json parser)
 app.use('/webhook', webhookRouter);
 
 // JSON parsing for API routes

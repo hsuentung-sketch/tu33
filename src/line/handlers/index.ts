@@ -1,61 +1,88 @@
 import type { webhook } from '@line/bot-sdk';
-
-type WebhookEvent = webhook.Event;
-type MessageEvent = webhook.MessageEvent;
-type PostbackEvent = webhook.PostbackEvent;
-type TextMessage = webhook.TextMessageContent;
-import { logger } from '../../shared/logger.js';
 import { prisma } from '../../shared/prisma.js';
 import { getLineClient } from '../client.js';
+import { logger } from '../../shared/logger.js';
+import { tryConsumeBindingCode } from '../../modules/core/auth/auth.service.js';
 import { handleQuotationCommand } from './quotation.handler.js';
 import { handleSalesCommand } from './sales.handler.js';
 import { handlePurchaseCommand } from './purchase.handler.js';
 import { handleAccountingCommand } from './accounting.handler.js';
 import { handleMasterCommand } from './master.handler.js';
 
-export async function handleEvent(event: WebhookEvent): Promise<void> {
-  // Only handle message and postback events
+type WebhookEvent = webhook.Event;
+type MessageEvent = webhook.MessageEvent;
+type PostbackEvent = webhook.PostbackEvent;
+type TextMessage = webhook.TextMessageContent;
+
+export interface HandlerTenant {
+  id: string;
+  lineAccessToken: string;
+}
+
+const BIND_REGEX = /^綁定\s+([A-Z0-9]{6})$/i;
+
+export async function handleEvent(event: WebhookEvent, tenant: HandlerTenant): Promise<void> {
   if (event.type === 'message') {
-    await handleMessage(event);
+    await handleMessage(event, tenant);
   } else if (event.type === 'postback') {
-    await handlePostback(event);
+    await handlePostback(event, tenant);
   }
 }
 
-async function handleMessage(event: MessageEvent): Promise<void> {
+async function handleMessage(event: MessageEvent, tenant: HandlerTenant): Promise<void> {
   const userId = event.source?.userId;
   const replyToken = event.replyToken;
   if (!userId || !replyToken) return;
 
-  // Find employee by LINE userId
-  const employee = await prisma.employee.findUnique({
-    where: { lineUserId: userId },
-    include: { tenant: true },
+  const client = getLineClient(tenant.lineAccessToken);
+
+  // Binding flow: accept 「綁定 XXXXXX」 even before the user is linked.
+  if (event.message.type === 'text') {
+    const text = (event.message as TextMessage).text.trim();
+    const m = text.match(BIND_REGEX);
+    if (m) {
+      const code = m[1].toUpperCase();
+      const employee = await tryConsumeBindingCode(tenant.id, code, userId);
+      await client.replyMessage({
+        replyToken,
+        messages: [{
+          type: 'text',
+          text: employee
+            ? `綁定成功！歡迎 ${employee.name}。`
+            : '綁定碼無效或已過期，請聯繫管理員重新產生。',
+        }],
+      });
+      return;
+    }
+  }
+
+  // Everything else requires a linked employee.
+  const employee = await prisma.employee.findFirst({
+    where: { tenantId: tenant.id, lineUserId: userId, isActive: true },
   });
 
-  if (!employee || !employee.isActive) {
-    const client = getLineClient();
+  if (!employee) {
     await client.replyMessage({
       replyToken,
-      messages: [{ type: 'text', text: '您尚未綁定系統帳號，請聯繫管理員。' }],
+      messages: [{
+        type: 'text',
+        text: '您尚未綁定系統帳號。\n請向管理員索取 6 位綁定碼後，輸入「綁定 XXXXXX」。',
+      }],
     });
     return;
   }
 
-  const client = getLineClient(employee.tenant.lineAccessToken || undefined);
-  const tenantId = employee.tenantId;
+  const ctx = { event, client, employee, tenantId: tenant.id };
 
   if (event.message.type === 'text') {
     const text = (event.message as TextMessage).text.trim();
-    await routeTextCommand(text, { event, client, employee, tenantId });
+    await routeTextCommand(text, ctx);
   } else if (event.message.type === 'audio') {
-    // Voice message → STT → parse command (AI module)
     await client.replyMessage({
       replyToken,
       messages: [{ type: 'text', text: '語音功能開發中，敬請期待。' }],
     });
   } else if (event.message.type === 'image') {
-    // Image → OCR for business card (AI module)
     await client.replyMessage({
       replyToken,
       messages: [{ type: 'text', text: '名片辨識功能開發中，敬請期待。' }],
@@ -63,26 +90,20 @@ async function handleMessage(event: MessageEvent): Promise<void> {
   }
 }
 
-async function handlePostback(event: PostbackEvent): Promise<void> {
+async function handlePostback(event: PostbackEvent, tenant: HandlerTenant): Promise<void> {
   const userId = event.source?.userId;
   if (!userId) return;
 
-  const employee = await prisma.employee.findUnique({
-    where: { lineUserId: userId },
-    include: { tenant: true },
+  const employee = await prisma.employee.findFirst({
+    where: { tenantId: tenant.id, lineUserId: userId, isActive: true },
   });
+  if (!employee) return;
 
-  if (!employee || !employee.isActive) return;
-
-  const client = getLineClient(employee.tenant.lineAccessToken || undefined);
-  const tenantId = employee.tenantId;
+  const client = getLineClient(tenant.lineAccessToken);
   const data = event.postback.data;
-
-  // Parse postback data: action=xxx&param1=yyy&param2=zzz
   const params = new URLSearchParams(data);
   const action = params.get('action') || '';
-
-  const ctx = { event, client, employee, tenantId, params };
+  const ctx = { event, client, employee, tenantId: tenant.id, params };
 
   if (action.startsWith('quotation:')) {
     await handleQuotationCommand(action, ctx);
@@ -94,42 +115,49 @@ async function handlePostback(event: PostbackEvent): Promise<void> {
     await handleAccountingCommand(action, ctx);
   } else if (action.startsWith('master:')) {
     await handleMasterCommand(action, ctx);
+  } else {
+    logger.warn('Unknown postback action', { action });
   }
 }
 
-interface CommandContext {
+interface TextCommandContext {
   event: MessageEvent;
   client: ReturnType<typeof getLineClient>;
-  employee: Awaited<ReturnType<typeof prisma.employee.findUnique>> & { tenant: unknown };
+  employee: { id: string; name: string; tenantId: string };
   tenantId: string;
 }
 
-async function routeTextCommand(text: string, ctx: CommandContext): Promise<void> {
+async function routeTextCommand(text: string, ctx: TextCommandContext): Promise<void> {
   const { event, client } = ctx;
+  const pseudoEvent = event as unknown as PostbackEvent;
 
-  // Main menu commands
-  const commands: Record<string, () => Promise<void>> = {
-    '報價': () => handleQuotationCommand('quotation:menu', { ...ctx, event: event as unknown as PostbackEvent, params: new URLSearchParams() }),
-    '銷貨': () => handleSalesCommand('sales:menu', { ...ctx, event: event as unknown as PostbackEvent, params: new URLSearchParams() }),
-    '進貨': () => handlePurchaseCommand('purchase:menu', { ...ctx, event: event as unknown as PostbackEvent, params: new URLSearchParams() }),
-    '帳務': () => handleAccountingCommand('accounting:menu', { ...ctx, event: event as unknown as PostbackEvent, params: new URLSearchParams() }),
-    '查詢': () => handleMasterCommand('master:search', { ...ctx, event: event as unknown as PostbackEvent, params: new URLSearchParams(`q=${text.replace('查詢', '').trim()}`) }),
-  };
-
-  for (const [keyword, handler] of Object.entries(commands)) {
-    if (text.startsWith(keyword)) {
-      await handler();
-      return;
-    }
+  if (text.startsWith('報價')) {
+    return handleQuotationCommand('quotation:menu', { ...ctx, event: pseudoEvent, params: new URLSearchParams() });
+  }
+  if (text.startsWith('銷貨')) {
+    return handleSalesCommand('sales:menu', { ...ctx, event: pseudoEvent, params: new URLSearchParams() });
+  }
+  if (text.startsWith('進貨')) {
+    return handlePurchaseCommand('purchase:menu', { ...ctx, event: pseudoEvent, params: new URLSearchParams() });
+  }
+  if (text.startsWith('帳務')) {
+    return handleAccountingCommand('accounting:menu', { ...ctx, event: pseudoEvent, params: new URLSearchParams() });
+  }
+  if (text.startsWith('查詢')) {
+    const q = text.replace(/^查詢\s*/, '').trim();
+    return handleMasterCommand('master:search', {
+      ...ctx,
+      event: pseudoEvent,
+      params: new URLSearchParams(`q=${encodeURIComponent(q)}`),
+    });
   }
 
-  // Default: show help
   if (!event.replyToken) return;
   await client.replyMessage({
     replyToken: event.replyToken,
     messages: [{
       type: 'text',
-      text: '請使用選單操作，或輸入以下指令：\n• 報價 - 報價管理\n• 銷貨 - 銷貨管理\n• 進貨 - 進貨管理\n• 帳務 - 帳務查詢\n• 查詢+關鍵字 - 搜尋',
+      text: '請使用選單操作，或輸入以下指令：\n• 報價 - 報價管理\n• 銷貨 - 銷貨管理\n• 進貨 - 進貨管理\n• 帳務 - 帳務查詢\n• 查詢 關鍵字 - 搜尋',
     }],
   });
 }
