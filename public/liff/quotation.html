@@ -238,40 +238,61 @@
       }
     }
 
-    document.getElementById('submit').onclick = async () => {
-      const customerId = selectedCustomer?.id || selectEl.value;
-      const body = {
-        customerId,
-        salesPerson: document.getElementById('sales-person').value,
-        note: document.getElementById('note').value,
-        items: items
-          .filter((it) => it.name && it.qty && it.price)
-          .map((it) => ({
-            productName: it.name,
-            quantity: Number(it.qty),
-            unitPrice: Number(it.price),
-          })),
-      };
-      if (!body.customerId || body.items.length === 0) {
-        alert('請選擇客戶並至少新增一筆品項');
-        return;
+    const submitBtn = document.getElementById('submit');
+    submitBtn.addEventListener('click', onSubmit);
+
+    async function onSubmit() {
+      submitBtn.disabled = true;
+      submitBtn.textContent = '送出中…';
+      try {
+        const customerId = selectedCustomer?.id || selectEl.value;
+        const body = {
+          customerId,
+          salesPerson: document.getElementById('sales-person').value,
+          note: document.getElementById('note').value,
+          items: items
+            .filter((it) => it.name && it.qty && it.price)
+            .map((it) => ({
+              productName: it.name,
+              quantity: Number(it.qty),
+              unitPrice: Number(it.price),
+            })),
+        };
+        if (!body.customerId) { alert('請先選擇客戶（從下拉選單點選）'); return; }
+        if (body.items.length === 0) { alert('請至少新增一筆有數量和單價的品項'); return; }
+        if (!idToken) { alert('尚未登入 LINE，請重新進入表單'); return; }
+
+        const res = await fetch('/api/quotations', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${idToken}`,
+          },
+          body: JSON.stringify(body),
+        });
+        const text = await res.text();
+        if (!res.ok) {
+          alert('送出失敗（' + res.status + '）：' + text);
+          return;
+        }
+        const q = JSON.parse(text);
+        try {
+          if (liff.isInClient && liff.isInClient()) {
+            await liff.sendMessages([{ type: 'text', text: `已建立報價單 ${q.quotationNo}` }]);
+          }
+        } catch (e) {
+          console.warn('sendMessages failed', e);
+        }
+        alert('✅ 已建立報價單 ' + q.quotationNo);
+        if (liff.closeWindow) liff.closeWindow();
+      } catch (err) {
+        console.error(err);
+        alert('發生錯誤：' + (err && err.message ? err.message : err));
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = '送出報價單';
       }
-      const res = await fetch('/api/quotations', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${idToken}`,
-        },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        alert('送出失敗：' + (await res.text()));
-        return;
-      }
-      const q = await res.json();
-      await liff.sendMessages([{ type: 'text', text: `已建立報價單 ${q.quotationNo}` }]);
-      liff.closeWindow();
-    };
+    }
 
     init();
   </script>
