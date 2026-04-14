@@ -4,6 +4,7 @@ import { logger } from './shared/logger.js';
 import { webhookRouter } from './line/webhook.js';
 import { apiRouter } from './routes/index.js';
 import { AppError } from './shared/errors.js';
+import { scheduleOverdueReminder } from './jobs/overdue-reminder.js';
 
 const app = express();
 
@@ -40,6 +41,7 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 app.listen(config.port, () => {
   logger.info(`ERP server running on port ${config.port}`);
   logger.info(`Environment: ${config.nodeEnv}`);
+  scheduleOverdueReminder();
 });
 
 export default app;
