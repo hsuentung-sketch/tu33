@@ -43,8 +43,10 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
   });
 });
 
-app.listen(config.port, () => {
-  logger.info(`ERP server running on port ${config.port}`);
+// Bind explicitly to 0.0.0.0 so Render's IPv4 port scanner can detect us.
+// Without the host arg, Node may bind to IPv6 only on some environments.
+app.listen(config.port, '0.0.0.0', () => {
+  logger.info(`ERP server running on 0.0.0.0:${config.port}`);
   logger.info(`Environment: ${config.nodeEnv}`);
   scheduleOverdueReminder();
   scheduleMonthlyStatements();
