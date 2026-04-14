@@ -86,7 +86,7 @@ interface PurchaseOrderPdfData {
 /**
  * Locate a CJK-capable TTF/OTF. In order of preference:
  *   1. FONT_CJK_PATH env var (override)
- *   2. assets/fonts/NotoSansTC-Regular.otf (downloaded by postinstall)
+ *   2. assets/fonts/NotoSansTC-Regular.ttf (downloaded at build time)
  *   3. Common Linux / macOS / Windows system font paths
  * If none are found we fall back to PDFKit's built-in Helvetica — which
  * cannot render Chinese. The caller will get tofu boxes but at least no
@@ -95,8 +95,8 @@ interface PurchaseOrderPdfData {
 const CJK_FONT: string = (() => {
   const candidates = [
     process.env.FONT_CJK_PATH,
-    resolve(process.cwd(), 'assets/fonts/NotoSansTC-Regular.otf'),
     resolve(process.cwd(), 'assets/fonts/NotoSansTC-Regular.ttf'),
+    resolve(process.cwd(), 'assets/fonts/NotoSansTC-Regular.otf'),
     '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
     '/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc',
     '/System/Library/Fonts/PingFang.ttc',
@@ -105,8 +105,6 @@ const CJK_FONT: string = (() => {
   for (const p of candidates) {
     try { if (existsSync(p)) return p; } catch { /* ignore */ }
   }
-  // Fall back to PDFKit's built-in Helvetica. CJK glyphs will render as
-  // tofu boxes, but the PDF will at least generate without throwing.
   return 'Helvetica';
 })();
 
@@ -122,223 +120,342 @@ function formatCurrency(amount: number): string {
   return amount.toLocaleString('zh-TW');
 }
 
-export function generateQuotationPdf(data: QuotationPdfData): InstanceType<typeof PDFDocument> {
-  const doc = new PDFDocument({ size: 'A4', margin: 50 });
+// ---------- Layout helpers ----------
+//
+// The three PDF types share the same visual language (header band,
+// two-column info grid, bordered item table, totals block). The
+// helpers below exist so each generator only has to describe the data
+// and the labels — not re-implement the drawing every time.
 
+const PAGE = {
+  margin: 40,
+  contentWidth: 515, // A4 width (595) - 2 * margin
+  left: 40,
+  right: 555,
+};
+
+/** Title band at top: title text on left, company name on right. */
+function drawTitleBand(
+  doc: InstanceType<typeof PDFDocument>,
+  title: string,
+  company: string,
+): number {
+  const y = PAGE.margin;
+  const h = 36;
+  doc.save();
+  doc.rect(PAGE.left, y, PAGE.contentWidth, h).fillAndStroke('#E8EEF7', '#2F5496');
+  doc.restore();
+  doc.fillColor('#000');
+  doc.fontSize(18).text(title, PAGE.left + 10, y + 9, { width: 220 });
+  doc.fontSize(16).text(company, PAGE.left + 240, y + 10, { width: 265, align: 'right' });
+  return y + h;
+}
+
+type InfoRow = { label: string; value: string };
+
+/**
+ * Two-column information grid beneath the title band. Left and right
+ * columns are padded to the same length with blank rows so the outer
+ * border stays rectangular.
+ */
+function drawInfoGrid(
+  doc: InstanceType<typeof PDFDocument>,
+  startY: number,
+  left: InfoRow[],
+  right: InfoRow[],
+): number {
+  const rowH = 20;
+  const rows = Math.max(left.length, right.length);
+  const colW = PAGE.contentWidth / 2;
+  const labelW = 58;
+
+  doc.lineWidth(0.5).strokeColor('#888');
+  doc.rect(PAGE.left, startY, PAGE.contentWidth, rowH * rows).stroke();
+  // vertical split between left/right columns
+  doc.moveTo(PAGE.left + colW, startY).lineTo(PAGE.left + colW, startY + rowH * rows).stroke();
+
+  doc.fontSize(9);
+  for (let i = 0; i < rows; i++) {
+    const y = startY + i * rowH;
+    if (i > 0) {
+      doc.moveTo(PAGE.left, y).lineTo(PAGE.right, y).stroke();
+    }
+    const l = left[i];
+    const r = right[i];
+    if (l) {
+      doc.fillColor('#555').text(l.label, PAGE.left + 6, y + 6, { width: labelW });
+      doc.fillColor('#000').text(l.value, PAGE.left + 6 + labelW, y + 6, { width: colW - labelW - 10 });
+    }
+    if (r) {
+      doc.fillColor('#555').text(r.label, PAGE.left + colW + 6, y + 6, { width: labelW });
+      doc.fillColor('#000').text(r.value, PAGE.left + colW + 6 + labelW, y + 6, { width: colW - labelW - 10 });
+    }
+  }
+  doc.fillColor('#000');
+  return startY + rowH * rows;
+}
+
+interface Column {
+  header: string;
+  width: number; // fraction of content width
+  align?: 'left' | 'right' | 'center';
+}
+
+/** Bordered item table with header row + body rows. Returns y after table. */
+function drawItemTable(
+  doc: InstanceType<typeof PDFDocument>,
+  startY: number,
+  columns: Column[],
+  rows: string[][],
+): number {
+  const headerH = 22;
+  const rowH = 20;
+  const totalFrac = columns.reduce((s, c) => s + c.width, 0);
+  const xs: number[] = [PAGE.left];
+  let accum = PAGE.left;
+  for (const c of columns) {
+    accum += (c.width / totalFrac) * PAGE.contentWidth;
+    xs.push(accum);
+  }
+
+  // header row
+  doc.save();
+  doc.rect(PAGE.left, startY, PAGE.contentWidth, headerH).fillAndStroke('#F2F2F2', '#888');
+  doc.restore();
+  doc.fillColor('#000').fontSize(10);
+  columns.forEach((c, i) => {
+    doc.text(c.header, xs[i] + 4, startY + 6, {
+      width: xs[i + 1] - xs[i] - 8,
+      align: c.align ?? 'left',
+    });
+  });
+  // header column dividers
+  doc.lineWidth(0.5).strokeColor('#888');
+  for (let i = 1; i < xs.length - 1; i++) {
+    doc.moveTo(xs[i], startY).lineTo(xs[i], startY + headerH).stroke();
+  }
+
+  // body rows
+  let y = startY + headerH;
+  const bodyTop = y;
+  doc.fontSize(9);
+  rows.forEach((row) => {
+    row.forEach((cell, i) => {
+      doc.text(cell, xs[i] + 4, y + 6, {
+        width: xs[i + 1] - xs[i] - 8,
+        align: columns[i].align ?? 'left',
+        height: rowH - 4,
+        ellipsis: true,
+      });
+    });
+    y += rowH;
+  });
+  // body outer + column dividers
+  doc.rect(PAGE.left, bodyTop, PAGE.contentWidth, y - bodyTop).stroke();
+  for (let i = 1; i < xs.length - 1; i++) {
+    doc.moveTo(xs[i], bodyTop).lineTo(xs[i], y).stroke();
+  }
+  return y;
+}
+
+function drawTotals(
+  doc: InstanceType<typeof PDFDocument>,
+  startY: number,
+  subtotal: number,
+  tax: number,
+  total: number,
+): number {
+  const rowH = 20;
+  const blockW = 240;
+  const x = PAGE.right - blockW;
+  const labelW = 120;
+
+  doc.lineWidth(0.5).strokeColor('#888');
+  doc.rect(x, startY, blockW, rowH * 3).stroke();
+  doc.moveTo(x, startY + rowH).lineTo(x + blockW, startY + rowH).stroke();
+  doc.moveTo(x, startY + rowH * 2).lineTo(x + blockW, startY + rowH * 2).stroke();
+  doc.moveTo(x + labelW, startY).lineTo(x + labelW, startY + rowH * 3).stroke();
+
+  doc.fillColor('#555').fontSize(10);
+  doc.text('小計', x + 6, startY + 6, { width: labelW - 12 });
+  doc.text('營業稅 (5%)', x + 6, startY + rowH + 6, { width: labelW - 12 });
+  doc.fillColor('#000').fontSize(11);
+  doc.text('總計', x + 6, startY + rowH * 2 + 6, { width: labelW - 12 });
+
+  doc.fillColor('#000').fontSize(10);
+  doc.text(formatCurrency(subtotal), x + labelW + 6, startY + 6, { width: blockW - labelW - 12, align: 'right' });
+  doc.text(formatCurrency(tax), x + labelW + 6, startY + rowH + 6, { width: blockW - labelW - 12, align: 'right' });
+  doc.fontSize(11);
+  doc.text(formatCurrency(total), x + labelW + 6, startY + rowH * 2 + 6, { width: blockW - labelW - 12, align: 'right' });
+
+  return startY + rowH * 3;
+}
+
+// ---------- Generators ----------
+
+export function generateQuotationPdf(data: QuotationPdfData): InstanceType<typeof PDFDocument> {
+  const doc = new PDFDocument({ size: 'A4', margin: PAGE.margin });
   doc.font(CJK_FONT);
 
-  // Header
-  doc.fontSize(20).text('報價單', { align: 'center' });
-  doc.fontSize(12).text(data.companyHeader, { align: 'right' });
-  doc.moveDown();
+  let y = drawTitleBand(doc, '報價單', data.companyHeader);
 
-  // Draft watermark
   if (data.isDraft) {
     doc.save();
-    doc.fontSize(60).fillColor('#CCCCCC').opacity(0.3);
-    doc.text('草稿', 150, 300);
+    doc.fontSize(80).fillColor('#CCCCCC').opacity(0.25);
+    doc.text('草稿', 160, 350);
     doc.restore();
+    doc.fillColor('#000').opacity(1);
   }
 
-  // Customer info
-  doc.fontSize(10);
-  doc.text(`致: ${data.customer.name}`);
-  if (data.customer.contactName) doc.text(`${data.customer.contactName} 先生/小姐`);
-  if (data.customer.address) doc.text(data.customer.address);
-  doc.moveDown();
+  const addr = [data.customer.zipCode, data.customer.address].filter(Boolean).join(' ');
+  y = drawInfoGrid(doc, y + 8, [
+    { label: '公司', value: data.customer.name },
+    { label: '聯絡人', value: data.customer.contactName ?? '' },
+    { label: '地址', value: addr },
+  ], [
+    { label: '業務', value: data.salesPerson },
+    { label: '電話', value: data.salesPhone ?? '' },
+    { label: '報價單號', value: data.quotationNo },
+    { label: '日期', value: formatDate(data.date) },
+  ]);
 
-  // Sales info
-  doc.text(`業務: ${data.salesPerson}    電話: ${data.salesPhone || ''}`);
-  doc.text(`報價單號: ${data.quotationNo}    報價日期: ${formatDate(data.date)}`);
-  doc.moveDown();
+  const rows = data.items.map((it, i) => [
+    String(i + 1),
+    it.productName,
+    String(it.quantity),
+    formatCurrency(toNumber(it.unitPrice)),
+    formatCurrency(toNumber(it.amount)),
+    it.note ?? '',
+  ]);
+  y = drawItemTable(doc, y + 8, [
+    { header: '編號', width: 6, align: 'center' },
+    { header: '品項', width: 36 },
+    { header: '數量', width: 8, align: 'right' },
+    { header: '單價', width: 14, align: 'right' },
+    { header: '金額', width: 14, align: 'right' },
+    { header: '備註', width: 22 },
+  ], rows);
 
-  // Items table header
-  const tableTop = doc.y;
-  doc.font(CJK_FONT).fontSize(9);
-  doc.text('編號', 50, tableTop, { width: 30 });
-  doc.text('品項', 85, tableTop, { width: 200 });
-  doc.text('數量', 290, tableTop, { width: 50, align: 'right' });
-  doc.text('單價', 345, tableTop, { width: 70, align: 'right' });
-  doc.text('金額', 420, tableTop, { width: 70, align: 'right' });
-  doc.text('備註', 495, tableTop, { width: 60 });
+  y = drawTotals(doc, y + 8, data.subtotal, data.taxAmount, data.totalAmount);
 
-  doc.moveTo(50, tableTop + 15).lineTo(555, tableTop + 15).stroke();
+  // Terms block
+  doc.fontSize(9).fillColor('#000');
+  y += 16;
+  const terms: string[] = [];
+  if (data.supplyTime) terms.push(`可供貨時間：${data.supplyTime}`);
+  if (data.paymentTerms) terms.push(`付款期限：${data.paymentTerms}`);
+  if (data.validUntil) terms.push(`報價單有效日期：${data.validUntil}`);
+  if (data.note) terms.push(`備註：${data.note}`);
+  terms.forEach((t) => { doc.text(t, PAGE.left, y); y += 14; });
 
-  // Items
-  let y = tableTop + 20;
-  data.items.forEach((item, i) => {
-    doc.text(String(i + 1), 50, y, { width: 30 });
-    doc.text(item.productName, 85, y, { width: 200 });
-    doc.text(String(item.quantity), 290, y, { width: 50, align: 'right' });
-    doc.text(formatCurrency(toNumber(item.unitPrice)), 345, y, { width: 70, align: 'right' });
-    doc.text(formatCurrency(toNumber(item.amount)), 420, y, { width: 70, align: 'right' });
-    if (item.note) doc.text(item.note, 495, y, { width: 60 });
-    y += 18;
-  });
-
-  // Totals
-  y += 10;
-  doc.moveTo(350, y).lineTo(555, y).stroke();
-  y += 5;
-  doc.text('小計', 350, y, { width: 65, align: 'right' });
-  doc.text(formatCurrency(data.subtotal), 420, y, { width: 70, align: 'right' });
-  y += 15;
-  doc.text('營業稅(5%)', 350, y, { width: 65, align: 'right' });
-  doc.text(formatCurrency(data.taxAmount), 420, y, { width: 70, align: 'right' });
-  y += 15;
-  doc.font(CJK_FONT).fontSize(11);
-  doc.text('總計', 350, y, { width: 65, align: 'right' });
-  doc.text(formatCurrency(data.totalAmount), 420, y, { width: 70, align: 'right' });
-
-  // Terms
-  doc.fontSize(9).font(CJK_FONT);
-  y += 30;
-  if (data.supplyTime) doc.text(`可供貨時間: ${data.supplyTime}`, 50, y);
-  if (data.paymentTerms) { y += 15; doc.text(`付款期限: ${data.paymentTerms}`, 50, y); }
-  if (data.validUntil) { y += 15; doc.text(`報價單有效日期: ${data.validUntil}`, 50, y); }
-  if (data.note) { y += 15; doc.text(`其他備註事項: ${data.note}`, 50, y); }
-
-  // Footer
   if (data.pdfFooter) {
-    doc.fontSize(8).text(data.pdfFooter, 50, 750, { align: 'center' });
+    doc.fontSize(8).fillColor('#888').text(data.pdfFooter, PAGE.left, 800, { width: PAGE.contentWidth, align: 'center' });
   }
-
-  doc.end();
   return doc;
 }
 
 export function generateSalesOrderPdf(data: SalesOrderPdfData): InstanceType<typeof PDFDocument> {
-  const doc = new PDFDocument({ size: 'A4', margin: 50 });
+  const doc = new PDFDocument({ size: 'A4', margin: PAGE.margin });
   doc.font(CJK_FONT);
 
-  // Header
-  doc.fontSize(20).text('銷貨單', { align: 'center' });
-  doc.fontSize(12).text(data.companyHeader, { align: 'right' });
-  doc.moveDown();
+  let y = drawTitleBand(doc, '銷貨單', data.companyHeader);
 
-  // Customer info
-  doc.fontSize(10);
-  doc.text(`公司: ${data.customer.name}`);
-  if (data.customer.contactName) doc.text(`聯絡人: ${data.customer.contactName}`);
-  if (data.customer.taxId) doc.text(`統一編號: ${data.customer.taxId}`);
-  if (data.customer.phone) doc.text(`電話: ${data.customer.phone}`);
-  if (data.customer.address) doc.text(`地址: ${data.customer.address}`);
-  doc.moveDown();
+  const left: InfoRow[] = [
+    { label: '公司', value: data.customer.name },
+    { label: '聯絡人', value: data.customer.contactName ?? '' },
+    { label: '統一編號', value: data.customer.taxId ?? '' },
+    { label: '電話', value: data.customer.phone ?? '' },
+    { label: '地址', value: data.customer.address ?? '' },
+    { label: '送貨備註', value: data.deliveryNote ?? '' },
+  ];
+  const right: InfoRow[] = [
+    { label: '業務', value: data.salesPerson },
+    { label: '電話', value: data.salesPhone ?? '' },
+    { label: '地址', value: data.companyAddress ?? '' },
+    { label: '訂單編號', value: data.orderNo },
+    { label: '開單日期', value: formatDate(data.date) },
+    { label: '', value: '' },
+  ];
+  y = drawInfoGrid(doc, y + 8, left, right);
 
-  // Order info
-  doc.text(`業務: ${data.salesPerson}    電話: ${data.salesPhone || ''}`);
-  doc.text(`訂單編號: ${data.orderNo}    開單日期: ${formatDate(data.date)}`);
-  if (data.deliveryNote) doc.text(`送貨備註: ${data.deliveryNote}`);
-  doc.moveDown();
+  const rows = data.items.map((it, i) => [
+    String(i + 1),
+    it.productName,
+    String(it.quantity),
+    formatCurrency(toNumber(it.unitPrice)),
+    formatCurrency(toNumber(it.amount)),
+    it.note ?? '',
+  ]);
+  y = drawItemTable(doc, y + 8, [
+    { header: '編號', width: 6, align: 'center' },
+    { header: '品項', width: 36 },
+    { header: '數量', width: 8, align: 'right' },
+    { header: '單價', width: 14, align: 'right' },
+    { header: '金額', width: 14, align: 'right' },
+    { header: '說明', width: 22 },
+  ], rows);
 
-  // Items table
-  const tableTop = doc.y;
-  doc.fontSize(9);
-  doc.text('編號', 50, tableTop, { width: 30 });
-  doc.text('品項', 85, tableTop, { width: 200 });
-  doc.text('數量', 290, tableTop, { width: 50, align: 'right' });
-  doc.text('單價', 345, tableTop, { width: 70, align: 'right' });
-  doc.text('金額', 420, tableTop, { width: 70, align: 'right' });
-  doc.text('說明', 495, tableTop, { width: 60 });
-  doc.moveTo(50, tableTop + 15).lineTo(555, tableTop + 15).stroke();
-
-  let y = tableTop + 20;
-  data.items.forEach((item, i) => {
-    doc.text(String(i + 1), 50, y, { width: 30 });
-    doc.text(item.productName, 85, y, { width: 200 });
-    doc.text(String(item.quantity), 290, y, { width: 50, align: 'right' });
-    doc.text(formatCurrency(toNumber(item.unitPrice)), 345, y, { width: 70, align: 'right' });
-    doc.text(formatCurrency(toNumber(item.amount)), 420, y, { width: 70, align: 'right' });
-    if (item.note) doc.text(item.note, 495, y, { width: 60 });
-    y += 18;
-  });
-
-  // Totals
-  y += 10;
-  doc.moveTo(350, y).lineTo(555, y).stroke();
-  y += 5;
-  doc.text('小計', 350, y, { width: 65, align: 'right' });
-  doc.text(formatCurrency(data.subtotal), 420, y, { width: 70, align: 'right' });
-  y += 15;
-  doc.text('營業稅(5%)', 350, y, { width: 65, align: 'right' });
-  doc.text(formatCurrency(data.taxAmount), 420, y, { width: 70, align: 'right' });
-  y += 15;
-  doc.fontSize(11);
-  doc.text('總計', 350, y, { width: 65, align: 'right' });
-  doc.text(formatCurrency(data.totalAmount), 420, y, { width: 70, align: 'right' });
+  y = drawTotals(doc, y + 8, data.subtotal, data.taxAmount, data.totalAmount);
 
   // Signatures
-  y += 40;
-  doc.fontSize(10);
-  doc.text(`出貨人: ${data.deliveredBy || ''}`, 50, y);
-  doc.text(`收貨人: ${data.receivedBy || ''}`, 300, y);
+  y += 28;
+  doc.fontSize(10).fillColor('#000');
+  doc.text(`出貨人：${data.deliveredBy ?? ''}`, PAGE.left, y);
+  doc.text(`收貨人：${data.receivedBy ?? ''}`, PAGE.left + PAGE.contentWidth / 2, y);
 
-  doc.end();
+  if (data.pdfFooter) {
+    doc.fontSize(8).fillColor('#888').text(data.pdfFooter, PAGE.left, 800, { width: PAGE.contentWidth, align: 'center' });
+  }
   return doc;
 }
 
 export function generatePurchaseOrderPdf(data: PurchaseOrderPdfData): InstanceType<typeof PDFDocument> {
-  const doc = new PDFDocument({ size: 'A4', margin: 50 });
+  const doc = new PDFDocument({ size: 'A4', margin: PAGE.margin });
   doc.font(CJK_FONT);
 
-  // Header
-  doc.fontSize(20).text('進貨單', { align: 'center' });
-  doc.fontSize(12).text(data.companyHeader, { align: 'right' });
-  doc.moveDown();
+  let y = drawTitleBand(doc, '進貨單', data.companyHeader);
 
-  // Supplier info
-  doc.fontSize(10);
-  doc.text(`供應商: ${data.supplier.name}`);
-  if (data.supplier.contactName) doc.text(`聯絡人: ${data.supplier.contactName}`);
-  if (data.supplier.taxId) doc.text(`統一編號: ${data.supplier.taxId}`);
-  if (data.supplier.phone) doc.text(`電話: ${data.supplier.phone}`);
-  if (data.supplier.address) doc.text(`地址: ${data.supplier.address}`);
-  doc.moveDown();
+  const left: InfoRow[] = [
+    { label: '供應商', value: data.supplier.name },
+    { label: '聯絡人', value: data.supplier.contactName ?? '' },
+    { label: '統一編號', value: data.supplier.taxId ?? '' },
+    { label: '電話', value: data.supplier.phone ?? '' },
+    { label: '地址', value: data.supplier.address ?? '' },
+    { label: '送貨備註', value: data.deliveryNote ?? '' },
+  ];
+  const right: InfoRow[] = [
+    { label: '內勤', value: data.internalStaff },
+    { label: '電話', value: data.staffPhone ?? '' },
+    { label: '地址', value: data.companyAddress ?? '' },
+    { label: '進貨單號', value: data.orderNo },
+    { label: '開單日期', value: formatDate(data.date) },
+    { label: '', value: '' },
+  ];
+  y = drawInfoGrid(doc, y + 8, left, right);
 
-  // Order info
-  doc.text(`內勤: ${data.internalStaff}    電話: ${data.staffPhone || ''}`);
-  doc.text(`進貨單編號: ${data.orderNo}    開單日期: ${formatDate(data.date)}`);
-  if (data.deliveryNote) doc.text(`送貨備註: ${data.deliveryNote}`);
-  doc.moveDown();
+  const rows = data.items.map((it, i) => [
+    String(i + 1),
+    it.productName,
+    String(it.quantity),
+    formatCurrency(toNumber(it.unitPrice)),
+    formatCurrency(toNumber(it.amount)),
+    it.referenceCost != null ? formatCurrency(it.referenceCost) : '',
+    it.note ?? '',
+  ]);
+  y = drawItemTable(doc, y + 8, [
+    { header: '編號', width: 6, align: 'center' },
+    { header: '品項', width: 32 },
+    { header: '數量', width: 8, align: 'right' },
+    { header: '單價', width: 13, align: 'right' },
+    { header: '金額', width: 13, align: 'right' },
+    { header: '參考進價', width: 12, align: 'right' },
+    { header: '說明', width: 16 },
+  ], rows);
 
-  // Items table
-  const tableTop = doc.y;
-  doc.fontSize(9);
-  doc.text('編號', 50, tableTop, { width: 30 });
-  doc.text('品項', 85, tableTop, { width: 180 });
-  doc.text('數量', 270, tableTop, { width: 40, align: 'right' });
-  doc.text('單價', 315, tableTop, { width: 65, align: 'right' });
-  doc.text('金額', 385, tableTop, { width: 65, align: 'right' });
-  doc.text('說明', 455, tableTop, { width: 50 });
-  doc.text('進價', 510, tableTop, { width: 45, align: 'right' });
-  doc.moveTo(50, tableTop + 15).lineTo(555, tableTop + 15).stroke();
+  y = drawTotals(doc, y + 8, data.subtotal, data.taxAmount, data.totalAmount);
 
-  let y = tableTop + 20;
-  data.items.forEach((item, i) => {
-    doc.text(String(i + 1), 50, y, { width: 30 });
-    doc.text(item.productName, 85, y, { width: 180 });
-    doc.text(String(item.quantity), 270, y, { width: 40, align: 'right' });
-    doc.text(formatCurrency(toNumber(item.unitPrice)), 315, y, { width: 65, align: 'right' });
-    doc.text(formatCurrency(toNumber(item.amount)), 385, y, { width: 65, align: 'right' });
-    if (item.note) doc.text(item.note, 455, y, { width: 50 });
-    if (item.referenceCost) doc.text(formatCurrency(item.referenceCost), 510, y, { width: 45, align: 'right' });
-    y += 18;
-  });
-
-  // Totals
-  y += 10;
-  doc.moveTo(320, y).lineTo(555, y).stroke();
-  y += 5;
-  doc.text('小計', 320, y, { width: 60, align: 'right' });
-  doc.text(formatCurrency(data.subtotal), 385, y, { width: 65, align: 'right' });
-  y += 15;
-  doc.text('營業稅(5%)', 320, y, { width: 60, align: 'right' });
-  doc.text(formatCurrency(data.taxAmount), 385, y, { width: 65, align: 'right' });
-  y += 15;
-  doc.fontSize(11);
-  doc.text('總計', 320, y, { width: 60, align: 'right' });
-  doc.text(formatCurrency(data.totalAmount), 385, y, { width: 65, align: 'right' });
-
-  doc.end();
+  if (data.pdfFooter) {
+    doc.fontSize(8).fillColor('#888').text(data.pdfFooter, PAGE.left, 800, { width: PAGE.contentWidth, align: 'center' });
+  }
   return doc;
 }

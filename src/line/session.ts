@@ -26,6 +26,12 @@ export interface Session {
     partyName?: string;
     items: SessionItem[];
     pendingItem?: Partial<SessionItem>;
+    /**
+     * Product the user just picked from a LINE search result. Next
+     * numeric-looking text message is interpreted as "<qty>" (uses
+     * salePrice/costPrice as default) or "<qty> <price>".
+     */
+    pendingProduct?: { name: string; salePrice: number; costPrice: number };
     ocrCard?: OcrCard;
   };
   updatedAt: number;
