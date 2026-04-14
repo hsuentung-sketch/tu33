@@ -276,14 +276,17 @@
           return;
         }
         const q = JSON.parse(text);
+        const msgText = q.pdfUrl
+          ? `已建立報價單 ${q.quotationNo}\n📄 PDF：${q.pdfUrl}`
+          : `已建立報價單 ${q.quotationNo}`;
         try {
           if (liff.isInClient && liff.isInClient()) {
-            await liff.sendMessages([{ type: 'text', text: `已建立報價單 ${q.quotationNo}` }]);
+            await liff.sendMessages([{ type: 'text', text: msgText }]);
           }
         } catch (e) {
           console.warn('sendMessages failed', e);
         }
-        alert('✅ 已建立報價單 ' + q.quotationNo);
+        alert('✅ 已建立報價單 ' + q.quotationNo + (q.pdfUrl ? '\n\nPDF 連結：\n' + q.pdfUrl : ''));
         if (liff.closeWindow) liff.closeWindow();
       } catch (err) {
         console.error(err);

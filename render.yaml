@@ -22,7 +22,7 @@ services:
     # --include=dev is required because typescript + @types/* live in
     # devDependencies and Render sets NODE_ENV=production which otherwise
     # skips them during install.
-    buildCommand: npm ci --include=dev && npx prisma generate && npm run build
+    buildCommand: npm ci --include=dev && npx prisma generate && npm run fonts:download && npm run build
     startCommand: npm start
     healthCheckPath: /health
     autoDeploy: true

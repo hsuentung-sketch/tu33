@@ -5,6 +5,7 @@ export const config = {
   port: parseInt(process.env.PORT || '3000', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
   databaseUrl: process.env.DATABASE_URL || '',
+  publicBaseUrl: process.env.PUBLIC_BASE_URL || 'https://erp-line-bot.onrender.com',
 
   // LINE Bot (default channel, can be overridden per tenant)
   line: {

@@ -2,6 +2,8 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import { z } from 'zod';
 import { ValidationError } from '../../../shared/errors.js';
 import * as quotationService from './quotation.service.js';
+import { signPdfToken, buildPdfUrl } from '../../../documents/pdf-link.js';
+import { config } from '../../../config/index.js';
 
 export const quotationRouter = Router();
 
@@ -82,7 +84,13 @@ quotationRouter.post('/', async (req: Request, res: Response, next: NextFunction
     }
     const payload = { ...parsed.data, createdBy: parsed.data.createdBy ?? req.employee.id };
     const result = await quotationService.create(req.tenantId, payload);
-    res.status(201).json(result);
+    const pdfUrl = buildPdfUrl(
+      config.publicBaseUrl,
+      'quotation',
+      result.id,
+      signPdfToken(req.tenantId, 'quotation', result.id),
+    );
+    res.status(201).json({ ...result, pdfUrl });
   } catch (err) {
     next(err);
   }

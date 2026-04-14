@@ -13,3 +13,6 @@ coverage/
 .turbo/
 tmp/
 .claude/
+
+# Fonts downloaded at build time
+assets/fonts/

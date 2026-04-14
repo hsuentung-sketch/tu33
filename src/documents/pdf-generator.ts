@@ -1,5 +1,7 @@
 import PDFDocument from 'pdfkit';
 import { Prisma } from '@prisma/client';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 type Decimal = Prisma.Decimal;
 
@@ -81,8 +83,32 @@ interface PurchaseOrderPdfData {
   pdfFooter?: string;
 }
 
-// Font path for CJK support - use system fonts
-const CJK_FONT = 'C:/Windows/Fonts/msjh.ttc';
+/**
+ * Locate a CJK-capable TTF/OTF. In order of preference:
+ *   1. FONT_CJK_PATH env var (override)
+ *   2. assets/fonts/NotoSansTC-Regular.otf (downloaded by postinstall)
+ *   3. Common Linux / macOS / Windows system font paths
+ * If none are found we fall back to PDFKit's built-in Helvetica — which
+ * cannot render Chinese. The caller will get tofu boxes but at least no
+ * 500 error.
+ */
+const CJK_FONT: string = (() => {
+  const candidates = [
+    process.env.FONT_CJK_PATH,
+    resolve(process.cwd(), 'assets/fonts/NotoSansTC-Regular.otf'),
+    resolve(process.cwd(), 'assets/fonts/NotoSansTC-Regular.ttf'),
+    '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+    '/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc',
+    '/System/Library/Fonts/PingFang.ttc',
+    'C:/Windows/Fonts/msjh.ttc',
+  ].filter(Boolean) as string[];
+  for (const p of candidates) {
+    try { if (existsSync(p)) return p; } catch { /* ignore */ }
+  }
+  // Fall back to PDFKit's built-in Helvetica. CJK glyphs will render as
+  // tofu boxes, but the PDF will at least generate without throwing.
+  return 'Helvetica';
+})();
 
 function formatDate(date: Date): string {
   return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}`;

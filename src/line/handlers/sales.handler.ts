@@ -4,6 +4,8 @@ import { fuzzySearch } from '../../shared/search.js';
 import { prisma } from '../../shared/prisma.js';
 import * as salesOrderService from '../../modules/sales/sales-order/sales-order.service.js';
 import { runWithAuditContext } from '../../shared/audit.js';
+import { signPdfToken, buildPdfUrl } from '../../documents/pdf-link.js';
+import { config } from '../../config/index.js';
 
 /**
  * LINE command / postback handler for sales orders.
@@ -90,11 +92,17 @@ export async function handleSalesCommand(action: string, ctx: any): Promise<void
           }),
         );
         session.clear(tenantId, lineUserId);
+        const pdfUrl = buildPdfUrl(
+          config.publicBaseUrl,
+          'sales-order',
+          order.id,
+          signPdfToken(tenantId, 'sales-order', order.id),
+        );
         await client.replyMessage({
           replyToken: event.replyToken,
           messages: [{
             type: 'text',
-            text: `✅ 銷貨單已建立\n單號：${order.orderNo}\n總計：$${Number(order.totalAmount).toLocaleString('zh-TW')}`,
+            text: `✅ 銷貨單已建立\n單號：${order.orderNo}\n總計：$${Number(order.totalAmount).toLocaleString('zh-TW')}\n\n📄 下載 PDF：\n${pdfUrl}`,
           }],
         });
       } catch (err) {

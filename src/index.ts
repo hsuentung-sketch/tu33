@@ -3,6 +3,7 @@ import { config } from './config/index.js';
 import { logger } from './shared/logger.js';
 import { webhookRouter } from './line/webhook.js';
 import { apiRouter } from './routes/index.js';
+import { pdfRouter } from './routes/pdf.router.js';
 import { AppError } from './shared/errors.js';
 import { scheduleOverdueReminder } from './jobs/overdue-reminder.js';
 import { scheduleMonthlyStatements } from './jobs/monthly-statement.js';
@@ -24,6 +25,9 @@ app.use(express.urlencoded({ extended: true }));
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// Public PDF download routes (token-authed via JWT, not LIFF id-token)
+app.use('/pdf', pdfRouter);
 
 // API routes
 app.use('/api', apiRouter);
