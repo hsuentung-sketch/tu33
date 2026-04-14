@@ -22,7 +22,7 @@ export async function handleQuotationCommand(action: string, ctx: any): Promise<
             title: '報價管理',
             text: '請選擇操作',
             actions: [
-              { type: 'uri', label: '新增（LIFF）', uri: 'https://line.me/R/app/LIFF_ID_HERE' },
+              { type: 'uri', label: '新增（LIFF）', uri: 'https://liff.line.me/2009797959-uDVN0eGQ' },
               { type: 'postback', label: '最近報價', data: 'action=quotation:list' },
               { type: 'postback', label: '追蹤中', data: 'action=quotation:tracking' },
             ],

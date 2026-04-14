@@ -9,6 +9,7 @@
  *   - 客戶清單     columns: 公司, 聯絡人, 統編, 電話, 郵遞區號, 地址, 付款天數
  *   - 供應商清單   columns: 供應商, 類型, 聯絡人, 統編, 電話, 郵遞區號, 地址, 付款天數
  */
+import 'dotenv/config';
 import ExcelJS from 'exceljs';
 import { prisma as db } from '../shared/prisma.js';
 
@@ -170,13 +171,13 @@ async function importSuppliers(
 ): Promise<void> {
   const h = readHeaderMap(sheet);
   const cName = h.get('供應商') ?? h.get('name');
-  const cType = h.get('類型') ?? h.get('type');
+  const cType = h.get('類型') ?? h.get('供應商類型') ?? h.get('type');
   const cContact = h.get('聯絡人') ?? h.get('contactName');
   const cTaxId = h.get('統編') ?? h.get('統一編號') ?? h.get('taxId');
   const cPhone = h.get('電話') ?? h.get('phone');
   const cZip = h.get('郵遞區號') ?? h.get('zipCode');
   const cAddr = h.get('地址') ?? h.get('address');
-  const cDays = h.get('付款天數') ?? h.get('paymentDays');
+  const cDays = h.get('付款天數') ?? h.get('付款日') ?? h.get('paymentDays');
 
   for (let i = 2; i <= sheet.rowCount; i++) {
     const row = sheet.getRow(i);

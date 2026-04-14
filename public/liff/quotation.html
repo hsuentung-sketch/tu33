@@ -62,8 +62,8 @@
 
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <script>
-    // LIFF ID comes from URL: /liff/quotation.html?liffId=xxxxx
-    const liffId = new URLSearchParams(location.search).get('liffId');
+    // LIFF ID: baked in at deploy time; query-string override for testing.
+    const liffId = new URLSearchParams(location.search).get('liffId') || '2009797959-uDVN0eGQ';
     let idToken = null;
 
     async function init() {
