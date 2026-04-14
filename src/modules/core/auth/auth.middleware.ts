@@ -3,6 +3,7 @@ import type { Role } from '@prisma/client';
 import { prisma } from '../../../shared/prisma.js';
 import { UnauthorizedError, ForbiddenError } from '../../../shared/errors.js';
 import { getTenantSettings, type TenantSettings } from '../../../shared/utils.js';
+import { runWithAuditContext } from '../../../shared/audit.js';
 
 // ---- Express type augmentation ----
 declare global {
@@ -62,7 +63,11 @@ export async function authMiddleware(
     };
     req.tenantSettings = getTenantSettings(employee.tenant.settings);
 
-    next();
+    // Run the rest of the request inside an audit context so Prisma writes
+    // get tagged with tenantId + userId automatically.
+    runWithAuditContext({ tenantId, userId: employee.id }, async () => {
+      next();
+    }).catch(next);
   } catch (err) {
     next(err);
   }
