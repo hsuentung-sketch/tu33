@@ -1,0 +1,396 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  extensions = [pg_trgm]
+}
+
+// ============================================================
+// Multi-Tenant
+// ============================================================
+
+model Tenant {
+  id                String   @id @default(cuid())
+  companyName       String
+  lineChannelId     String?  @unique
+  lineChannelSecret String?
+  lineAccessToken   String?
+  logo              String?
+  address           String?
+  phone             String?
+  email             String?
+  modules           String[] // ["sales","purchase","accounting"]
+  settings          Json     @default("{}")
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  employees      Employee[]
+  products       Product[]
+  customers      Customer[]
+  suppliers      Supplier[]
+  quotations     Quotation[]
+  salesOrders    SalesOrder[]
+  purchaseOrders PurchaseOrder[]
+  receivables    AccountReceivable[]
+  payables       AccountPayable[]
+  auditLogs      AuditLog[]
+}
+
+// ============================================================
+// Core: Employee & Auth
+// ============================================================
+
+model Employee {
+  id         String   @id @default(cuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id])
+  lineUserId String?  @unique
+  employeeId String
+  name       String
+  phone      String?
+  email      String?
+  address    String?
+  role       Role     @default(VIEWER)
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([tenantId, employeeId])
+  @@index([tenantId])
+}
+
+enum Role {
+  ADMIN
+  SALES
+  PURCHASING
+  ACCOUNTING
+  VIEWER
+}
+
+// ============================================================
+// Master: Product
+// ============================================================
+
+model Product {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  code      String
+  name      String
+  category  String?
+  salePrice Decimal  @db.Decimal(12, 2)
+  costPrice Decimal  @db.Decimal(12, 2)
+  note      String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+}
+
+// ============================================================
+// Master: Customer
+// ============================================================
+
+model Customer {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  name        String
+  contactName String?
+  taxId       String?
+  phone       String?
+  zipCode     String?
+  address     String?
+  paymentDays Int      @default(30)
+  lineUserId  String?
+  email       String?
+  grade       String?  @default("B") // A/B/C
+  tags        String[] // industry tags
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  quotations  Quotation[]
+  salesOrders SalesOrder[]
+  receivables AccountReceivable[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+// ============================================================
+// Master: Supplier
+// ============================================================
+
+model Supplier {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  name        String
+  type        String?
+  contactName String?
+  taxId       String?
+  phone       String?
+  zipCode     String?
+  address     String?
+  paymentDays Int      @default(60)
+  email       String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  purchaseOrders PurchaseOrder[]
+  payables       AccountPayable[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+// ============================================================
+// Sales: Quotation + Tracking
+// ============================================================
+
+model Quotation {
+  id             String          @id @default(cuid())
+  tenantId       String
+  tenant         Tenant          @relation(fields: [tenantId], references: [id])
+  quotationNo    String
+  customerId     String
+  customer       Customer        @relation(fields: [customerId], references: [id])
+  salesPerson    String
+  salesPhone     String?
+  subtotal       Decimal         @db.Decimal(12, 2)
+  taxAmount      Decimal         @db.Decimal(12, 2)
+  totalAmount    Decimal         @db.Decimal(12, 2)
+  supplyTime     String?
+  paymentTerms   String?
+  validUntil     String?
+  note           String?
+  status         QuotationStatus @default(DRAFT)
+  dealClosed     Boolean?
+  trackingNote   String?
+  version        Int             @default(1)
+  createdBy      String
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  items      QuotationItem[]
+  salesOrder SalesOrder?
+
+  @@unique([tenantId, quotationNo])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, customerId])
+}
+
+model QuotationItem {
+  id             String   @id @default(cuid())
+  quotationId    String
+  quotation      Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  productName    String
+  quantity       Int
+  unitPrice      Decimal  @db.Decimal(12, 2)
+  amount         Decimal  @db.Decimal(12, 2)
+  note           String?
+  suggestedPrice Decimal? @db.Decimal(12, 2)
+  sortOrder      Int      @default(0)
+}
+
+enum QuotationStatus {
+  DRAFT
+  SENT
+  TRACKING
+  WON
+  LOST
+  CANCELLED
+}
+
+// ============================================================
+// Sales: Sales Order + Record
+// ============================================================
+
+model SalesOrder {
+  id           String      @id @default(cuid())
+  tenantId     String
+  tenant       Tenant      @relation(fields: [tenantId], references: [id])
+  orderNo      String
+  customerId   String
+  customer     Customer    @relation(fields: [customerId], references: [id])
+  quotationId  String?     @unique
+  quotation    Quotation?  @relation(fields: [quotationId], references: [id])
+  salesPerson  String
+  salesPhone   String?
+  deliveryNote String?
+  subtotal     Decimal     @db.Decimal(12, 2)
+  taxAmount    Decimal     @db.Decimal(12, 2)
+  totalAmount  Decimal     @db.Decimal(12, 2)
+  status       SalesStatus @default(PENDING)
+  orderDate    DateTime    @default(now())
+  deliveryDate DateTime?
+  deliveredBy  String?
+  receivedBy   String?
+  createdBy    String
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  items      SalesItem[]
+  receivable AccountReceivable?
+
+  @@unique([tenantId, orderNo])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, customerId])
+}
+
+model SalesItem {
+  id           String     @id @default(cuid())
+  salesOrderId String
+  salesOrder   SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  productName  String
+  quantity     Int
+  unitPrice    Decimal    @db.Decimal(12, 2)
+  amount       Decimal    @db.Decimal(12, 2)
+  note         String?
+  sortOrder    Int        @default(0)
+}
+
+enum SalesStatus {
+  PENDING
+  DELIVERED
+  COMPLETED
+}
+
+// ============================================================
+// Purchase: Purchase Order + Record
+// ============================================================
+
+model PurchaseOrder {
+  id            String         @id @default(cuid())
+  tenantId      String
+  tenant        Tenant         @relation(fields: [tenantId], references: [id])
+  orderNo       String
+  supplierId    String
+  supplier      Supplier       @relation(fields: [supplierId], references: [id])
+  internalStaff String
+  staffPhone    String?
+  deliveryNote  String?
+  subtotal      Decimal        @db.Decimal(12, 2)
+  taxAmount     Decimal        @db.Decimal(12, 2)
+  totalAmount   Decimal        @db.Decimal(12, 2)
+  status        PurchaseStatus @default(PENDING)
+  orderDate     DateTime       @default(now())
+  receivedDate  DateTime?
+  createdBy     String
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  items   PurchaseItem[]
+  payable AccountPayable?
+
+  @@unique([tenantId, orderNo])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, supplierId])
+}
+
+model PurchaseItem {
+  id               String        @id @default(cuid())
+  purchaseOrderId  String
+  purchaseOrder    PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  productName      String
+  quantity         Int
+  unitPrice        Decimal       @db.Decimal(12, 2)
+  amount           Decimal       @db.Decimal(12, 2)
+  note             String?
+  referenceCost    Decimal?      @db.Decimal(12, 2)
+  lastPurchaseDate DateTime?
+  sortOrder        Int           @default(0)
+}
+
+enum PurchaseStatus {
+  PENDING
+  RECEIVED
+  COMPLETED
+}
+
+// ============================================================
+// Accounting: Accounts Receivable
+// ============================================================
+
+model AccountReceivable {
+  id           String     @id @default(cuid())
+  tenantId     String
+  tenant       Tenant     @relation(fields: [tenantId], references: [id])
+  customerId   String
+  customer     Customer   @relation(fields: [customerId], references: [id])
+  salesOrderId String     @unique
+  salesOrder   SalesOrder @relation(fields: [salesOrderId], references: [id])
+  billingMonth Int
+  billingYear  Int
+  amount       Decimal    @db.Decimal(12, 2)
+  dueDate      DateTime
+  isPaid       Boolean    @default(false)
+  paidDate     DateTime?
+  invoiceNo    String?
+  note         String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, isPaid])
+  @@index([tenantId, dueDate])
+}
+
+// ============================================================
+// Accounting: Accounts Payable
+// ============================================================
+
+model AccountPayable {
+  id              String        @id @default(cuid())
+  tenantId        String
+  tenant          Tenant        @relation(fields: [tenantId], references: [id])
+  supplierId      String
+  supplier        Supplier      @relation(fields: [supplierId], references: [id])
+  purchaseOrderId String        @unique
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  billingMonth    Int
+  billingYear     Int
+  amount          Decimal       @db.Decimal(12, 2)
+  dueDate         DateTime
+  isPaid          Boolean       @default(false)
+  paidDate        DateTime?
+  invoiceNo       String?
+  note            String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, isPaid])
+  @@index([tenantId, dueDate])
+}
+
+// ============================================================
+// Core: Audit Log
+// ============================================================
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  userId    String
+  action    String
+  entity    String
+  entityId  String
+  detail    String?  @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([tenantId, entity, entityId])
+  @@index([createdAt])
+}

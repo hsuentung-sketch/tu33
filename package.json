@@ -1,0 +1,44 @@
+{
+  "name": "erp-line-bot",
+  "version": "1.0.0",
+  "description": "LINE Bot ERP System for SMBs - Multi-tenant modular architecture",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:studio": "prisma studio"
+  },
+  "keywords": [
+    "erp",
+    "line-bot",
+    "multi-tenant"
+  ],
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "@line/bot-sdk": "^11.0.0",
+    "@prisma/client": "^7.7.0",
+    "date-fns": "^4.1.0",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "nodemailer": "^8.0.5",
+    "pdfkit": "^0.18.0",
+    "prisma": "^7.7.0",
+    "winston": "^3.19.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^25.6.0",
+    "@types/nodemailer": "^8.0.0",
+    "@types/pdfkit": "^0.17.5",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2"
+  }
+}
