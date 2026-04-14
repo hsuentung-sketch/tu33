@@ -8,22 +8,6 @@ import { handleEvent, type HandlerTenant } from './handlers/index.js';
 export const webhookRouter = Router();
 
 /**
- * Debug ring buffer — records the most recent webhook senders so that
- * an admin bootstrapping the tenant can discover their own LINE userId
- * without digging through logs.
- *
- * TODO: remove once all admins are bound.
- */
-const recentSenders: Array<{ tenantId: string; userId: string; at: string }> = [];
-export function recordSender(tenantId: string, userId: string): void {
-  recentSenders.unshift({ tenantId, userId, at: new Date().toISOString() });
-  if (recentSenders.length > 20) recentSenders.length = 20;
-}
-webhookRouter.get('/_debug/recent-senders', (_req, res) => {
-  res.json(recentSenders);
-});
-
-/**
  * Per-tenant webhook path. Each tenant configures LINE Official Account
  * to POST to https://<host>/webhook/<tenantId>.
  */
@@ -52,11 +36,6 @@ webhookRouter.post(
         id: tenant.id,
         lineAccessToken: tenant.lineAccessToken,
       };
-
-      for (const ev of body.events) {
-        const uid = (ev.source as { userId?: string } | undefined)?.userId;
-        if (uid) recordSender(tenant.id, uid);
-      }
 
       await Promise.all(body.events.map((ev) => handleEvent(ev, handlerTenant)));
       res.status(200).json({ status: 'ok' });
