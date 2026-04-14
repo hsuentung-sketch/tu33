@@ -175,8 +175,8 @@ export async function convertToSalesOrder(
   createdBy: string,
 ) {
   const quotation = await getById(tenantId, id);
-  if (quotation.status !== 'WON') {
-    throw new ValidationError('Only WON quotations can be converted to sales order');
+  if (quotation.status === 'CANCELLED' || quotation.status === 'LOST') {
+    throw new ValidationError(`Cannot convert quotation in status ${quotation.status}`);
   }
   if (quotation.salesOrder) {
     throw new ValidationError('Quotation already converted to sales order');
@@ -251,6 +251,14 @@ export async function convertToSalesOrder(
       tenantId,
       salesOrderId: salesOrder.id,
       quotationId: quotation.id,
+    });
+    // Conversion is user-confirmed → trigger inventory decrement.
+    eventBus.emit('salesOrder:confirmed', { tenantId, salesOrderId: salesOrder.id });
+
+    // Flip quotation to WON so it's marked closed.
+    await tx.quotation.update({
+      where: { id: quotation.id },
+      data: { status: 'WON', dealClosed: true },
     });
 
     return salesOrder;
