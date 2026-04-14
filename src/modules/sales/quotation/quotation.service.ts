@@ -191,7 +191,7 @@ export async function convertToSalesOrder(
   if (!tenant) throw new NotFoundError('Tenant', tenantId);
   const settings = getTenantSettings(tenant.settings);
 
-  return prisma.$transaction(async (tx) => {
+  const salesOrder = await prisma.$transaction(async (tx) => {
     const now = new Date();
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
@@ -204,7 +204,7 @@ export async function convertToSalesOrder(
     const billingMonth = now.getMonth() + 1;
     const dueDate = calculateDueDate(billingYear, billingMonth, customer.paymentDays);
 
-    const salesOrder = await tx.salesOrder.create({
+    const row = await tx.salesOrder.create({
       data: {
         tenantId,
         orderNo,
@@ -242,25 +242,27 @@ export async function convertToSalesOrder(
 
     void settings;
 
-    eventBus.emit('quotation:won', {
-      tenantId,
-      quotationId: quotation.id,
-      salesOrderId: salesOrder.id,
-    });
-    eventBus.emit('salesOrder:created', {
-      tenantId,
-      salesOrderId: salesOrder.id,
-      quotationId: quotation.id,
-    });
-    // Conversion is user-confirmed → trigger inventory decrement.
-    eventBus.emit('salesOrder:confirmed', { tenantId, salesOrderId: salesOrder.id });
-
     // Flip quotation to WON so it's marked closed.
     await tx.quotation.update({
       where: { id: quotation.id },
       data: { status: 'WON', dealClosed: true },
     });
 
-    return salesOrder;
+    return row;
   });
+
+  await eventBus.emitAsync('quotation:won', {
+    tenantId,
+    quotationId: quotation.id,
+    salesOrderId: salesOrder.id,
+  });
+  await eventBus.emitAsync('salesOrder:created', {
+    tenantId,
+    salesOrderId: salesOrder.id,
+    quotationId: quotation.id,
+  });
+  // Conversion is user-confirmed → trigger inventory decrement.
+  await eventBus.emitAsync('salesOrder:confirmed', { tenantId, salesOrderId: salesOrder.id });
+
+  return salesOrder;
 }

@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { Prisma, PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
 import { logger } from './logger.js';
 
 /**
@@ -39,8 +40,11 @@ const WRITE_OPS = new Set(['create', 'update', 'delete', 'upsert']);
 // A dedicated raw client for writing audit rows. Kept separate from the
 // app-facing extended client to avoid recursion through the extension.
 const globalForAudit = globalThis as unknown as { auditClient?: PrismaClient };
-const auditClient =
-  globalForAudit.auditClient ?? new PrismaClient({ log: ['error'] });
+function createAuditClient(): PrismaClient {
+  const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
+  return new PrismaClient({ adapter, log: ['error'] });
+}
+const auditClient = globalForAudit.auditClient ?? createAuditClient();
 if (process.env.NODE_ENV !== 'production') {
   globalForAudit.auditClient = auditClient;
 }

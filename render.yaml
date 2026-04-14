@@ -1,0 +1,70 @@
+# Render Blueprint for ERP LINE Bot
+# https://render.com/docs/blueprint-spec
+#
+# Deploy steps:
+#   1. Push this repo to GitHub
+#   2. Render Dashboard → New+ → Blueprint → select this repo
+#   3. Fill in the `sync: false` env vars in the Render UI (they are not
+#      stored in git).
+#
+# Notes:
+#   - Free plan sleeps after 15 min of inactivity; first request after
+#     sleep takes ~30s. Upgrade to Starter ($7/mo) to keep warm.
+#   - Prisma migrations run on each deploy via `buildCommand`.
+
+services:
+  - type: web
+    name: erp-line-bot
+    runtime: node
+    plan: free
+    region: singapore  # Closest Render region to Taiwan
+    branch: main
+    buildCommand: npm ci && npx prisma generate && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000   # Render uses 10000 by default for web services
+
+      # Database — filled in Render UI (sync:false keeps them out of git)
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+
+      # LINE Bot — filled in Render UI
+      - key: LINE_CHANNEL_ID
+        sync: false
+      - key: LINE_CHANNEL_SECRET
+        sync: false
+      - key: LINE_CHANNEL_ACCESS_TOKEN
+        sync: false
+
+      # JWT — generate a random value in Render UI or let Render auto-generate
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+
+      # SMTP — optional
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+
+      # AI services — optional
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GOOGLE_VISION_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false

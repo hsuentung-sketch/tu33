@@ -69,7 +69,7 @@ export async function create(tenantId: string, data: SalesOrderCreateInput) {
     settings.taxRate,
   );
 
-  return prisma.$transaction(async (tx) => {
+  const created = await prisma.$transaction(async (tx) => {
     const now = new Date();
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
@@ -82,7 +82,7 @@ export async function create(tenantId: string, data: SalesOrderCreateInput) {
     const billingMonth = now.getMonth() + 1;
     const dueDate = calculateDueDate(billingYear, billingMonth, customer.paymentDays);
 
-    const created = await tx.salesOrder.create({
+    const row = await tx.salesOrder.create({
       data: {
         tenantId,
         orderNo,
@@ -118,12 +118,14 @@ export async function create(tenantId: string, data: SalesOrderCreateInput) {
       include: { items: true, receivable: true },
     });
 
-    eventBus.emit('salesOrder:created', { tenantId, salesOrderId: created.id });
-    // LINE flow treats creation as user-confirmed — trigger inventory decrement.
-    eventBus.emit('salesOrder:confirmed', { tenantId, salesOrderId: created.id });
-
-    return created;
+    return row;
   });
+
+  await eventBus.emitAsync('salesOrder:created', { tenantId, salesOrderId: created.id });
+  // LINE flow treats creation as user-confirmed — trigger inventory decrement.
+  await eventBus.emitAsync('salesOrder:confirmed', { tenantId, salesOrderId: created.id });
+
+  return created;
 }
 
 export async function update(

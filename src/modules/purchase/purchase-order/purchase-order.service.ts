@@ -71,7 +71,7 @@ export async function create(tenantId: string, data: PurchaseOrderCreateInput) {
     settings.taxRate,
   );
 
-  return prisma.$transaction(async (tx) => {
+  const created = await prisma.$transaction(async (tx) => {
     const now = new Date();
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
@@ -84,7 +84,7 @@ export async function create(tenantId: string, data: PurchaseOrderCreateInput) {
     const billingMonth = now.getMonth() + 1;
     const dueDate = calculateDueDate(billingYear, billingMonth, supplier.paymentDays);
 
-    const created = await tx.purchaseOrder.create({
+    const row = await tx.purchaseOrder.create({
       data: {
         tenantId,
         orderNo,
@@ -122,16 +122,18 @@ export async function create(tenantId: string, data: PurchaseOrderCreateInput) {
       include: { items: true, payable: true },
     });
 
-    eventBus.emit('purchaseOrder:created', {
-      tenantId,
-      purchaseOrderId: created.id,
-      supplierId: created.supplierId,
-    });
-    // LINE flow records receipts after-the-fact — treat creation as completed to trigger stock-in.
-    eventBus.emit('purchaseOrder:completed', { tenantId, purchaseOrderId: created.id });
-
-    return created;
+    return row;
   });
+
+  await eventBus.emitAsync('purchaseOrder:created', {
+    tenantId,
+    purchaseOrderId: created.id,
+    supplierId: created.supplierId,
+  });
+  // LINE flow records receipts after-the-fact — treat creation as completed to trigger stock-in.
+  await eventBus.emitAsync('purchaseOrder:completed', { tenantId, purchaseOrderId: created.id });
+
+  return created;
 }
 
 export async function update(

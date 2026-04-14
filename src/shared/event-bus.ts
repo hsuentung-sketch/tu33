@@ -96,6 +96,17 @@ export class ERPEventBus {
   }
 
   /**
+   * Emit and await all registered async handlers.
+   * Use when callers need handler side-effects to complete before continuing
+   * (e.g. tests, or services that must observe downstream state).
+   */
+  async emitAsync<E extends ERPEvent>(event: E, payload: ERPEventMap[E]): Promise<void> {
+    logger.info(`Event emitted: ${event}`, { event, payload });
+    const listeners = this.emitter.listeners(event) as Array<(p: ERPEventMap[E]) => unknown>;
+    await Promise.all(listeners.map((l) => Promise.resolve(l(payload))));
+  }
+
+  /**
    * Remove all listeners for a specific event, or all events if none specified.
    */
   removeAllListeners(event?: ERPEvent): void {
