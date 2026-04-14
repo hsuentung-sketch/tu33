@@ -12,7 +12,9 @@
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
-    "import:excel": "tsx src/tools/import-excel.ts"
+    "import:excel": "tsx src/tools/import-excel.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "keywords": [
     "erp",
@@ -43,7 +45,9 @@
     "@types/node": "^25.6.0",
     "@types/nodemailer": "^8.0.0",
     "@types/pdfkit": "^0.17.5",
+    "@vitest/coverage-v8": "^4.1.4",
     "tsx": "^4.21.0",
-    "typescript": "^6.0.2"
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.4"
   }
 }
