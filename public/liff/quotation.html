@@ -26,13 +26,15 @@
 
   <div class="card">
     <label>客戶</label>
-    <input id="customer-search" placeholder="輸入客戶名搜尋…" />
-    <select id="customer-select" style="margin-top:8px;"></select>
+    <input id="customer-search" placeholder="輸入客戶名關鍵字…" autocomplete="off" />
+    <div id="customer-hint" style="font-size:12px;color:#888;margin-top:4px;">輸入 2 個以上字會自動搜尋</div>
+    <select id="customer-select" size="4" style="margin-top:8px;display:none;"></select>
+    <div id="customer-picked" style="margin-top:8px;font-size:14px;color:#06c755;"></div>
   </div>
 
   <div class="card">
     <label>業務</label>
-    <input id="sales-person" placeholder="業務姓名" />
+    <input id="sales-person" placeholder="業務姓名（自動帶入）" />
   </div>
 
   <div class="card">
@@ -71,6 +73,19 @@
       await liff.init({ liffId });
       if (!liff.isLoggedIn()) { liff.login(); return; }
       idToken = liff.getIDToken();
+      await prefillSalesPerson();
+    }
+
+    async function prefillSalesPerson() {
+      try {
+        const res = await fetch('/api/me', {
+          headers: { Authorization: `Bearer ${idToken}` },
+        });
+        if (!res.ok) return;
+        const me = await res.json();
+        const input = document.getElementById('sales-person');
+        if (me.name && !input.value) input.value = me.name;
+      } catch (_) { /* noop */ }
     }
 
     const itemsEl = document.getElementById('items');
@@ -124,27 +139,69 @@
       }
     });
 
-    // Customer search (debounced)
+    // Customer search (debounced) + autoselect single match
     let searchTimer;
-    document.getElementById('customer-search').addEventListener('input', (e) => {
+    let selectedCustomer = null;
+    const searchEl = document.getElementById('customer-search');
+    const selectEl = document.getElementById('customer-select');
+    const hintEl = document.getElementById('customer-hint');
+    const pickedEl = document.getElementById('customer-picked');
+
+    searchEl.addEventListener('input', (e) => {
+      selectedCustomer = null;
+      pickedEl.textContent = '';
+      const q = e.target.value.trim();
       clearTimeout(searchTimer);
-      searchTimer = setTimeout(() => searchCustomers(e.target.value), 250);
+      if (q.length < 2) {
+        selectEl.style.display = 'none';
+        hintEl.textContent = '輸入 2 個以上字會自動搜尋';
+        return;
+      }
+      hintEl.textContent = '搜尋中…';
+      searchTimer = setTimeout(() => searchCustomers(q), 250);
+    });
+
+    selectEl.addEventListener('change', () => {
+      const opt = selectEl.selectedOptions[0];
+      if (!opt) return;
+      selectedCustomer = { id: opt.value, name: opt.textContent };
+      pickedEl.textContent = '✅ 已選擇：' + opt.textContent;
     });
 
     async function searchCustomers(q) {
-      if (!q) return;
+      if (!idToken) {
+        hintEl.textContent = '尚未登入，請稍候…';
+        return;
+      }
       const res = await fetch(`/api/customers?search=${encodeURIComponent(q)}`, {
         headers: { Authorization: `Bearer ${idToken}` },
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        hintEl.textContent = '搜尋失敗（' + res.status + '）';
+        return;
+      }
       const list = await res.json();
-      const sel = document.getElementById('customer-select');
-      sel.innerHTML = list.map((c) => `<option value="${c.id}">${c.name}</option>`).join('');
+      if (!Array.isArray(list) || list.length === 0) {
+        selectEl.style.display = 'none';
+        hintEl.textContent = '找不到符合的客戶';
+        return;
+      }
+      hintEl.textContent = '找到 ' + list.length + ' 筆，請選擇';
+      selectEl.innerHTML = list.map((c) => `<option value="${c.id}">${c.name}</option>`).join('');
+      selectEl.style.display = 'block';
+      // Single match → auto-select and surface the full name.
+      if (list.length === 1) {
+        selectEl.selectedIndex = 0;
+        selectedCustomer = { id: list[0].id, name: list[0].name };
+        searchEl.value = list[0].name;
+        pickedEl.textContent = '✅ 已自動選擇：' + list[0].name;
+      }
     }
 
     document.getElementById('submit').onclick = async () => {
+      const customerId = selectedCustomer?.id || selectEl.value;
       const body = {
-        customerId: document.getElementById('customer-select').value,
+        customerId,
         salesPerson: document.getElementById('sales-person').value,
         note: document.getElementById('note').value,
         items: items

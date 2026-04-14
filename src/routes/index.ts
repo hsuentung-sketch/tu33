@@ -20,6 +20,16 @@ apiRouter.use('/auth', authRouter);
 
 apiRouter.use(authMiddleware);
 
+// Identity helper for LIFF clients — returns the authenticated employee.
+apiRouter.get('/me', (req, res) => {
+  res.json({
+    id: req.employee.id,
+    employeeId: req.employee.employeeId,
+    name: req.employee.name,
+    role: req.employee.role,
+  });
+});
+
 apiRouter.use('/employees', employeeRouter);
 apiRouter.use('/products', productRouter);
 apiRouter.use('/customers', customerRouter);

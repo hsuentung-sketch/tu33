@@ -27,8 +27,17 @@ export async function liffAuthMiddleware(
     const unverified = decodeJwtPayload(idToken);
     if (!unverified.aud) throw new UnauthorizedError('Invalid LIFF token');
 
+    // LIFF tokens are issued by a LINE Login channel, not the Messaging API
+    // channel. We look up tenant by either the messaging channel id (legacy)
+    // or the login channel id stored in tenant.settings.lineLoginChannelId.
     const tenant = await prisma.tenant.findFirst({
-      where: { lineChannelId: unverified.aud, isActive: true },
+      where: {
+        isActive: true,
+        OR: [
+          { lineChannelId: unverified.aud },
+          { settings: { path: ['lineLoginChannelId'], equals: unverified.aud } },
+        ],
+      },
     });
     if (!tenant) throw new ForbiddenError('Tenant for this LIFF channel not configured');
 
