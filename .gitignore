@@ -12,3 +12,4 @@ Thumbs.db
 coverage/
 .turbo/
 tmp/
+.claude/
