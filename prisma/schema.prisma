@@ -38,6 +38,8 @@ model Tenant {
   receivables    AccountReceivable[]
   payables       AccountPayable[]
   auditLogs      AuditLog[]
+  inventories    Inventory[]
+  inventoryTxns  InventoryTransaction[]
 }
 
 // ============================================================
@@ -88,6 +90,9 @@ model Product {
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  inventory     Inventory?
+  inventoryTxns InventoryTransaction[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -393,4 +398,49 @@ model AuditLog {
   @@index([tenantId])
   @@index([tenantId, entity, entityId])
   @@index([createdAt])
+}
+
+// ============================================================
+// Inventory
+// ============================================================
+
+model Inventory {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id])
+  productId     String   @unique
+  product       Product  @relation(fields: [productId], references: [id])
+  quantity      Int      @default(0)
+  reorderPoint  Int      @default(0)
+  updatedAt     DateTime @updatedAt
+
+  @@unique([tenantId, productId])
+  @@index([tenantId])
+  @@index([tenantId, productId])
+}
+
+model InventoryTransaction {
+  id        String            @id @default(cuid())
+  tenantId  String
+  tenant    Tenant            @relation(fields: [tenantId], references: [id])
+  productId String
+  product   Product           @relation(fields: [productId], references: [id])
+  delta     Int
+  reason    InventoryReason
+  refType   String?
+  refId     String?
+  note      String?
+  createdBy String?
+  createdAt DateTime          @default(now())
+
+  @@index([tenantId])
+  @@index([tenantId, productId])
+  @@index([tenantId, refType, refId])
+}
+
+enum InventoryReason {
+  SALES_OUT
+  PURCHASE_IN
+  ADJUSTMENT
+  INITIAL
 }

@@ -4,10 +4,11 @@ import { getLineClient } from '../client.js';
 import { logger } from '../../shared/logger.js';
 import { tryConsumeBindingCode } from '../../modules/core/auth/auth.service.js';
 import { handleQuotationCommand } from './quotation.handler.js';
-import { handleSalesCommand } from './sales.handler.js';
-import { handlePurchaseCommand } from './purchase.handler.js';
+import { handleSalesCommand, handleSalesText } from './sales.handler.js';
+import { handlePurchaseCommand, handlePurchaseText } from './purchase.handler.js';
 import { handleAccountingCommand } from './accounting.handler.js';
 import { handleMasterCommand } from './master.handler.js';
+import { handleVoiceMessage, handleImageMessage } from './media.handler.js';
 
 type WebhookEvent = webhook.Event;
 type MessageEvent = webhook.MessageEvent;
@@ -78,15 +79,9 @@ async function handleMessage(event: MessageEvent, tenant: HandlerTenant): Promis
     const text = (event.message as TextMessage).text.trim();
     await routeTextCommand(text, ctx);
   } else if (event.message.type === 'audio') {
-    await client.replyMessage({
-      replyToken,
-      messages: [{ type: 'text', text: '語音功能開發中，敬請期待。' }],
-    });
+    await handleVoiceMessage(event, { ...ctx, accessToken: tenant.lineAccessToken });
   } else if (event.message.type === 'image') {
-    await client.replyMessage({
-      replyToken,
-      messages: [{ type: 'text', text: '名片辨識功能開發中，敬請期待。' }],
-    });
+    await handleImageMessage(event, { ...ctx, accessToken: tenant.lineAccessToken });
   }
 }
 
@@ -123,13 +118,17 @@ async function handlePostback(event: PostbackEvent, tenant: HandlerTenant): Prom
 interface TextCommandContext {
   event: MessageEvent;
   client: ReturnType<typeof getLineClient>;
-  employee: { id: string; name: string; tenantId: string };
+  employee: { id: string; name: string; tenantId: string; lineUserId: string | null };
   tenantId: string;
 }
 
 async function routeTextCommand(text: string, ctx: TextCommandContext): Promise<void> {
   const { event, client } = ctx;
   const pseudoEvent = event as unknown as PostbackEvent;
+
+  // Consume text for any active multi-step session first.
+  if (await handleSalesText(text, ctx)) return;
+  if (await handlePurchaseText(text, ctx)) return;
 
   if (text.startsWith('報價')) {
     return handleQuotationCommand('quotation:menu', { ...ctx, event: pseudoEvent, params: new URLSearchParams() });

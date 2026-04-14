@@ -25,7 +25,16 @@ export interface ERPEventMap {
   'purchaseOrder:cancelled': { tenantId: string; purchaseOrderId: string; reason: string };
 
   // Inventory
-  'inventory:adjusted': { tenantId: string; productId: string; warehouseId: string; delta: number };
+  'inventory:adjusted': {
+    tenantId: string;
+    productId: string;
+    warehouseId?: string;
+    delta: number;
+    reason: string;
+    quantity: number;
+    refType?: string;
+    refId?: string;
+  };
   'inventory:lowStock': { tenantId: string; productId: string; currentQty: number; reorderPoint: number };
 
   // Accounting

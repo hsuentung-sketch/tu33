@@ -5,6 +5,8 @@ import { webhookRouter } from './line/webhook.js';
 import { apiRouter } from './routes/index.js';
 import { AppError } from './shared/errors.js';
 import { scheduleOverdueReminder } from './jobs/overdue-reminder.js';
+import { scheduleMonthlyStatements } from './jobs/monthly-statement.js';
+import { registerInventoryEventHandlers } from './modules/inventory/inventory.events.js';
 
 const app = express();
 
@@ -45,6 +47,8 @@ app.listen(config.port, () => {
   logger.info(`ERP server running on port ${config.port}`);
   logger.info(`Environment: ${config.nodeEnv}`);
   scheduleOverdueReminder();
+  scheduleMonthlyStatements();
+  registerInventoryEventHandlers();
 });
 
 export default app;
