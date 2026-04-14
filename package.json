@@ -11,7 +11,8 @@
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
-    "db:seed": "tsx prisma/seed.ts"
+    "db:seed": "tsx prisma/seed.ts",
+    "import:excel": "tsx src/tools/import-excel.ts"
   },
   "keywords": [
     "erp",
@@ -26,6 +27,7 @@
     "@types/node-cron": "^3.0.11",
     "date-fns": "^4.1.0",
     "dotenv": "^17.4.2",
+    "exceljs": "^4.4.0",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "node-cron": "^4.2.1",
