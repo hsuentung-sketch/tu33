@@ -9,6 +9,23 @@ import { signPdfToken, buildPdfUrl } from '../../documents/pdf-link.js';
 import { config } from '../../config/index.js';
 
 /**
+ * Small helper: a "label: value" baseline row inside a Flex bubble.
+ * Typed as `any` because @line/bot-sdk's Flex types are unwieldy here —
+ * LINE happily accepts the shape we're producing.
+ */
+function infoRow(label: string, value: string): any {
+  return {
+    type: 'box',
+    layout: 'baseline',
+    spacing: 'sm',
+    contents: [
+      { type: 'text', text: label, size: 'xs', color: '#888888', flex: 2 },
+      { type: 'text', text: value, size: 'sm', align: 'end', flex: 3 },
+    ],
+  };
+}
+
+/**
  * LINE command / postback handler for sales orders.
  * Supports a 3-step flow: select customer → add items → confirm.
  */
@@ -81,7 +98,7 @@ export async function handleSalesCommand(action: string, ctx: any): Promise<void
         replyToken: event.replyToken,
         messages: [{
           type: 'text',
-          text: `✅ 已選：${name}\n建議售價：$${salePrice.toLocaleString('zh-TW')}\n\n請輸入「數量」（用建議售價）或「數量 單價」。`,
+          text: `✅ 已選：${name}\n建議售價：$${salePrice.toLocaleString('zh-TW')}\n\n請輸入：\n• 「數量 單價」例如：2 21000\n• 或只輸入「數量」使用建議售價`,
         }],
       });
       return;
@@ -307,7 +324,8 @@ export async function handleSalesText(text: string, ctx: any): Promise<boolean> 
       }
     }
 
-    // Branch 3: treat the whole text as a product-name search query.
+    // Branch 3: treat the whole text as a product-name search query and
+    // reply with a flex carousel showing 建議售價 + 上次成交 + 交易日.
     const products = await productService.findByNameOrCode(tenantId, text);
     if (products.length === 0) {
       await client.replyMessage({
@@ -319,24 +337,75 @@ export async function handleSalesText(text: string, ctx: any): Promise<boolean> 
       });
       return true;
     }
-    // LINE buttons template allows up to 4 actions and each label ≤ 20 chars.
-    const shown = products.slice(0, 4);
+
+    // Look up each product's last sale to *this customer* so the card
+    // can show "上次成交價 / 交易日" alongside the product master price.
+    const names = products.map((p) => p.name);
+    const recent = await prisma.salesItem.findMany({
+      where: {
+        productName: { in: names },
+        salesOrder: { tenantId, customerId: s.data.partyId! },
+      },
+      include: { salesOrder: { select: { orderDate: true } } },
+    });
+    const lastByProduct = new Map<string, { unitPrice: number; date: Date }>();
+    for (const it of recent) {
+      const d = it.salesOrder.orderDate;
+      const cur = lastByProduct.get(it.productName);
+      if (!cur || d.getTime() > cur.date.getTime()) {
+        lastByProduct.set(it.productName, { unitPrice: Number(it.unitPrice), date: d });
+      }
+    }
+
+    const fmtDate = (d: Date) =>
+      `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+
+    const bubbles = products.slice(0, 10).map((p) => {
+      const last = lastByProduct.get(p.name);
+      // Prefer last transaction price (more relevant to this customer);
+      // fall back to product master salePrice.
+      const suggest = last ? last.unitPrice : Number(p.salePrice);
+      return {
+        type: 'bubble',
+        size: 'kilo',
+        body: {
+          type: 'box',
+          layout: 'vertical',
+          spacing: 'sm',
+          contents: [
+            { type: 'text', text: p.name, weight: 'bold', size: 'md', wrap: true },
+            { type: 'separator', margin: 'sm' },
+            infoRow('建議售價', `$${Number(p.salePrice).toLocaleString('zh-TW')}`),
+            infoRow('上次成交', last ? `$${last.unitPrice.toLocaleString('zh-TW')}` : 'null'),
+            infoRow('交易日', last ? fmtDate(last.date) : 'null'),
+          ],
+        },
+        footer: {
+          type: 'box',
+          layout: 'vertical',
+          contents: [{
+            type: 'button',
+            style: 'primary',
+            color: '#06c755',
+            height: 'sm',
+            action: {
+              type: 'postback',
+              label: '選擇',
+              data: `action=sales:pick-product&name=${encodeURIComponent(p.name)}&price=${suggest}`,
+              displayText: `選擇 ${p.name}`,
+            },
+          }],
+        },
+      };
+    });
+
     await client.replyMessage({
       replyToken: event.replyToken,
       messages: [{
-        type: 'template',
-        altText: '選擇產品',
-        template: {
-          type: 'buttons',
-          title: '選擇產品',
-          text: `關鍵字「${text}」找到 ${products.length} 筆，請點選`.slice(0, 60),
-          actions: shown.map((p) => ({
-            type: 'postback' as const,
-            label: `${p.name} $${Number(p.salePrice).toLocaleString('zh-TW')}`.slice(0, 20),
-            data: `action=sales:pick-product&name=${encodeURIComponent(p.name)}&price=${Number(p.salePrice)}`,
-          })),
-        },
-      }],
+        type: 'flex',
+        altText: `產品搜尋：${text}`,
+        contents: { type: 'carousel', contents: bubbles },
+      }] as never,
     });
     return true;
   }

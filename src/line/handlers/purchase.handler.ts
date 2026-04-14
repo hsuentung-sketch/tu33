@@ -8,6 +8,19 @@ import { runWithAuditContext } from '../../shared/audit.js';
 import { signPdfToken, buildPdfUrl } from '../../documents/pdf-link.js';
 import { config } from '../../config/index.js';
 
+/** See sales.handler.ts for rationale. */
+function infoRow(label: string, value: string): any {
+  return {
+    type: 'box',
+    layout: 'baseline',
+    spacing: 'sm',
+    contents: [
+      { type: 'text', text: label, size: 'xs', color: '#888888', flex: 2 },
+      { type: 'text', text: value, size: 'sm', align: 'end', flex: 3 },
+    ],
+  };
+}
+
 /**
  * LINE command / postback handler for purchase orders.
  * 3-step flow: select supplier → add items → confirm.
@@ -81,7 +94,7 @@ export async function handlePurchaseCommand(action: string, ctx: any): Promise<v
         replyToken: event.replyToken,
         messages: [{
           type: 'text',
-          text: `✅ 已選：${name}\n參考進價：$${costPrice.toLocaleString('zh-TW')}\n\n請輸入「數量」（用參考進價）或「數量 單價」。`,
+          text: `✅ 已選：${name}\n參考進價：$${costPrice.toLocaleString('zh-TW')}\n\n請輸入：\n• 「數量 單價」例如：10 12000\n• 或只輸入「數量」使用參考進價`,
         }],
       });
       return;
@@ -304,7 +317,8 @@ export async function handlePurchaseText(text: string, ctx: any): Promise<boolea
       }
     }
 
-    // Branch 3: product-name search.
+    // Branch 3: product-name search as a flex carousel with 參考進價 /
+    // 上次進價 / 進貨日 from this supplier's history.
     const products = await productService.findByNameOrCode(tenantId, text);
     if (products.length === 0) {
       await client.replyMessage({
@@ -316,23 +330,71 @@ export async function handlePurchaseText(text: string, ctx: any): Promise<boolea
       });
       return true;
     }
-    const shown = products.slice(0, 4);
+
+    const names = products.map((p) => p.name);
+    const recent = await prisma.purchaseItem.findMany({
+      where: {
+        productName: { in: names },
+        purchaseOrder: { tenantId, supplierId: s.data.partyId! },
+      },
+      include: { purchaseOrder: { select: { orderDate: true } } },
+    });
+    const lastByProduct = new Map<string, { unitPrice: number; date: Date }>();
+    for (const it of recent) {
+      const d = it.purchaseOrder.orderDate;
+      const cur = lastByProduct.get(it.productName);
+      if (!cur || d.getTime() > cur.date.getTime()) {
+        lastByProduct.set(it.productName, { unitPrice: Number(it.unitPrice), date: d });
+      }
+    }
+
+    const fmtDate = (d: Date) =>
+      `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+
+    const bubbles = products.slice(0, 10).map((p) => {
+      const last = lastByProduct.get(p.name);
+      const suggest = last ? last.unitPrice : Number(p.costPrice);
+      return {
+        type: 'bubble',
+        size: 'kilo',
+        body: {
+          type: 'box',
+          layout: 'vertical',
+          spacing: 'sm',
+          contents: [
+            { type: 'text', text: p.name, weight: 'bold', size: 'md', wrap: true },
+            { type: 'separator', margin: 'sm' },
+            infoRow('參考進價', `$${Number(p.costPrice).toLocaleString('zh-TW')}`),
+            infoRow('上次進價', last ? `$${last.unitPrice.toLocaleString('zh-TW')}` : 'null'),
+            infoRow('進貨日', last ? fmtDate(last.date) : 'null'),
+          ],
+        },
+        footer: {
+          type: 'box',
+          layout: 'vertical',
+          contents: [{
+            type: 'button',
+            style: 'primary',
+            color: '#06c755',
+            height: 'sm',
+            action: {
+              type: 'postback',
+              label: '選擇',
+              data: `action=purchase:pick-product&name=${encodeURIComponent(p.name)}&cost=${suggest}`,
+              displayText: `選擇 ${p.name}`,
+            },
+          }],
+        },
+      };
+    });
+
     await client.replyMessage({
       replyToken: event.replyToken,
       messages: [{
-        type: 'template',
-        altText: '選擇產品',
-        template: {
-          type: 'buttons',
-          title: '選擇產品',
-          text: `關鍵字「${text}」找到 ${products.length} 筆，請點選`.slice(0, 60),
-          actions: shown.map((p) => ({
-            type: 'postback' as const,
-            label: `${p.name} $${Number(p.costPrice).toLocaleString('zh-TW')}`.slice(0, 20),
-            data: `action=purchase:pick-product&name=${encodeURIComponent(p.name)}&cost=${Number(p.costPrice)}`,
-          })),
-        },
-      }],
+        type: 'flex',
+        altText: `產品搜尋：${text}`,
+        contents: { type: 'carousel', contents: bubbles },
+      }] as never,
     });
     return true;
   }
