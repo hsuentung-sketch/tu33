@@ -11,6 +11,9 @@ const app = express();
 // LINE webhook needs raw body for signature verification (mounted before json parser)
 app.use('/webhook', webhookRouter);
 
+// Static assets for LIFF frontend (served from public/)
+app.use('/liff', express.static('public/liff'));
+
 // JSON parsing for API routes
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));

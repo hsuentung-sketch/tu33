@@ -4,6 +4,7 @@ import { prisma } from '../../../shared/prisma.js';
 import { UnauthorizedError, ForbiddenError } from '../../../shared/errors.js';
 import { getTenantSettings, type TenantSettings } from '../../../shared/utils.js';
 import { runWithAuditContext } from '../../../shared/audit.js';
+import { liffAuthMiddleware } from './liff-auth.middleware.js';
 
 // ---- Express type augmentation ----
 declare global {
@@ -23,15 +24,24 @@ declare global {
 }
 
 /**
- * Middleware: extract tenantId and employee from the request.
- * Expects `x-tenant-id` and `x-employee-id` headers (set by upstream
- * LINE webhook handler or API gateway).
+ * Primary request auth. Accepts either:
+ *   - `Authorization: Bearer <LIFF ID token>` (LIFF browser clients)
+ *   - `x-tenant-id` + `x-employee-id` headers (server-to-server / admin tools)
+ *
+ * LIFF is tried first because that's the default path for LINE clients.
  */
 export async function authMiddleware(
   req: Request,
-  _res: Response,
+  res: Response,
   next: NextFunction,
 ) {
+  if (req.header('authorization')?.startsWith('Bearer ')) {
+    return liffAuthMiddleware(req, res, next);
+  }
+  return headerAuthMiddleware(req, res, next);
+}
+
+async function headerAuthMiddleware(req: Request, _res: Response, next: NextFunction) {
   try {
     const tenantId = req.headers['x-tenant-id'] as string | undefined;
     const employeeId = req.headers['x-employee-id'] as string | undefined;
@@ -63,8 +73,6 @@ export async function authMiddleware(
     };
     req.tenantSettings = getTenantSettings(employee.tenant.settings);
 
-    // Run the rest of the request inside an audit context so Prisma writes
-    // get tagged with tenantId + userId automatically.
     runWithAuditContext({ tenantId, userId: employee.id }, async () => {
       next();
     }).catch(next);

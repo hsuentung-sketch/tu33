@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>新增報價單</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; margin: 0; padding: 16px; background: #f5f5f5; color: #222; }
+    h1 { font-size: 18px; margin: 0 0 12px; }
+    label { display: block; font-size: 12px; color: #555; margin-top: 12px; }
+    input, textarea, select { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; box-sizing: border-box; }
+    .card { background: #fff; border-radius: 8px; padding: 12px; margin-bottom: 12px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+    .row { display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 8px; align-items: end; }
+    button { padding: 10px 16px; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; }
+    .btn-primary { background: #06c755; color: white; }
+    .btn-secondary { background: #ddd; }
+    .btn-danger { background: #e74c3c; color: white; }
+    .totals { text-align: right; font-size: 14px; }
+    .totals .total { font-size: 18px; font-weight: bold; }
+    .item-head { font-size: 12px; color: #555; display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 8px; }
+    .empty { color: #888; font-size: 13px; text-align: center; padding: 16px; }
+  </style>
+</head>
+<body>
+  <h1>新增報價單</h1>
+
+  <div class="card">
+    <label>客戶</label>
+    <input id="customer-search" placeholder="輸入客戶名搜尋…" />
+    <select id="customer-select" style="margin-top:8px;"></select>
+  </div>
+
+  <div class="card">
+    <label>業務</label>
+    <input id="sales-person" placeholder="業務姓名" />
+  </div>
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <strong>品項</strong>
+      <button class="btn-secondary" id="add-item">+ 新增品項</button>
+    </div>
+    <div class="item-head" style="margin-top:8px;">
+      <span>品項</span><span>數量</span><span>單價</span><span></span>
+    </div>
+    <div id="items"></div>
+    <div class="empty" id="empty-items">尚未新增品項</div>
+  </div>
+
+  <div class="card totals">
+    <div>小計: <span id="subtotal">0</span></div>
+    <div>營業稅(5%): <span id="tax">0</span></div>
+    <div class="total">總計: <span id="total">0</span></div>
+  </div>
+
+  <div class="card">
+    <label>備註</label>
+    <textarea id="note" rows="2"></textarea>
+  </div>
+
+  <button class="btn-primary" id="submit" style="width:100%;">送出報價單</button>
+
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <script>
+    // LIFF ID comes from URL: /liff/quotation.html?liffId=xxxxx
+    const liffId = new URLSearchParams(location.search).get('liffId');
+    let idToken = null;
+
+    async function init() {
+      if (!liffId) { alert('Missing liffId'); return; }
+      await liff.init({ liffId });
+      if (!liff.isLoggedIn()) { liff.login(); return; }
+      idToken = liff.getIDToken();
+    }
+
+    const itemsEl = document.getElementById('items');
+    const emptyEl = document.getElementById('empty-items');
+    let items = [];
+
+    function render() {
+      itemsEl.innerHTML = '';
+      emptyEl.style.display = items.length ? 'none' : 'block';
+      items.forEach((it, i) => {
+        const div = document.createElement('div');
+        div.className = 'row';
+        div.innerHTML = `
+          <input placeholder="品項名稱" value="${it.name || ''}" data-i="${i}" data-k="name" />
+          <input type="number" placeholder="數量" value="${it.qty || ''}" data-i="${i}" data-k="qty" />
+          <input type="number" placeholder="單價" value="${it.price || ''}" data-i="${i}" data-k="price" />
+          <button class="btn-danger" data-del="${i}">刪</button>
+        `;
+        itemsEl.appendChild(div);
+      });
+      recalc();
+    }
+
+    function recalc() {
+      const subtotal = items.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.price) || 0), 0);
+      const tax = Math.round(subtotal * 0.05);
+      const total = subtotal + tax;
+      document.getElementById('subtotal').textContent = subtotal.toLocaleString();
+      document.getElementById('tax').textContent = tax.toLocaleString();
+      document.getElementById('total').textContent = total.toLocaleString();
+    }
+
+    document.getElementById('add-item').onclick = () => {
+      items.push({ name: '', qty: 1, price: 0 });
+      render();
+    };
+
+    itemsEl.addEventListener('input', (e) => {
+      const t = e.target;
+      if (t.dataset.i != null && t.dataset.k) {
+        items[+t.dataset.i][t.dataset.k] = t.value;
+        recalc();
+      }
+    });
+
+    itemsEl.addEventListener('click', (e) => {
+      const idx = e.target.dataset.del;
+      if (idx != null) {
+        items.splice(+idx, 1);
+        render();
+      }
+    });
+
+    // Customer search (debounced)
+    let searchTimer;
+    document.getElementById('customer-search').addEventListener('input', (e) => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => searchCustomers(e.target.value), 250);
+    });
+
+    async function searchCustomers(q) {
+      if (!q) return;
+      const res = await fetch(`/api/customers?search=${encodeURIComponent(q)}`, {
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      if (!res.ok) return;
+      const list = await res.json();
+      const sel = document.getElementById('customer-select');
+      sel.innerHTML = list.map((c) => `<option value="${c.id}">${c.name}</option>`).join('');
+    }
+
+    document.getElementById('submit').onclick = async () => {
+      const body = {
+        customerId: document.getElementById('customer-select').value,
+        salesPerson: document.getElementById('sales-person').value,
+        note: document.getElementById('note').value,
+        items: items
+          .filter((it) => it.name && it.qty && it.price)
+          .map((it) => ({
+            productName: it.name,
+            quantity: Number(it.qty),
+            unitPrice: Number(it.price),
+          })),
+      };
+      if (!body.customerId || body.items.length === 0) {
+        alert('請選擇客戶並至少新增一筆品項');
+        return;
+      }
+      const res = await fetch('/api/quotations', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        alert('送出失敗：' + (await res.text()));
+        return;
+      }
+      const q = await res.json();
+      await liff.sendMessages([{ type: 'text', text: `已建立報價單 ${q.quotationNo}` }]);
+      liff.closeWindow();
+    };
+
+    init();
+  </script>
+</body>
+</html>

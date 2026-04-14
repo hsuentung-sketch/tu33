@@ -1,0 +1,77 @@
+import type { Request, Response, NextFunction } from 'express';
+import { prisma } from '../../../shared/prisma.js';
+import { UnauthorizedError, ForbiddenError } from '../../../shared/errors.js';
+import { getTenantSettings } from '../../../shared/utils.js';
+import { runWithAuditContext } from '../../../shared/audit.js';
+
+/**
+ * LIFF authentication: expects `Authorization: Bearer <LIFF ID token>`.
+ * Flow:
+ *   1. Decode the JWT payload (unverified) to read `aud` (channel id).
+ *   2. Look up the tenant by `lineChannelId = aud`.
+ *   3. Call LINE `/oauth2/v2.1/verify` with that channel id to validate
+ *      the token's signature + audience + expiry.
+ *   4. Resolve the `sub` (LINE userId) to an employee in that tenant.
+ */
+export async function liffAuthMiddleware(
+  req: Request,
+  _res: Response,
+  next: NextFunction,
+) {
+  try {
+    const auth = req.header('authorization') ?? '';
+    const match = auth.match(/^Bearer\s+(.+)$/i);
+    if (!match) throw new UnauthorizedError('Missing bearer token');
+
+    const idToken = match[1];
+    const unverified = decodeJwtPayload(idToken);
+    if (!unverified.aud) throw new UnauthorizedError('Invalid LIFF token');
+
+    const tenant = await prisma.tenant.findFirst({
+      where: { lineChannelId: unverified.aud, isActive: true },
+    });
+    if (!tenant) throw new ForbiddenError('Tenant for this LIFF channel not configured');
+
+    const verifyRes = await fetch('https://api.line.me/oauth2/v2.1/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ id_token: idToken, client_id: unverified.aud }),
+    });
+    if (!verifyRes.ok) throw new UnauthorizedError('LIFF token verification failed');
+
+    const payload = (await verifyRes.json()) as { sub?: string };
+    if (!payload.sub) throw new UnauthorizedError('Invalid LIFF token payload');
+
+    const employee = await prisma.employee.findFirst({
+      where: { tenantId: tenant.id, lineUserId: payload.sub, isActive: true },
+    });
+    if (!employee) throw new UnauthorizedError('LINE user is not bound to an employee');
+
+    req.tenantId = tenant.id;
+    req.employee = {
+      id: employee.id,
+      employeeId: employee.employeeId,
+      name: employee.name,
+      role: employee.role,
+      lineUserId: employee.lineUserId,
+    };
+    req.tenantSettings = getTenantSettings(tenant.settings);
+
+    runWithAuditContext({ tenantId: tenant.id, userId: employee.id }, async () => {
+      next();
+    }).catch(next);
+  } catch (err) {
+    next(err);
+  }
+}
+
+function decodeJwtPayload(token: string): { aud?: string; sub?: string; exp?: number } {
+  const parts = token.split('.');
+  if (parts.length !== 3) return {};
+  try {
+    const json = Buffer.from(parts[1], 'base64url').toString('utf8');
+    return JSON.parse(json);
+  } catch {
+    return {};
+  }
+}
