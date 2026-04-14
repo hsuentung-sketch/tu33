@@ -1,5 +1,5 @@
 import cron from 'node-cron';
-import { PrismaClient } from '@prisma/client';
+import { prisma as db } from '../shared/prisma.js';
 import { logger } from '../shared/logger.js';
 import { getTenantSettings } from '../shared/utils.js';
 import {
@@ -8,9 +8,6 @@ import {
   pdfToBuffer,
 } from '../documents/statement-pdf.js';
 import { sendDocumentEmail } from '../documents/email-sender.js';
-
-// Read-only job running outside any request context.
-const db = new PrismaClient({ log: ['error'] });
 
 function formatPeriod(year: number, month: number): string {
   return `${year}/${String(month).padStart(2, '0')}`;

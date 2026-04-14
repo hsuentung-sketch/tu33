@@ -10,9 +10,7 @@
  *   - 供應商清單   columns: 供應商, 類型, 聯絡人, 統編, 電話, 郵遞區號, 地址, 付款天數
  */
 import ExcelJS from 'exceljs';
-import { PrismaClient } from '@prisma/client';
-
-const db = new PrismaClient();
+import { prisma as db } from '../shared/prisma.js';
 
 interface ImportResult {
   products: { created: number; updated: number; skipped: number };

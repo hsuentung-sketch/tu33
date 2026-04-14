@@ -1,12 +1,8 @@
 import cron from 'node-cron';
-import { PrismaClient } from '@prisma/client';
+import { prisma as db } from '../shared/prisma.js';
 import { getLineClient } from '../line/client.js';
 import { logger } from '../shared/logger.js';
 import { getTenantSettings } from '../shared/utils.js';
-
-// Use a raw client here — the reminder job is read-only and runs outside
-// any request context, so there's no audit user to tag.
-const db = new PrismaClient({ log: ['error'] });
 
 /**
  * Daily overdue reminder. For each active tenant:
