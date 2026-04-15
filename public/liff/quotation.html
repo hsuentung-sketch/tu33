@@ -77,11 +77,37 @@
       await prefillSalesPerson();
     }
 
+    // Always fetch the freshest id-token from the LIFF SDK before each
+    // API call. The LIFF SDK transparently refreshes if it can; if not,
+    // we re-trigger login so the user gets a fresh one. This avoids the
+    // "works for a while then 401" pattern when the tab stays open past
+    // the 1-hour token TTL.
+    function freshToken() {
+      try {
+        const t = liff.getIDToken();
+        if (t) { idToken = t; return t; }
+      } catch (_) { /* noop */ }
+      return idToken;
+    }
+
+    async function authedFetch(url, opts = {}) {
+      const token = freshToken();
+      const res = await fetch(url, {
+        ...opts,
+        headers: { ...(opts.headers || {}), Authorization: `Bearer ${token}` },
+      });
+      if (res.status === 401 && liff.isLoggedIn) {
+        // Token likely expired — force a re-login so we get a new id-token.
+        try { liff.logout(); } catch (_) { /* noop */ }
+        liff.login();
+        return res; // caller will see 401; we're navigating away anyway
+      }
+      return res;
+    }
+
     async function prefillSalesPerson() {
       try {
-        const res = await fetch('/api/me', {
-          headers: { Authorization: `Bearer ${idToken}` },
-        });
+        const res = await authedFetch('/api/me');
         if (!res.ok) return;
         const me = await res.json();
         const input = document.getElementById('sales-person');
@@ -154,9 +180,7 @@
     async function searchProducts(q) {
       if (!idToken) return;
       try {
-        const res = await fetch(`/api/products?q=${encodeURIComponent(q)}`, {
-          headers: { Authorization: `Bearer ${idToken}` },
-        });
+        const res = await authedFetch(`/api/products?q=${encodeURIComponent(q)}`);
         if (!res.ok) return;
         const list = await res.json();
         const dl = document.getElementById('product-list');
@@ -213,11 +237,13 @@
         hintEl.textContent = '尚未登入，請稍候…';
         return;
       }
-      const res = await fetch(`/api/customers?q=${encodeURIComponent(q)}`, {
-        headers: { Authorization: `Bearer ${idToken}` },
-      });
+      const res = await authedFetch(`/api/customers?q=${encodeURIComponent(q)}`);
       if (!res.ok) {
-        hintEl.textContent = '搜尋失敗（' + res.status + '）';
+        if (res.status === 401) {
+          hintEl.textContent = '登入逾時，重新登入中…';
+        } else {
+          hintEl.textContent = '搜尋失敗（' + res.status + '）';
+        }
         return;
       }
       const list = await res.json();
@@ -262,12 +288,9 @@
         if (body.items.length === 0) { alert('請至少新增一筆有數量和單價的品項'); return; }
         if (!idToken) { alert('尚未登入 LINE，請重新進入表單'); return; }
 
-        const res = await fetch('/api/quotations', {
+        const res = await authedFetch('/api/quotations', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${idToken}`,
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
         const text = await res.text();
