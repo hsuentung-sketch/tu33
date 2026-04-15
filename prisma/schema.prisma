@@ -57,6 +57,8 @@ model Employee {
   email      String?
   address    String?
   role       Role     @default(VIEWER)
+  // bcrypt hash for the admin web console. Null = no web access (LINE-only user).
+  passwordHash String?
   isActive   Boolean  @default(true)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt

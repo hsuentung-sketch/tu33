@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ERP 後台管理</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        ERP 後台
+        <small id="brandSub">載入中…</small>
+      </div>
+      <nav id="nav">
+        <a href="#dashboard" data-view="dashboard">總覽</a>
+        <a href="#customers" data-view="customers">客戶</a>
+        <a href="#products" data-view="products">產品</a>
+        <a href="#suppliers" data-view="suppliers">供應商</a>
+        <a href="#employees" data-view="employees">員工</a>
+        <a href="#quotations" data-view="quotations">報價單</a>
+        <a href="#sales-orders" data-view="sales-orders">銷貨單</a>
+        <a href="#purchase-orders" data-view="purchase-orders">進貨單</a>
+        <a href="#receivables" data-view="receivables">應收帳款</a>
+        <a href="#payables" data-view="payables">應付帳款</a>
+        <a href="#inventory" data-view="inventory">庫存</a>
+      </nav>
+      <div class="footer">
+        <div id="meLabel">—</div>
+        <button id="logoutBtn">登出</button>
+      </div>
+    </aside>
+    <main class="main" id="main">
+      <div class="empty">載入中…</div>
+    </main>
+  </div>
+  <script src="./app.js"></script>
+</body>
+</html>

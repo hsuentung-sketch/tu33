@@ -1,10 +1,14 @@
 import type { Request, Response, NextFunction } from 'express';
 import type { Role } from '@prisma/client';
+import jwt from 'jsonwebtoken';
 import { prisma } from '../../../shared/prisma.js';
 import { UnauthorizedError, ForbiddenError } from '../../../shared/errors.js';
 import { getTenantSettings, type TenantSettings } from '../../../shared/utils.js';
 import { runWithAuditContext } from '../../../shared/audit.js';
 import { liffAuthMiddleware } from './liff-auth.middleware.js';
+import { config } from '../../../config/index.js';
+
+const SESSION_COOKIE = 'ep_session';
 
 // ---- Express type augmentation ----
 declare global {
@@ -38,7 +42,47 @@ export async function authMiddleware(
   if (req.header('authorization')?.startsWith('Bearer ')) {
     return liffAuthMiddleware(req, res, next);
   }
+  // Web console cookie session, set by /api/auth/web/login.
+  const cookies = (req as any).cookies as Record<string, string> | undefined;
+  if (cookies && cookies[SESSION_COOKIE]) {
+    return cookieAuthMiddleware(req, res, next);
+  }
   return headerAuthMiddleware(req, res, next);
+}
+
+async function cookieAuthMiddleware(req: Request, _res: Response, next: NextFunction) {
+  try {
+    const token = (req as any).cookies?.[SESSION_COOKIE];
+    if (!token) throw new UnauthorizedError('Missing session cookie');
+    let decoded: { employeeId: string; tenantId: string };
+    try {
+      decoded = jwt.verify(token, config.jwt.secret) as typeof decoded;
+    } catch {
+      throw new UnauthorizedError('Session expired, please re-login');
+    }
+    const employee = await prisma.employee.findFirst({
+      where: { id: decoded.employeeId, tenantId: decoded.tenantId, isActive: true },
+      include: { tenant: true },
+    });
+    if (!employee) throw new UnauthorizedError('Employee not found or inactive');
+    if (!employee.tenant.isActive) throw new ForbiddenError('Tenant is inactive');
+
+    req.tenantId = employee.tenantId;
+    req.employee = {
+      id: employee.id,
+      employeeId: employee.employeeId,
+      name: employee.name,
+      role: employee.role,
+      lineUserId: employee.lineUserId,
+    };
+    req.tenantSettings = getTenantSettings(employee.tenant.settings);
+
+    runWithAuditContext({ tenantId: employee.tenantId, userId: employee.id }, async () => {
+      next();
+    }).catch(next);
+  } catch (err) {
+    next(err);
+  }
 }
 
 async function headerAuthMiddleware(req: Request, _res: Response, next: NextFunction) {

@@ -1,4 +1,5 @@
 import express from 'express';
+import cookieParser from 'cookie-parser';
 import { config } from './config/index.js';
 import { logger } from './shared/logger.js';
 import { webhookRouter } from './line/webhook.js';
@@ -17,9 +18,14 @@ app.use('/webhook', webhookRouter);
 // Static assets for LIFF frontend (served from public/)
 app.use('/liff', express.static('public/liff'));
 
+// Backoffice admin console (static SPA shell + login page).
+// Auth happens at the API layer; the static files themselves are public.
+app.use('/admin', express.static('public/admin'));
+
 // JSON parsing for API routes
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
 
 // Health check
 app.get('/health', (_req, res) => {

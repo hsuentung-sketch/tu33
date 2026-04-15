@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ERP 後台登入</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="login-wrap">
+    <form class="login-card" id="loginForm">
+      <h1>ERP 後台</h1>
+      <div class="sub">請使用您的員工編號與密碼登入</div>
+      <div class="field">
+        <label>公司名稱（可選，多租戶時填寫關鍵字）</label>
+        <input name="tenantCompany" autocomplete="organization" placeholder="例：潤樋" />
+      </div>
+      <div class="field">
+        <label>員工編號</label>
+        <input name="employeeId" required autocomplete="username" />
+      </div>
+      <div class="field">
+        <label>密碼</label>
+        <input name="password" type="password" required autocomplete="current-password" />
+      </div>
+      <button type="submit">登入</button>
+      <div class="err" id="err"></div>
+    </form>
+  </div>
+  <script>
+    const form = document.getElementById('loginForm');
+    const errBox = document.getElementById('err');
+
+    // If already logged in, bounce to admin.
+    fetch('/api/auth/web/session').then((r) => r.ok && (location.href = './'));
+
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      errBox.textContent = '';
+      const fd = new FormData(form);
+      const payload = {
+        tenantCompany: fd.get('tenantCompany') || undefined,
+        employeeId: fd.get('employeeId'),
+        password: fd.get('password'),
+      };
+      try {
+        const res = await fetch('/api/auth/web/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}));
+          errBox.textContent = j?.error?.message || '登入失敗';
+          return;
+        }
+        location.href = './';
+      } catch (e) {
+        errBox.textContent = '網路錯誤：' + (e?.message || e);
+      }
+    });
+  </script>
+</body>
+</html>

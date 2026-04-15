@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authMiddleware } from '../modules/core/auth/auth.middleware.js';
 import { authRouter } from '../modules/core/auth/auth.router.js';
+import { webAuthRouter } from '../modules/core/auth/web-auth.router.js';
 import { employeeRouter } from '../modules/core/employee/employee.router.js';
 import { productRouter } from '../modules/master/product/product.router.js';
 import { customerRouter } from '../modules/master/customer/customer.router.js';
@@ -17,6 +18,8 @@ export const apiRouter = Router();
 
 // auth router handles its own auth per-route (bind/code needs ADMIN)
 apiRouter.use('/auth', authRouter);
+// Web console login/logout/session — publicly accessible (login issues cookie).
+apiRouter.use('/auth/web', webAuthRouter);
 
 apiRouter.use(authMiddleware);
 
