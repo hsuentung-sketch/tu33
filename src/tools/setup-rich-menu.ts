@@ -84,11 +84,20 @@ async function main() {
   }
 
   const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
-  if (!tenant?.lineAccessToken) {
-    console.error(`Tenant ${tenantId} has no lineAccessToken configured.`);
+  if (!tenant) {
+    console.error(`Tenant ${tenantId} not found.`);
     process.exit(1);
   }
-  const token = tenant.lineAccessToken;
+  // Prefer the DB-stored token; fall back to env for local dev where the
+  // tenant row hasn't been populated yet.
+  const token = tenant.lineAccessToken || process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  if (!token) {
+    console.error(
+      `Tenant ${tenantId} has no lineAccessToken configured, and LINE_CHANNEL_ACCESS_TOKEN is not set in env.\n` +
+        `Put the channel access token in .env or run: npx tsx src/tools/rotate-line-token.ts ${tenantId} --from-env`,
+    );
+    process.exit(1);
+  }
 
   logger.info('Creating rich menu', { tenantId });
   const created = await fetchLine('/v2/bot/richmenu', token, {

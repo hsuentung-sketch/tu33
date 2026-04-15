@@ -41,6 +41,49 @@ export async function handleManagementText(text: string, ctx: any): Promise<bool
   const { client, event, tenantId, employee } = ctx;
   const lineUserId = employee.lineUserId;
   if (!lineUserId) return false;
+
+  // One-shot customer create via "新增客戶 name / contact / phone / email / tax / address"
+  const m = text.match(/^新增客戶\s+(.+)$/);
+  if (m) {
+    if (!canCreateCustomer(employee)) {
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: '⛔ 僅業務或管理員可新增客戶。' }],
+      });
+      return true;
+    }
+    const parts = m[1].split('/').map((p) => p.trim());
+    const [name, contactName, phone, email, taxId, address] = parts;
+    if (!name) {
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: '格式：新增客戶 <公司名> / <聯絡人> / <電話> / <Email> / <統編> / <地址>' }],
+      });
+      return true;
+    }
+    try {
+      const c = await customerService.create(tenantId, {
+        name,
+        contactName: contactName || undefined,
+        phone: phone || undefined,
+        email: email || undefined,
+        taxId: taxId || undefined,
+        address: address || undefined,
+        createdBy: employee.id,
+      });
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: `✅ 已新增客戶：${c.name}` }],
+      });
+    } catch (err) {
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: `新增失敗：${(err as Error).message}` }],
+      });
+    }
+    return true;
+  }
+
   const s = session.get(tenantId, lineUserId);
   if (!s) return false;
   const flow = s.flow as string;
@@ -313,12 +356,13 @@ export async function handleManagementCommand(action: string, ctx: any): Promise
         });
         return;
       }
+      const hasVision = !!process.env.GOOGLE_VISION_API_KEY;
+      const body = hasVision
+        ? '📷 請拍攝客戶名片正面並傳送到此聊天室。\n\n系統會自動辨識欄位資料（公司、聯絡人、電話、Email、地址、統編），送出後會請您確認再建立。'
+        : '⚠️ 本系統尚未設定名片 OCR（缺 GOOGLE_VISION_API_KEY）。\n請以文字新增客戶——\n直接輸入「新增客戶 <公司名> / <聯絡人> / <電話> / <Email> / <統編> / <地址>」\n例：新增客戶 毅金精密 / 陳先生 / 0912345678 / chen@ex.com / 12345678 / 台北市…';
       await client.replyMessage({
         replyToken: event.replyToken,
-        messages: [{
-          type: 'text',
-          text: '📷 請拍攝客戶名片正面並傳送到此聊天室。\n\n系統會自動辨識欄位資料（公司、聯絡人、電話、Email、地址、統編），送出後會請您確認再建立。',
-        }],
+        messages: [{ type: 'text', text: body }],
       });
       return;
     }

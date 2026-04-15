@@ -6,11 +6,28 @@ export async function list(
   tenantId: string,
   opts: { includeInactive?: boolean; createdBy?: string } = {},
 ) {
+  // Explicit select — see findByName for why (createdBy column may not
+  // yet exist on production DB). Keep list callers (management handler,
+  // master handler) unaffected by schema drift.
   return prisma.customer.findMany({
     where: {
       tenantId,
       ...(opts.includeInactive ? {} : { isActive: true }),
       ...(opts.createdBy ? { createdBy: opts.createdBy } : {}),
+    },
+    select: {
+      id: true,
+      name: true,
+      contactName: true,
+      phone: true,
+      email: true,
+      taxId: true,
+      zipCode: true,
+      address: true,
+      paymentDays: true,
+      grade: true,
+      tags: true,
+      isActive: true,
     },
     orderBy: { name: 'asc' },
   });
