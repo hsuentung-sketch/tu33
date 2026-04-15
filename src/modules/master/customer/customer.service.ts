@@ -60,23 +60,30 @@ export async function create(
     createdBy?: string;
   },
 ) {
-  return prisma.customer.create({
-    data: {
-      tenantId,
-      name: data.name,
-      contactName: data.contactName,
-      taxId: data.taxId,
-      phone: data.phone,
-      zipCode: data.zipCode,
-      address: data.address,
-      paymentDays: data.paymentDays ?? 30,
-      lineUserId: data.lineUserId,
-      email: data.email,
-      grade: data.grade ?? 'B',
-      tags: data.tags ?? [],
-      createdBy: data.createdBy,
-    },
-  });
+  // Same createdBy-column fallback as in the OCR path: retry without
+  // it if the DB hasn't had the migration applied yet.
+  const base = {
+    tenantId,
+    name: data.name,
+    contactName: data.contactName,
+    taxId: data.taxId,
+    phone: data.phone,
+    zipCode: data.zipCode,
+    address: data.address,
+    paymentDays: data.paymentDays ?? 30,
+    lineUserId: data.lineUserId,
+    email: data.email,
+    grade: data.grade ?? 'B',
+    tags: data.tags ?? [],
+  };
+  try {
+    return await prisma.customer.create({ data: { ...base, createdBy: data.createdBy } });
+  } catch (err: any) {
+    if (err?.code === 'P2022' || String(err?.message ?? '').includes('createdBy')) {
+      return prisma.customer.create({ data: base });
+    }
+    throw err;
+  }
 }
 
 export async function update(

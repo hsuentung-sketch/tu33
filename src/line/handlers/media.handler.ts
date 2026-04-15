@@ -279,28 +279,49 @@ export async function createCustomerFromOcrSession(ctx: {
   const name = (card.companyName ?? card.contactName ?? '').trim();
   if (!name) return null;
 
-  const created = await runWithAuditContext({ tenantId: ctx.tenantId, userId: ctx.employee.id }, () =>
-    prisma.customer.upsert({
-      where: { tenantId_name: { tenantId: ctx.tenantId, name } },
-      create: {
-        tenantId: ctx.tenantId,
-        name,
-        contactName: card.contactName,
-        phone: card.phone,
-        email: card.email,
-        taxId: card.taxId,
-        address: card.address,
-        createdBy: ctx.employee.id,
-      },
-      update: {
-        contactName: card.contactName ?? undefined,
-        phone: card.phone ?? undefined,
-        email: card.email ?? undefined,
-        taxId: card.taxId ?? undefined,
-        address: card.address ?? undefined,
-      },
-    }),
-  );
+  // Upsert with createdBy; if the column doesn't exist on this DB
+  // (schema drift — prisma db push didn't run on deploy) retry
+  // without it so the create still succeeds.
+  const baseCreate = {
+    tenantId: ctx.tenantId,
+    name,
+    contactName: card.contactName,
+    phone: card.phone,
+    email: card.email,
+    taxId: card.taxId,
+    address: card.address,
+  };
+  const baseUpdate = {
+    contactName: card.contactName ?? undefined,
+    phone: card.phone ?? undefined,
+    email: card.email ?? undefined,
+    taxId: card.taxId ?? undefined,
+    address: card.address ?? undefined,
+  };
+  let created;
+  try {
+    created = await runWithAuditContext({ tenantId: ctx.tenantId, userId: ctx.employee.id }, () =>
+      prisma.customer.upsert({
+        where: { tenantId_name: { tenantId: ctx.tenantId, name } },
+        create: { ...baseCreate, createdBy: ctx.employee.id },
+        update: baseUpdate,
+      }),
+    );
+  } catch (err: any) {
+    const msg = String(err?.message ?? '');
+    if (err?.code === 'P2022' || msg.includes('createdBy')) {
+      logger.warn('Customer.createdBy missing in DB — retrying without it');
+      created = await runWithAuditContext({ tenantId: ctx.tenantId, userId: ctx.employee.id }, () =>
+        prisma.customer.upsert({
+          where: { tenantId_name: { tenantId: ctx.tenantId, name } },
+          create: baseCreate,
+          update: baseUpdate,
+        }),
+      );
+    } else {
+      throw err;
+    }
+  }
   session.clear(ctx.tenantId, ctx.employee.lineUserId!);
   return { id: created.id, name: created.name };
 }
