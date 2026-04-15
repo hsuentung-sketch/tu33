@@ -74,7 +74,28 @@
       await liff.init({ liffId });
       if (!liff.isLoggedIn()) { liff.login(); return; }
       idToken = liff.getIDToken();
+      // LIFF caches the id-token from the last login forever — it does
+      // NOT auto-refresh. If it's expired we must trigger login again
+      // (which redirects, gets a fresh token, and returns here).
+      if (!idToken || isTokenExpired(idToken)) {
+        try { liff.login(); } catch (_) { /* noop */ }
+        return;
+      }
       await prefillSalesPerson();
+    }
+
+    function isTokenExpired(token) {
+      try {
+        const parts = token.split('.');
+        if (parts.length !== 3) return true;
+        const payloadJson = atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'));
+        const payload = JSON.parse(payloadJson);
+        // 60-second safety margin so we don't fire off a request that
+        // expires mid-flight.
+        return !payload.exp || payload.exp * 1000 < Date.now() + 60_000;
+      } catch (_) {
+        return true;
+      }
     }
 
     // Always fetch the freshest id-token from the LIFF SDK before each
@@ -92,15 +113,17 @@
 
     async function authedFetch(url, opts = {}) {
       const token = freshToken();
-      const res = await fetch(url, {
+      // Proactively re-login if the cached token has already expired.
+      // This handles the "user leaves LIFF tab open overnight" case
+      // without requiring a server round-trip first.
+      if (!token || isTokenExpired(token)) {
+        try { liff.login(); } catch (_) { /* noop */ }
+        return new Response(JSON.stringify({ error: { message: 'Token expired — 重新登入中' } }), { status: 401 });
+      }
+      return fetch(url, {
         ...opts,
         headers: { ...(opts.headers || {}), Authorization: `Bearer ${token}` },
       });
-      // NOTE: we intentionally do not auto-logout on 401 — if the root
-      // cause isn't token expiry (e.g. tenant/employee misconfig) a
-      // re-login creates an infinite loop. Caller surfaces the error
-      // message from res.json().error.message for debugging.
-      return res;
     }
 
     async function prefillSalesPerson() {
