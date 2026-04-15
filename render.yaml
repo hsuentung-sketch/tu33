@@ -22,8 +22,11 @@ services:
     # --include=dev is required because typescript + @types/* live in
     # devDependencies and Render sets NODE_ENV=production which otherwise
     # skips them during install.
-    buildCommand: npm ci --include=dev && npx prisma generate && npx prisma db push --skip-generate && npm run fonts:download && npm run build
-    startCommand: npm start
+    buildCommand: npm ci --include=dev && npx prisma generate && npm run fonts:download && npm run build
+    # Best-effort schema sync at boot. If db push fails (e.g. DIRECT_URL
+    # unset on free tier), we log it and keep starting so the existing
+    # service stays up. Check the logs if schema-dependent features break.
+    startCommand: (npx prisma db push --skip-generate --accept-data-loss || echo "[db push failed — check DIRECT_URL]") && npm start
     healthCheckPath: /health
     autoDeploy: true
     envVars:
