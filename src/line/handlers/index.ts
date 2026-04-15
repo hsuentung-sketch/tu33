@@ -83,6 +83,24 @@ async function handleMessage(event: MessageEvent, tenant: HandlerTenant): Promis
     await handleVoiceMessage(event, { ...ctx, accessToken: tenant.lineAccessToken });
   } else if (event.message.type === 'image') {
     await handleImageMessage(event, { ...ctx, accessToken: tenant.lineAccessToken });
+  } else if (event.message.type === 'file') {
+    // LINE sends image attachments from the "檔案" picker as type=file
+    // instead of type=image. If the mime type looks like an image,
+    // route it through the same OCR handler; otherwise, nudge the user.
+    const fileMsg = event.message as { fileName?: string };
+    const isImageLike = /\.(jpe?g|png|heic|webp|gif)$/i.test(fileMsg.fileName || '');
+    if (isImageLike) {
+      await handleImageMessage(event, { ...ctx, accessToken: tenant.lineAccessToken });
+    } else if (event.replyToken) {
+      const client = getLineClient(tenant.lineAccessToken);
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{
+          type: 'text',
+          text: '偵測到檔案訊息。若要辨識名片，請改用 LINE「相機」或「相片」發送圖片（不要用「檔案」）。',
+        }],
+      });
+    }
   }
 }
 
