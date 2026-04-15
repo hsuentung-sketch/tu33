@@ -62,6 +62,12 @@ src/
 public/liff/
 └── quotation.html           # 報價單 LIFF 表單（客戶+產品 autocomplete）
 
+public/admin/                # 後台管理介面（Phase 1）
+├── login.html               # 員工編號 + 密碼登入
+├── index.html               # SPA 外殼 + 側欄導航
+├── app.js                   # hash-router + 11 個檢視
+└── styles.css
+
 scripts/
 └── download-fonts.mjs       # 從 google/fonts 抓 CJK TTF（含 size check）
 ```
@@ -142,26 +148,54 @@ dueDate = endOfMonth(addMonths(firstOfMonth(billingYear, billingMonth), paymentD
 
 為什麼用 Flex 不用 buttons template：後者 label 上限 20 字元，會把價格切掉（`EK-SS-6336 1/200 $21` ← 被截）。
 
+### 10. 名片 OCR（Google Vision）
+- `管理 → 新增客戶 → 上傳名片照片` → 自動擷取公司/聯絡人/電話/地址/統編/Email
+- 後備：若未設 `GOOGLE_VISION_API_KEY`，提示改走文字表單 `新增客戶 <公司>/<聯絡人>/<電話>/<Email>/<統編>/<地址>`
+- LINE `type=file` 也當圖片處理（使用者用「檔案」picker 上傳名片不會無回應）
+- `safeSend()`：replyToken 過期 → fallback push；防 30s TTL 失敗
+- P2022 fallback：`Customer.createdBy` 缺欄位時 retry without（避免 schema drift 500）
+
+### 11. 員工 LINE 綁定（ADMIN）
+三種方式：
+- LINE chat：`綁定碼 list` / `綁定碼 <員工編號>`
+- CLI：`npx tsx src/tools/generate-binding-code.ts <員工編號|--list>`
+- 後台：員工頁對未綁定員工按「綁定碼」按鈕（Phase 1）
+
+### 12. 後台管理介面（Phase 1，`/admin/`）
+**已上線**，bcryptjs + HTTP-only cookie session。
+
+- 後端：
+  - `src/modules/core/auth/web-auth.router.ts` — `/api/auth/web/login|logout|session`
+  - 登入成功 → JWT 簽到 cookie `ep_session`（12h TTL，`httpOnly` + `sameSite=lax` + prod 時 `secure`）
+  - `auth.middleware.ts` 加 `cookieAuthMiddleware` 分支：Authorization Bearer (LIFF) → Cookie → x-tenant/x-employee headers
+  - 多租戶登入：表單選填「公司名稱」關鍵字；多筆匹配會要求填寫
+  - `src/tools/set-password.ts` CLI：bootstrap / 重置密碼，支援 `--tenant "<關鍵字>"` 消歧
+- 前端（純 HTML/JS，無 build step）：
+  - 11 個檢視：總覽 / 客戶 / 產品 / 供應商 / 員工 / 報價單 / 銷貨單 / 進貨單 / 應收 / 應付 / 庫存
+  - 主檔（客戶/產品/供應商/員工）：新增 / 編輯 / 停用 / 搜尋
+  - 員工頁可一鍵發 LINE 綁定碼
+  - 帳款頁可標記已結案 + 填發票號碼
+  - 報價 / 銷貨 / 進貨 / 庫存為**唯讀列表**（建單仍走 LIFF / LINE chat）
+- DB：Employee 加 `passwordHash String?`（bcrypt hash，null = 無後台存取權）
+- 環境：用現有 `JWT_SECRET`；若換新 JWT_SECRET，所有 web session + PDF token 會失效
+
 ---
 
 ## 未完成 / 待驗證
-
-### 🔄 目前進度暫停點（2026-04-14）
-**最新 commit：`533c7ac` LINE product search: flex carousel with price history**
-
-已推送到 Render，使用者暫停測試。重啟時請驗證：
-1. 銷貨 → 選客戶（毅金）→ 輸入「6336」
-2. 應跳出 2 張可滑動卡片，資訊完整不截斷
-3. 按「選擇」→ 進入 pendingProduct 流程
-4. 輸入「2」或「2 21000」→ 加入品項
 
 ### 待做
 - 銷貨單「送貨備註」在 LINE chat 流程沒有收集（PDF 會留空）
 - 報價追蹤流程（從 LINE Rich Menu 進入）尚未實作
 - 逾期帳款 LINE 推播（cron job）
 - 語音開單（Whisper）整合測試
-- 名片 OCR（Google Vision）整合測試
 - 多公司複製流程的管理介面
+
+### Phase 2（後台擴充）
+- 報價 / 銷貨 / 進貨的**建單 UI**（目前只能查）
+- 員工自改密碼 UI
+- 審計日誌（AuditLog）檢視
+- 報表：銷售/毛利/月度對帳
+- tenant-level 設定頁（稅率、單號前綴、pdf 頁尾…）
 
 ### 可能的使用者未來需求（記下備參）
 - LIFF 銷貨/進貨表單（像 LIFF 報價單那樣的 autocomplete 體驗）
@@ -192,7 +226,20 @@ npx tsx src/tools/generate-rich-menu-image.ts
 
 # 重新命名員工
 npx tsx src/tools/rename-employee.ts <employeeId> <newEmployeeCode> <newName>
+
+# 後台密碼（bootstrap 第一個 ADMIN 或重置）
+npx tsx src/tools/set-password.ts <員工編號> <新密碼> [--tenant "<公司關鍵字>"]
+
+# 列出尚未綁定 LINE 的員工 + 產生綁定碼
+npx tsx src/tools/generate-binding-code.ts --list
+npx tsx src/tools/generate-binding-code.ts <員工編號>
 ```
+
+## Schema 變更 SOP
+Supabase `.env` 的 `DATABASE_URL` 走 pgbouncer port 6543（不支援 DDL），所以：
+- 平常開發：`npx prisma db push`（用 direct URL）或改 migration
+- **Render 生產**：改 `prisma/schema.prisma` 後，實務作法是去 **Supabase SQL Editor** 手動貼 ALTER TABLE，再 push code
+- 程式端加 try/catch P2022 fallback，保護「schema 已改但 DB 還沒 migrate」的短暫不一致期（見 `customer.service.ts` / `media.handler.ts`）
 
 ## Git 身份
 - Author: `ERP Dev <erp@local>`（用 `git -c user.name=... -c user.email=...` commit，專案沒設 global）
@@ -205,3 +252,7 @@ npx tsx src/tools/rename-employee.ts <employeeId> <newEmployeeCode> <newName>
 - `raw.githubusercontent.com` 對 LFS 檔回指針不回檔案 → 改用非 LFS 路徑
 - PDFKit 的 `doc.on('error')` **必須在 `doc.pipe()` 前註冊**，否則 async error 炸 Node
 - `jsonwebtoken` 的 `expiresIn` 要傳 number（秒）或字串（如 `'7d'`）
+- Supabase pooler (port 6543/pgbouncer) 不支援 DDL (ALTER TABLE) → 改走 SQL Editor 或 direct URL
+- LINE 圖片訊息：`type=image` 是相機/相片；`type=file` 是「檔案」picker — 要都當圖片處理才不會漏
+- LINE replyToken 30 秒 TTL → 慢操作（OCR）要 try-reply-catch → push fallback
+- **多層資料要同步**：Prisma schema → DB migration → service → router → 前端（LIFF/admin/LINE handler）缺一會產 P2022 或 UI 錯位
