@@ -168,16 +168,51 @@ export async function handleImageMessage(event: MessageEvent, ctx: MediaCtx): Pr
   const replyToken = event.replyToken;
   if (!replyToken) return;
 
+  // Helper: try reply first; if that fails (expired token / already used),
+  // fall back to pushMessage so the user still sees the result.
+  const safeSend = async (messages: any[]) => {
+    try {
+      await client.replyMessage({ replyToken, messages });
+    } catch (replyErr) {
+      logger.warn('replyMessage failed, falling back to push', {
+        error: (replyErr as Error).message,
+      });
+      if (employee.lineUserId) {
+        try {
+          await client.pushMessage({ to: employee.lineUserId, messages });
+        } catch (pushErr) {
+          logger.error('pushMessage also failed', { error: (pushErr as Error).message });
+        }
+      }
+    }
+  };
+
+  logger.info('OCR: image received', {
+    tenantId,
+    lineUserId: employee.lineUserId,
+    messageId: (event.message as { id?: string }).id,
+  });
+
   try {
     const messageId = (event.message as { id: string }).id;
+    logger.info('OCR: downloading image from LINE');
     const buffer = await downloadLineContent(messageId, accessToken);
+    logger.info('OCR: image downloaded', { bytes: buffer.length });
+
+    logger.info('OCR: calling Google Vision');
     const card = await recognizeBusinessCard(buffer);
+    logger.info('OCR: recognition done', {
+      hasCompany: !!card.companyName,
+      hasContact: !!card.contactName,
+      hasPhone: !!card.phone,
+      rawTextLen: card.rawText?.length ?? 0,
+    });
 
     if (!card.companyName && !card.contactName && !card.phone) {
-      await client.replyMessage({
-        replyToken,
-        messages: [{ type: 'text', text: '名片辨識失敗，請拍攝清晰的名片正面。' }],
-      });
+      await safeSend([{
+        type: 'text',
+        text: `名片辨識沒抓到公司/聯絡人/電話。\n原始文字前 200 字：\n${(card.rawText || '(空)').slice(0, 200)}`,
+      }]);
       return;
     }
 
@@ -202,31 +237,33 @@ export async function handleImageMessage(event: MessageEvent, ctx: MediaCtx): Pr
       `統編：${card.taxId ?? '-'}\n` +
       `地址：${card.address ?? '-'}`;
 
-    await client.replyMessage({
-      replyToken,
-      messages: [
-        { type: 'text', text: summary },
-        {
-          type: 'template',
-          altText: '建立客戶',
-          template: {
-            type: 'confirm',
-            text: `要將「${card.companyName ?? card.contactName ?? '此名片'}」建立為客戶嗎？`,
-            actions: [
-              { type: 'postback', label: '建立', data: 'action=master:ocr-create-customer' },
-              { type: 'postback', label: '取消', data: 'action=sales:cancel' },
-            ],
-          },
+    await safeSend([
+      { type: 'text', text: summary },
+      {
+        type: 'template',
+        altText: '建立客戶',
+        template: {
+          type: 'confirm',
+          text: `要將「${card.companyName ?? card.contactName ?? '此名片'}」建立為客戶嗎？`,
+          actions: [
+            { type: 'postback', label: '建立', data: 'action=master:ocr-create-customer' },
+            { type: 'postback', label: '取消', data: 'action=sales:cancel' },
+          ],
         },
-      ],
-    });
+      },
+    ]);
   } catch (err) {
-    logger.error('OCR handling failed', { error: err });
-    await client.replyMessage({
-      replyToken,
-      messages: [{ type: 'text', text: `名片辨識失敗：${(err as Error).message}` }],
+    logger.error('OCR handling failed', {
+      error: (err as Error).message,
+      stack: (err as Error).stack,
     });
+    await safeSend([{
+      type: 'text',
+      text: `名片辨識失敗：${(err as Error).message}`,
+    }]);
+    return;
   }
+
 }
 
 /**
