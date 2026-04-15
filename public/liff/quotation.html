@@ -74,11 +74,20 @@
       await liff.init({ liffId });
       if (!liff.isLoggedIn()) { liff.login(); return; }
       idToken = liff.getIDToken();
-      // LIFF caches the id-token from the last login forever — it does
-      // NOT auto-refresh. If it's expired we must trigger login again
-      // (which redirects, gets a fresh token, and returns here).
+      // LIFF caches the id-token from the last login and does NOT
+      // auto-refresh. `liff.login()` alone isn't enough to get a new
+      // one — the SDK sees "already logged in" and no-ops. We must
+      // `liff.logout()` first to wipe the cached credentials, then
+      // force a fresh redirect with cache-busting query param.
       if (!idToken || isTokenExpired(idToken)) {
-        try { liff.login(); } catch (_) { /* noop */ }
+        try {
+          liff.logout();
+          const url = new URL(location.href);
+          url.searchParams.set('_t', Date.now().toString());
+          liff.login({ redirectUri: url.toString() });
+        } catch (e) {
+          alert('Token 已過期且重新登入失敗：' + (e?.message || e));
+        }
         return;
       }
       await prefillSalesPerson();
@@ -117,8 +126,13 @@
       // This handles the "user leaves LIFF tab open overnight" case
       // without requiring a server round-trip first.
       if (!token || isTokenExpired(token)) {
-        try { liff.login(); } catch (_) { /* noop */ }
-        return new Response(JSON.stringify({ error: { message: 'Token expired — 重新登入中' } }), { status: 401 });
+        try {
+          liff.logout();
+          const url = new URL(location.href);
+          url.searchParams.set('_t', Date.now().toString());
+          liff.login({ redirectUri: url.toString() });
+        } catch (_) { /* noop */ }
+        return new Response(JSON.stringify({ error: { message: 'Token 已過期，正在重新登入…' } }), { status: 401 });
       }
       return fetch(url, {
         ...opts,
