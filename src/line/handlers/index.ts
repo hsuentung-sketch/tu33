@@ -2,7 +2,7 @@ import type { webhook } from '@line/bot-sdk';
 import { prisma } from '../../shared/prisma.js';
 import { getLineClient } from '../client.js';
 import { logger } from '../../shared/logger.js';
-import { tryConsumeBindingCode } from '../../modules/core/auth/auth.service.js';
+import { tryConsumeBindingCode, createBindingCode } from '../../modules/core/auth/auth.service.js';
 import { handleQuotationCommand } from './quotation.handler.js';
 import { handleSalesCommand, handleSalesText } from './sales.handler.js';
 import { handlePurchaseCommand, handlePurchaseText } from './purchase.handler.js';
@@ -153,6 +153,75 @@ async function routeTextCommand(text: string, ctx: TextCommandContext): Promise<
   if (await handleAccountingText(text, ctx)) return;
   if (await handleMasterText(text, ctx)) return;
   if (await handleManagementText(text, ctx)) return;
+
+  // Admin-only: generate a binding code for an unbound employee.
+  //   綁定碼 001       → mint a 10-min one-time code for employee 001
+  //   綁定碼 list     → show employees still awaiting binding
+  const bindMatch = text.match(/^綁定碼\s+(.+)$/);
+  if (bindMatch && event.replyToken) {
+    if ((ctx.employee as any).role !== 'ADMIN') {
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: '⛔ 僅管理員可產生綁定碼。' }],
+      });
+      return;
+    }
+    const arg = bindMatch[1].trim();
+    if (arg === 'list' || arg === '清單') {
+      const list = await prisma.employee.findMany({
+        where: { tenantId: ctx.tenantId, isActive: true, lineUserId: null },
+        select: { employeeId: true, name: true, role: true },
+        orderBy: { employeeId: 'asc' },
+      });
+      const body = list.length
+        ? '尚未綁定 LINE 的員工：\n' + list.map((e) => `• ${e.employeeId} ${e.name}（${e.role}）`).join('\n')
+        : '目前沒有尚待綁定的員工。';
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: body + '\n\n輸入「綁定碼 <員工編號>」產生。' }],
+      });
+      return;
+    }
+    const target = await prisma.employee.findFirst({
+      where: { tenantId: ctx.tenantId, employeeId: arg, isActive: true },
+    });
+    if (!target) {
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: `找不到員工編號「${arg}」。輸入「綁定碼 list」查看。` }],
+      });
+      return;
+    }
+    if (target.lineUserId) {
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: `${target.name} 已綁定 LINE，無需產生綁定碼。` }],
+      });
+      return;
+    }
+    try {
+      const { code, expiresAt } = await createBindingCode(ctx.tenantId, target.id);
+      const mins = Math.round((expiresAt.getTime() - Date.now()) / 60000);
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{
+          type: 'text',
+          text:
+            `✅ 已產生綁定碼\n\n` +
+            `員工：${target.name}（${target.employeeId}）\n` +
+            `綁定碼：${code}\n` +
+            `有效時間：${mins} 分鐘\n\n` +
+            `請轉告該員工在 LINE 輸入：\n綁定 ${code}`,
+        }],
+      });
+    } catch (err) {
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: `產生失敗：${(err as Error).message}` }],
+      });
+    }
+    return;
+  }
 
   if (text.startsWith('報價')) {
     return handleQuotationCommand('quotation:menu', { ...ctx, event: pseudoEvent, params: new URLSearchParams() });
