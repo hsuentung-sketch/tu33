@@ -171,12 +171,66 @@ export async function handlePurchaseCommand(action: string, ctx: any): Promise<v
         });
         return;
       }
-      const text = orders.map((o, i) =>
-        `${i + 1}. ${o.orderNo} ${o.supplier.name} $${Number(o.totalAmount).toLocaleString('zh-TW')} [${o.status}]`,
-      ).join('\n');
+      const fmtDate = (d: Date) =>
+        `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+      const bubbles = orders.map((o) => {
+        const pdfUrl = buildPdfUrl(
+          config.publicBaseUrl,
+          'purchase-order',
+          o.id,
+          signPdfToken(tenantId, 'purchase-order', o.id),
+        );
+        return {
+          type: 'bubble',
+          size: 'kilo',
+          body: {
+            type: 'box',
+            layout: 'vertical',
+            spacing: 'sm',
+            contents: [
+              { type: 'text', text: o.orderNo, weight: 'bold', size: 'md' },
+              { type: 'text', text: o.supplier.name, size: 'sm', color: '#555555', wrap: true },
+              { type: 'separator', margin: 'sm' },
+              {
+                type: 'box', layout: 'baseline', spacing: 'sm', contents: [
+                  { type: 'text', text: '日期', size: 'xs', color: '#888888', flex: 2 },
+                  { type: 'text', text: fmtDate(o.orderDate), size: 'sm', align: 'end', flex: 3 },
+                ],
+              },
+              {
+                type: 'box', layout: 'baseline', spacing: 'sm', contents: [
+                  { type: 'text', text: '總計', size: 'xs', color: '#888888', flex: 2 },
+                  { type: 'text', text: `$${Number(o.totalAmount).toLocaleString('zh-TW')}`, size: 'sm', align: 'end', flex: 3 },
+                ],
+              },
+              {
+                type: 'box', layout: 'baseline', spacing: 'sm', contents: [
+                  { type: 'text', text: '狀態', size: 'xs', color: '#888888', flex: 2 },
+                  { type: 'text', text: o.status, size: 'sm', align: 'end', flex: 3 },
+                ],
+              },
+            ],
+          },
+          footer: {
+            type: 'box',
+            layout: 'vertical',
+            contents: [{
+              type: 'button',
+              style: 'primary',
+              color: '#06c755',
+              height: 'sm',
+              action: { type: 'uri', label: '下載 PDF', uri: pdfUrl },
+            }],
+          },
+        };
+      });
       await client.replyMessage({
         replyToken: event.replyToken,
-        messages: [{ type: 'text', text: `最近 5 筆進貨單：\n${text}` }],
+        messages: [{
+          type: 'flex',
+          altText: '最近進貨單',
+          contents: { type: 'carousel', contents: bubbles },
+        }] as never,
       });
       return;
     }
