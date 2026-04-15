@@ -4,6 +4,9 @@ import { ValidationError } from '../../../shared/errors.js';
 import * as quotationService from './quotation.service.js';
 import { signPdfToken, buildPdfUrl } from '../../../documents/pdf-link.js';
 import { config } from '../../../config/index.js';
+import { prisma } from '../../../shared/prisma.js';
+import { getLineClient } from '../../../line/client.js';
+import { logger } from '../../../shared/logger.js';
 
 export const quotationRouter = Router();
 
@@ -90,6 +93,14 @@ quotationRouter.post('/', async (req: Request, res: Response, next: NextFunction
       result.id,
       signPdfToken(req.tenantId, 'quotation', result.id),
     );
+
+    // Push a LINE message with the PDF link. Best-effort: we already
+    // have a persisted quotation and a usable JSON response, so any
+    // push failure (missing token, user not linked, LINE API blip) is
+    // logged but does not fail the request.
+    void pushQuotationPdf(req.tenantId, req.employee.lineUserId, result.quotationNo, pdfUrl)
+      .catch((err) => logger.warn('LINE push failed', { error: (err as Error).message }));
+
     res.status(201).json({ ...result, pdfUrl });
   } catch (err) {
     next(err);
@@ -143,3 +154,38 @@ quotationRouter.post('/:id/convert', async (req: Request, res: Response, next: N
     next(err);
   }
 });
+
+/**
+ * Push the quotation PDF link to the employee's LINE chat from the
+ * tenant's bot. Called after successful LIFF submit so the user gets
+ * the link in their normal LINE conversation, not just as a browser
+ * alert. No-ops (with a log) if the employee isn't LINE-linked or the
+ * tenant has no channel access token configured.
+ */
+async function pushQuotationPdf(
+  tenantId: string,
+  lineUserId: string | null,
+  quotationNo: string,
+  pdfUrl: string,
+): Promise<void> {
+  if (!lineUserId) {
+    logger.info('Skip LINE push: employee has no lineUserId', { tenantId });
+    return;
+  }
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    select: { lineAccessToken: true },
+  });
+  if (!tenant?.lineAccessToken) {
+    logger.info('Skip LINE push: tenant has no lineAccessToken', { tenantId });
+    return;
+  }
+  const client = getLineClient(tenant.lineAccessToken);
+  await client.pushMessage({
+    to: lineUserId,
+    messages: [{
+      type: 'text',
+      text: `✅ 報價單已建立\n單號：${quotationNo}\n\n📄 下載 PDF：\n${pdfUrl}`,
+    }],
+  });
+}
