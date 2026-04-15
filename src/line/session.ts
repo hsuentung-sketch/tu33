@@ -19,7 +19,7 @@ export interface OcrCard {
 }
 
 export interface Session {
-  flow: 'sales:create' | 'purchase:create' | 'quotation:create' | 'ocr:customer' | 'ar:pay' | 'ap:pay';
+  flow: 'sales:create' | 'purchase:create' | 'quotation:create' | 'ocr:customer' | 'ar:pay' | 'ap:pay' | 'master:search';
   step: 'party' | 'items' | 'confirm';
   data: {
     partyId?: string;
@@ -32,6 +32,8 @@ export interface Session {
      * salePrice/costPrice as default) or "<qty> <price>".
      */
     pendingProduct?: { name: string; salePrice: number; costPrice: number };
+    /** For 'master:search' flow: which dataset to query next. */
+    searchMode?: 'customer' | 'product' | 'ar';
     ocrCard?: OcrCard;
   };
   updatedAt: number;

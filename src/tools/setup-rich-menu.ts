@@ -12,7 +12,7 @@
  *   ┌─────────┬─────────┬─────────┐
  *   │ 報價    │ 銷貨    │ 進貨    │
  *   ├─────────┼─────────┼─────────┤
- *   │ 帳務    │ 查詢    │ 報價追蹤│
+ *   │ 帳務    │ 查詢    │ 管理    │
  *   └─────────┴─────────┴─────────┘
  */
 import 'dotenv/config';
@@ -38,7 +38,7 @@ const AREAS: RichMenuArea[] = [
   { bounds: { x: COL_W * 2, y: 0, width: WIDTH - COL_W * 2, height: ROW_H }, action: { type: 'postback', data: 'action=purchase:menu', displayText: '進貨' } },
   { bounds: { x: 0, y: ROW_H, width: COL_W, height: HEIGHT - ROW_H }, action: { type: 'postback', data: 'action=accounting:menu', displayText: '帳務' } },
   { bounds: { x: COL_W, y: ROW_H, width: COL_W, height: HEIGHT - ROW_H }, action: { type: 'postback', data: 'action=master:search&q=', displayText: '查詢' } },
-  { bounds: { x: COL_W * 2, y: ROW_H, width: WIDTH - COL_W * 2, height: HEIGHT - ROW_H }, action: { type: 'postback', data: 'action=quotation:tracking', displayText: '報價追蹤' } },
+  { bounds: { x: COL_W * 2, y: ROW_H, width: WIDTH - COL_W * 2, height: HEIGHT - ROW_H }, action: { type: 'postback', data: 'action=management:menu', displayText: '管理' } },
 ];
 
 const MENU_DEFINITION = {

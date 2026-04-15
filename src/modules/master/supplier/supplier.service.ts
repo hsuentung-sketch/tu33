@@ -74,3 +74,18 @@ export async function deactivate(tenantId: string, id: string) {
     data: { isActive: false },
   });
 }
+
+export async function findByName(tenantId: string, query: string) {
+  return prisma.supplier.findMany({
+    where: {
+      tenantId,
+      isActive: true,
+      OR: [
+        { name: { contains: query, mode: 'insensitive' } },
+        { contactName: { contains: query, mode: 'insensitive' } },
+      ],
+    },
+    orderBy: { name: 'asc' },
+    take: 20,
+  });
+}

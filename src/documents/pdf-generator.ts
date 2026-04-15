@@ -169,7 +169,7 @@ function drawInfoGrid(
   const colW = PAGE.contentWidth / 2;
   const labelW = 58;
 
-  doc.lineWidth(0.5).strokeColor('#888');
+  doc.lineWidth(0.9).strokeColor('#333');
   doc.rect(PAGE.left, startY, PAGE.contentWidth, rowH * rows).stroke();
   // vertical split between left/right columns
   doc.moveTo(PAGE.left + colW, startY).lineTo(PAGE.left + colW, startY + rowH * rows).stroke();
@@ -183,11 +183,11 @@ function drawInfoGrid(
     const l = left[i];
     const r = right[i];
     if (l) {
-      doc.fillColor('#555').text(l.label, PAGE.left + 6, y + 6, { width: labelW });
+      doc.fillColor('#222').text(l.label, PAGE.left + 6, y + 6, { width: labelW });
       doc.fillColor('#000').text(l.value, PAGE.left + 6 + labelW, y + 6, { width: colW - labelW - 10 });
     }
     if (r) {
-      doc.fillColor('#555').text(r.label, PAGE.left + colW + 6, y + 6, { width: labelW });
+      doc.fillColor('#222').text(r.label, PAGE.left + colW + 6, y + 6, { width: labelW });
       doc.fillColor('#000').text(r.value, PAGE.left + colW + 6 + labelW, y + 6, { width: colW - labelW - 10 });
     }
   }
@@ -220,7 +220,7 @@ function drawItemTable(
 
   // header row
   doc.save();
-  doc.rect(PAGE.left, startY, PAGE.contentWidth, headerH).fillAndStroke('#F2F2F2', '#888');
+  doc.rect(PAGE.left, startY, PAGE.contentWidth, headerH).fillAndStroke('#DCE3EE', '#333');
   doc.restore();
   doc.fillColor('#000').fontSize(10);
   columns.forEach((c, i) => {
@@ -230,7 +230,7 @@ function drawItemTable(
     });
   });
   // header column dividers
-  doc.lineWidth(0.5).strokeColor('#888');
+  doc.lineWidth(0.9).strokeColor('#333');
   for (let i = 1; i < xs.length - 1; i++) {
     doc.moveTo(xs[i], startY).lineTo(xs[i], startY + headerH).stroke();
   }
@@ -270,13 +270,13 @@ function drawTotals(
   const x = PAGE.right - blockW;
   const labelW = 120;
 
-  doc.lineWidth(0.5).strokeColor('#888');
+  doc.lineWidth(0.9).strokeColor('#333');
   doc.rect(x, startY, blockW, rowH * 3).stroke();
   doc.moveTo(x, startY + rowH).lineTo(x + blockW, startY + rowH).stroke();
   doc.moveTo(x, startY + rowH * 2).lineTo(x + blockW, startY + rowH * 2).stroke();
   doc.moveTo(x + labelW, startY).lineTo(x + labelW, startY + rowH * 3).stroke();
 
-  doc.fillColor('#555').fontSize(10);
+  doc.fillColor('#222').fontSize(10);
   doc.text('小計', x + 6, startY + 6, { width: labelW - 12 });
   doc.text('營業稅 (5%)', x + 6, startY + rowH + 6, { width: labelW - 12 });
   doc.fillColor('#000').fontSize(11);
@@ -349,7 +349,7 @@ export function generateQuotationPdf(data: QuotationPdfData): InstanceType<typeo
   terms.forEach((t) => { doc.text(t, PAGE.left, y); y += 14; });
 
   if (data.pdfFooter) {
-    doc.fontSize(8).fillColor('#888').text(data.pdfFooter, PAGE.left, 800, { width: PAGE.contentWidth, align: 'center' });
+    doc.fontSize(8).fillColor('#555').text(data.pdfFooter, PAGE.left, 800, { width: PAGE.contentWidth, align: 'center' });
   }
   return doc;
 }
@@ -404,7 +404,7 @@ export function generateSalesOrderPdf(data: SalesOrderPdfData): InstanceType<typ
   doc.text(`收貨人：${data.receivedBy ?? ''}`, PAGE.left + PAGE.contentWidth / 2, y);
 
   if (data.pdfFooter) {
-    doc.fontSize(8).fillColor('#888').text(data.pdfFooter, PAGE.left, 800, { width: PAGE.contentWidth, align: 'center' });
+    doc.fontSize(8).fillColor('#555').text(data.pdfFooter, PAGE.left, 800, { width: PAGE.contentWidth, align: 'center' });
   }
   return doc;
 }
@@ -455,7 +455,7 @@ export function generatePurchaseOrderPdf(data: PurchaseOrderPdfData): InstanceTy
   y = drawTotals(doc, y + 8, data.subtotal, data.taxAmount, data.totalAmount);
 
   if (data.pdfFooter) {
-    doc.fontSize(8).fillColor('#888').text(data.pdfFooter, PAGE.left, 800, { width: PAGE.contentWidth, align: 'center' });
+    doc.fontSize(8).fillColor('#555').text(data.pdfFooter, PAGE.left, 800, { width: PAGE.contentWidth, align: 'center' });
   }
   return doc;
 }

@@ -7,7 +7,8 @@ import { handleQuotationCommand } from './quotation.handler.js';
 import { handleSalesCommand, handleSalesText } from './sales.handler.js';
 import { handlePurchaseCommand, handlePurchaseText } from './purchase.handler.js';
 import { handleAccountingCommand, handleAccountingText } from './accounting.handler.js';
-import { handleMasterCommand } from './master.handler.js';
+import { handleMasterCommand, handleMasterText } from './master.handler.js';
+import { handleManagementCommand } from './management.handler.js';
 import { handleVoiceMessage, handleImageMessage } from './media.handler.js';
 
 type WebhookEvent = webhook.Event;
@@ -110,6 +111,8 @@ async function handlePostback(event: PostbackEvent, tenant: HandlerTenant): Prom
     await handleAccountingCommand(action, ctx);
   } else if (action.startsWith('master:')) {
     await handleMasterCommand(action, ctx);
+  } else if (action.startsWith('management:')) {
+    await handleManagementCommand(action, ctx);
   } else {
     logger.warn('Unknown postback action', { action });
   }
@@ -130,6 +133,7 @@ async function routeTextCommand(text: string, ctx: TextCommandContext): Promise<
   if (await handleSalesText(text, ctx)) return;
   if (await handlePurchaseText(text, ctx)) return;
   if (await handleAccountingText(text, ctx)) return;
+  if (await handleMasterText(text, ctx)) return;
 
   if (text.startsWith('報價')) {
     return handleQuotationCommand('quotation:menu', { ...ctx, event: pseudoEvent, params: new URLSearchParams() });
@@ -142,6 +146,9 @@ async function routeTextCommand(text: string, ctx: TextCommandContext): Promise<
   }
   if (text.startsWith('帳務')) {
     return handleAccountingCommand('accounting:menu', { ...ctx, event: pseudoEvent, params: new URLSearchParams() });
+  }
+  if (text.startsWith('管理')) {
+    return handleManagementCommand('management:menu', { ...ctx, event: pseudoEvent, params: new URLSearchParams() });
   }
   if (text.startsWith('查詢')) {
     const q = text.replace(/^查詢\s*/, '').trim();

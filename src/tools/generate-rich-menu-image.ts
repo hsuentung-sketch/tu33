@@ -34,7 +34,7 @@ const CELLS: Cell[] = [
   { x: COL_W * 2, y: 0,     w: WIDTH - COL_W * 2, h: ROW_H,             label: '進貨',     sub: 'Purchase',   fill: '#6A1B9A' },
   { x: 0,         y: ROW_H, w: COL_W,             h: HEIGHT - ROW_H,    label: '帳務',     sub: 'Accounting', fill: '#E65100' },
   { x: COL_W,     y: ROW_H, w: COL_W,             h: HEIGHT - ROW_H,    label: '查詢',     sub: 'Search',     fill: '#00838F' },
-  { x: COL_W * 2, y: ROW_H, w: WIDTH - COL_W * 2, h: HEIGHT - ROW_H,    label: '報價追蹤', sub: 'Tracking',   fill: '#AD1457', fontSize: 170 },
+  { x: COL_W * 2, y: ROW_H, w: WIDTH - COL_W * 2, h: HEIGHT - ROW_H,    label: '管理',     sub: 'Manage',     fill: '#AD1457' },
 ];
 
 function buildSvg(): string {
