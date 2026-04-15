@@ -96,12 +96,10 @@
         ...opts,
         headers: { ...(opts.headers || {}), Authorization: `Bearer ${token}` },
       });
-      if (res.status === 401 && liff.isLoggedIn) {
-        // Token likely expired — force a re-login so we get a new id-token.
-        try { liff.logout(); } catch (_) { /* noop */ }
-        liff.login();
-        return res; // caller will see 401; we're navigating away anyway
-      }
+      // NOTE: we intentionally do not auto-logout on 401 — if the root
+      // cause isn't token expiry (e.g. tenant/employee misconfig) a
+      // re-login creates an infinite loop. Caller surfaces the error
+      // message from res.json().error.message for debugging.
       return res;
     }
 
@@ -239,11 +237,12 @@
       }
       const res = await authedFetch(`/api/customers?q=${encodeURIComponent(q)}`);
       if (!res.ok) {
-        if (res.status === 401) {
-          hintEl.textContent = '登入逾時，重新登入中…';
-        } else {
-          hintEl.textContent = '搜尋失敗（' + res.status + '）';
-        }
+        let detail = '';
+        try {
+          const j = await res.json();
+          detail = j?.error?.message ? `：${j.error.message}` : '';
+        } catch (_) { /* noop */ }
+        hintEl.textContent = `搜尋失敗（${res.status}）${detail}`;
         return;
       }
       const list = await res.json();

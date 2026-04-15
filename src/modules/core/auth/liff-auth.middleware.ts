@@ -3,6 +3,7 @@ import { prisma } from '../../../shared/prisma.js';
 import { UnauthorizedError, ForbiddenError } from '../../../shared/errors.js';
 import { getTenantSettings } from '../../../shared/utils.js';
 import { runWithAuditContext } from '../../../shared/audit.js';
+import { logger } from '../../../shared/logger.js';
 
 /**
  * LIFF authentication: expects `Authorization: Bearer <LIFF ID token>`.
@@ -25,7 +26,7 @@ export async function liffAuthMiddleware(
 
     const idToken = match[1];
     const unverified = decodeJwtPayload(idToken);
-    if (!unverified.aud) throw new UnauthorizedError('Invalid LIFF token');
+    if (!unverified.aud) throw new UnauthorizedError('Invalid LIFF token (no aud)');
 
     // LIFF tokens are issued by a LINE Login channel, not the Messaging API
     // channel. We look up tenant by either the messaging channel id (legacy)
@@ -39,22 +40,32 @@ export async function liffAuthMiddleware(
         ],
       },
     });
-    if (!tenant) throw new ForbiddenError('Tenant for this LIFF channel not configured');
+    if (!tenant) {
+      logger.warn('LIFF auth: no tenant matches aud', { aud: unverified.aud });
+      throw new UnauthorizedError(`找不到對應此 LIFF channel 的租戶 (aud=${unverified.aud})`);
+    }
 
     const verifyRes = await fetch('https://api.line.me/oauth2/v2.1/verify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ id_token: idToken, client_id: unverified.aud }),
     });
-    if (!verifyRes.ok) throw new UnauthorizedError('LIFF token verification failed');
+    if (!verifyRes.ok) {
+      const bodyText = await verifyRes.text().catch(() => '');
+      logger.warn('LIFF auth: LINE verify failed', { status: verifyRes.status, body: bodyText.slice(0, 200) });
+      throw new UnauthorizedError(`LINE token 驗證失敗 (${verifyRes.status}): ${bodyText.slice(0, 120)}`);
+    }
 
     const payload = (await verifyRes.json()) as { sub?: string };
-    if (!payload.sub) throw new UnauthorizedError('Invalid LIFF token payload');
+    if (!payload.sub) throw new UnauthorizedError('LIFF token 無 sub 欄位');
 
     const employee = await prisma.employee.findFirst({
       where: { tenantId: tenant.id, lineUserId: payload.sub, isActive: true },
     });
-    if (!employee) throw new UnauthorizedError('LINE user is not bound to an employee');
+    if (!employee) {
+      logger.warn('LIFF auth: employee not bound', { tenantId: tenant.id, lineUserId: payload.sub });
+      throw new UnauthorizedError(`LINE 使用者 (${payload.sub.slice(0, 8)}…) 未綁定員工帳號`);
+    }
 
     req.tenantId = tenant.id;
     req.employee = {
