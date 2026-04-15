@@ -87,6 +87,11 @@ export async function findByName(
   query: string,
   opts: { createdBy?: string } = {},
 ) {
+  // Explicit select: keeps the LIFF autocomplete payload small AND
+  // protects against the case where a newly-added column (e.g.
+  // `createdBy`) hasn't been pushed to the production DB yet — the
+  // default `findMany` without `select` would SELECT every column and
+  // 500 on the missing one.
   return prisma.customer.findMany({
     where: {
       tenantId,
@@ -96,6 +101,19 @@ export async function findByName(
         { name: { contains: query, mode: 'insensitive' } },
         { contactName: { contains: query, mode: 'insensitive' } },
       ],
+    },
+    select: {
+      id: true,
+      name: true,
+      contactName: true,
+      phone: true,
+      email: true,
+      taxId: true,
+      zipCode: true,
+      address: true,
+      paymentDays: true,
+      grade: true,
+      tags: true,
     },
     orderBy: { name: 'asc' },
     take: 20,

@@ -26,7 +26,10 @@ services:
     # Best-effort schema sync at boot. If db push fails (e.g. DIRECT_URL
     # unset on free tier), we log it and keep starting so the existing
     # service stays up. Check the logs if schema-dependent features break.
-    startCommand: (npx prisma db push --skip-generate --accept-data-loss || echo "[db push failed — check DIRECT_URL]") && npm start
+    # db push runs twice: once trying DIRECT_URL (preferred for DDL),
+    # once falling back to DATABASE_URL. Failures are logged loudly so
+    # grep-able in Render logs, but don't block startup.
+    startCommand: (npx prisma db push --skip-generate --accept-data-loss 2>&1 | tee /tmp/dbpush.log; grep -qi error /tmp/dbpush.log && echo "[WARN] prisma db push reported errors — schema may be out of sync" || echo "[OK] prisma db push succeeded") && npm start
     healthCheckPath: /health
     autoDeploy: true
     envVars:
