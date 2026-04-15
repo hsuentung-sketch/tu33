@@ -8,7 +8,7 @@ import { handleSalesCommand, handleSalesText } from './sales.handler.js';
 import { handlePurchaseCommand, handlePurchaseText } from './purchase.handler.js';
 import { handleAccountingCommand, handleAccountingText } from './accounting.handler.js';
 import { handleMasterCommand, handleMasterText } from './master.handler.js';
-import { handleManagementCommand } from './management.handler.js';
+import { handleManagementCommand, handleManagementText } from './management.handler.js';
 import { handleVoiceMessage, handleImageMessage } from './media.handler.js';
 
 type WebhookEvent = webhook.Event;
@@ -134,6 +134,7 @@ async function routeTextCommand(text: string, ctx: TextCommandContext): Promise<
   if (await handlePurchaseText(text, ctx)) return;
   if (await handleAccountingText(text, ctx)) return;
   if (await handleMasterText(text, ctx)) return;
+  if (await handleManagementText(text, ctx)) return;
 
   if (text.startsWith('報價')) {
     return handleQuotationCommand('quotation:menu', { ...ctx, event: pseudoEvent, params: new URLSearchParams() });

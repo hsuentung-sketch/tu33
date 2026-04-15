@@ -19,7 +19,16 @@ export interface OcrCard {
 }
 
 export interface Session {
-  flow: 'sales:create' | 'purchase:create' | 'quotation:create' | 'ocr:customer' | 'ar:pay' | 'ap:pay' | 'master:search';
+  flow:
+    | 'sales:create'
+    | 'purchase:create'
+    | 'quotation:create'
+    | 'ocr:customer'
+    | 'ar:pay'
+    | 'ap:pay'
+    | 'master:search'
+    | 'mgmt:emp:add'
+    | 'mgmt:sup:add';
   step: 'party' | 'items' | 'confirm';
   data: {
     partyId?: string;
@@ -34,6 +43,8 @@ export interface Session {
     pendingProduct?: { name: string; salePrice: number; costPrice: number };
     /** For 'master:search' flow: which dataset to query next. */
     searchMode?: 'customer' | 'product' | 'ar';
+    /** For multi-step add flows (mgmt:emp:add, mgmt:sup:add). */
+    pendingCreate?: { stage: string; draft: Record<string, any> };
     ocrCard?: OcrCard;
   };
   updatedAt: number;

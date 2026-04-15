@@ -89,7 +89,6 @@ async function replySearchProduct(
     if (p.code) bits.push(`   編號：${p.code}`);
     if (p.category) bits.push(`   類別：${p.category}`);
     bits.push(`   售價：${Number(p.salePrice).toLocaleString()}`);
-    bits.push(`   進價：${Number(p.costPrice).toLocaleString()}`);
     if (p.note) bits.push(`   備註：${p.note}`);
     return bits.join('\n');
   }).join('\n\n');

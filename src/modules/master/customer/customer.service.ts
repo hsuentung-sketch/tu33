@@ -4,12 +4,13 @@ import { NotFoundError } from '../../../shared/errors.js';
 
 export async function list(
   tenantId: string,
-  opts: { includeInactive?: boolean } = {},
+  opts: { includeInactive?: boolean; createdBy?: string } = {},
 ) {
   return prisma.customer.findMany({
     where: {
       tenantId,
       ...(opts.includeInactive ? {} : { isActive: true }),
+      ...(opts.createdBy ? { createdBy: opts.createdBy } : {}),
     },
     orderBy: { name: 'asc' },
   });
@@ -39,6 +40,7 @@ export async function create(
     email?: string;
     grade?: string;
     tags?: string[];
+    createdBy?: string;
   },
 ) {
   return prisma.customer.create({
@@ -55,6 +57,7 @@ export async function create(
       email: data.email,
       grade: data.grade ?? 'B',
       tags: data.tags ?? [],
+      createdBy: data.createdBy,
     },
   });
 }
@@ -79,11 +82,16 @@ export async function deactivate(tenantId: string, id: string) {
   });
 }
 
-export async function findByName(tenantId: string, query: string) {
+export async function findByName(
+  tenantId: string,
+  query: string,
+  opts: { createdBy?: string } = {},
+) {
   return prisma.customer.findMany({
     where: {
       tenantId,
       isActive: true,
+      ...(opts.createdBy ? { createdBy: opts.createdBy } : {}),
       OR: [
         { name: { contains: query, mode: 'insensitive' } },
         { contactName: { contains: query, mode: 'insensitive' } },

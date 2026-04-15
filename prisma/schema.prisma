@@ -117,6 +117,10 @@ model Customer {
   email       String?
   grade       String?  @default("B") // A/B/C
   tags        String[] // industry tags
+  // Employee id of whoever created this customer. Used to scope SALES
+  // visibility: sales users only see customers they created; ADMIN
+  // sees all. Nullable for legacy data and system-created records.
+  createdBy   String?
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

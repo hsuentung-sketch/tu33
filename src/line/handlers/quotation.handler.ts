@@ -2,6 +2,65 @@ import { logger } from '../../shared/logger.js';
 import { prisma } from '../../shared/prisma.js';
 import { runWithAuditContext } from '../../shared/audit.js';
 import * as quotationService from '../../modules/sales/quotation/quotation.service.js';
+import { generateQuotationPdf } from '../../documents/pdf-generator.js';
+import { sendDocumentEmail } from '../../documents/email-sender.js';
+import { getTenantSettings } from '../../shared/utils.js';
+
+async function buildQuotationPdfBuffer(tenantId: string, quotationId: string): Promise<{ buffer: Buffer; filename: string; quotationNo: string; customer: { name: string; email: string | null } } | null> {
+  const q = await prisma.quotation.findFirst({
+    where: { id: quotationId, tenantId },
+    include: { items: { orderBy: { sortOrder: 'asc' } }, customer: true },
+  });
+  if (!q) return null;
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+  const settings = getTenantSettings(tenant?.settings);
+  const companyHeader = settings.companyHeader || tenant?.companyName || '';
+
+  const doc = generateQuotationPdf({
+    companyHeader,
+    quotationNo: q.quotationNo,
+    date: q.createdAt,
+    customer: {
+      name: q.customer.name,
+      contactName: q.customer.contactName,
+      zipCode: q.customer.zipCode,
+      address: q.customer.address,
+    },
+    salesPerson: q.salesPerson,
+    salesPhone: q.salesPhone,
+    items: q.items.map((it) => ({
+      productName: it.productName,
+      quantity: it.quantity,
+      unitPrice: it.unitPrice,
+      amount: it.amount,
+      note: it.note,
+    })),
+    subtotal: Number(q.subtotal),
+    taxAmount: Number(q.taxAmount),
+    totalAmount: Number(q.totalAmount),
+    supplyTime: q.supplyTime,
+    paymentTerms: q.paymentTerms,
+    validUntil: q.validUntil,
+    note: q.note,
+    pdfFooter: settings.pdfFooter,
+    isDraft: q.status === 'DRAFT',
+  });
+
+  const chunks: Buffer[] = [];
+  const buffer: Buffer = await new Promise((resolve, reject) => {
+    doc.on('data', (c: Buffer) => chunks.push(c));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+    doc.end();
+  });
+
+  return {
+    buffer,
+    filename: `quotation-${q.quotationNo}.pdf`,
+    quotationNo: q.quotationNo,
+    customer: { name: q.customer.name, email: q.customer.email },
+  };
+}
 
 /**
  * Quotation handler: list recent quotations + one-tap convert to sales order.
@@ -92,6 +151,54 @@ export async function handleQuotationCommand(action: string, ctx: any): Promise<
         await client.replyMessage({
           replyToken: event.replyToken,
           messages: [{ type: 'text', text: `轉換失敗：${(err as Error).message}` }],
+        });
+      }
+      return;
+    }
+
+    case 'quotation:email-skip': {
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: '已取消寄送 Email。' }],
+      });
+      return;
+    }
+
+    case 'quotation:email': {
+      const id = params.get('id');
+      if (!id) return;
+      try {
+        const pdf = await buildQuotationPdfBuffer(tenantId, id);
+        if (!pdf) {
+          await client.replyMessage({
+            replyToken: event.replyToken,
+            messages: [{ type: 'text', text: '找不到報價單。' }],
+          });
+          return;
+        }
+        if (!pdf.customer.email) {
+          await client.replyMessage({
+            replyToken: event.replyToken,
+            messages: [{ type: 'text', text: `客戶「${pdf.customer.name}」沒有 Email，請先到客戶管理補填。` }],
+          });
+          return;
+        }
+        await sendDocumentEmail({
+          to: pdf.customer.email,
+          subject: `報價單 ${pdf.quotationNo}`,
+          body: `您好，\n\n附件為本次報價單 ${pdf.quotationNo}，請查收。\n\n謝謝！`,
+          pdfBuffer: pdf.buffer,
+          pdfFilename: pdf.filename,
+        });
+        await client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: `✉️ 已寄送報價單至 ${pdf.customer.email}` }],
+        });
+      } catch (err) {
+        logger.error('Send quotation email failed', { error: (err as Error).message });
+        await client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: `寄送失敗：${(err as Error).message}` }],
         });
       }
       return;

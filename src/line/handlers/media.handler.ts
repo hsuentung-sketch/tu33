@@ -253,6 +253,7 @@ export async function createCustomerFromOcrSession(ctx: {
         email: card.email,
         taxId: card.taxId,
         address: card.address,
+        createdBy: ctx.employee.id,
       },
       update: {
         contactName: card.contactName ?? undefined,

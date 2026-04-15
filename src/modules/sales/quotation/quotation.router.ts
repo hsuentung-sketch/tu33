@@ -98,7 +98,7 @@ quotationRouter.post('/', async (req: Request, res: Response, next: NextFunction
     // have a persisted quotation and a usable JSON response, so any
     // push failure (missing token, user not linked, LINE API blip) is
     // logged but does not fail the request.
-    void pushQuotationPdf(req.tenantId, req.employee.lineUserId, result.quotationNo, pdfUrl)
+    void pushQuotationPdf(req.tenantId, req.employee.lineUserId, result.id, result.quotationNo, pdfUrl)
       .catch((err) => logger.warn('LINE push failed', { error: (err as Error).message }));
 
     res.status(201).json({ ...result, pdfUrl });
@@ -165,6 +165,7 @@ quotationRouter.post('/:id/convert', async (req: Request, res: Response, next: N
 async function pushQuotationPdf(
   tenantId: string,
   lineUserId: string | null,
+  quotationId: string,
   quotationNo: string,
   pdfUrl: string,
 ): Promise<void> {
@@ -183,9 +184,23 @@ async function pushQuotationPdf(
   const client = getLineClient(tenant.lineAccessToken);
   await client.pushMessage({
     to: lineUserId,
-    messages: [{
-      type: 'text',
-      text: `✅ 報價單已建立\n單號：${quotationNo}\n\n📄 下載 PDF：\n${pdfUrl}`,
-    }],
+    messages: [
+      {
+        type: 'text',
+        text: `✅ 報價單已建立\n單號：${quotationNo}\n\n📄 下載 PDF：\n${pdfUrl}`,
+      },
+      {
+        type: 'template',
+        altText: '寄送 Email 給客戶？',
+        template: {
+          type: 'confirm',
+          text: `要將此報價單以 Email 寄送給客戶嗎？`,
+          actions: [
+            { type: 'postback', label: '寄送', data: `action=quotation:email&id=${quotationId}` },
+            { type: 'postback', label: '先不寄', data: 'action=quotation:email-skip' },
+          ],
+        },
+      },
+    ],
   });
 }
