@@ -641,22 +641,70 @@ async function viewAccount(main, path, title, partyLabel) {
   async function reload() {
     const list = await api.get(`/${path}${showOverdue.checked ? '/overdue' : ''}`);
     tbody.innerHTML = '';
-    if (!list.length) tbody.append(el('tr', {}, el('td', { colspan: '8', style: 'text-align:center;color:var(--muted);padding:24px;' }, '無資料')));
+    if (!list.length) {
+      tbody.append(el('tr', {}, el('td', { colspan: '8', style: 'text-align:center;color:var(--muted);padding:24px;' }, '無資料')));
+      return;
+    }
+
+    // Group by party + billingYear + billingMonth so the user can see each
+    // month's total per customer/supplier. Subtotal row is appended after
+    // each group's detail rows.
+    const groups = new Map();
     for (const a of list) {
-      const isOverdue = !a.isPaid && a.dueDate && new Date(a.dueDate) < new Date();
-      tbody.append(el('tr', {},
-        el('td', {}, (a.customer?.name || a.supplier?.name) ?? ''),
-        el('td', {}, a.salesOrder?.orderNo || a.purchaseOrder?.orderNo || ''),
-        el('td', {}, `${a.billingYear}/${String(a.billingMonth).padStart(2, '0')}`),
-        el('td', { class: 'num' }, fmtMoney(a.amount)),
-        el('td', {}, fmtDate(a.dueDate)),
-        el('td', {}, a.isPaid
-          ? el('span', { class: 'badge ok' }, '已結案')
-          : (isOverdue ? el('span', { class: 'badge bad' }, '已逾期') : el('span', { class: 'badge warn' }, '未收款'))),
-        el('td', {}, a.invoiceNo || ''),
-        el('td', { class: 'actions' },
-          !a.isPaid ? el('button', { class: 'btn small primary', onClick: () => markPaid(a) }, '標記已付') : null,
-        ),
+      const partyName = (a.customer?.name || a.supplier?.name) ?? '(未知)';
+      const key = `${partyName}__${a.billingYear}__${a.billingMonth}`;
+      if (!groups.has(key)) {
+        groups.set(key, { partyName, billingYear: a.billingYear, billingMonth: a.billingMonth, items: [] });
+      }
+      groups.get(key).items.push(a);
+    }
+
+    const sortedGroups = [...groups.values()].sort((g1, g2) => {
+      if (g1.partyName !== g2.partyName) return g1.partyName.localeCompare(g2.partyName, 'zh-Hant');
+      if (g1.billingYear !== g2.billingYear) return g2.billingYear - g1.billingYear;
+      return g2.billingMonth - g1.billingMonth;
+    });
+
+    for (const group of sortedGroups) {
+      group.items.sort((x, y) => new Date(x.dueDate).getTime() - new Date(y.dueDate).getTime());
+
+      let subtotal = 0;
+      let paidCount = 0;
+      let unpaidCount = 0;
+      let overdueCount = 0;
+
+      for (const a of group.items) {
+        const isOverdue = !a.isPaid && a.dueDate && new Date(a.dueDate) < new Date();
+        subtotal += Number(a.amount) || 0;
+        if (a.isPaid) paidCount++;
+        else { unpaidCount++; if (isOverdue) overdueCount++; }
+
+        tbody.append(el('tr', {},
+          el('td', {}, group.partyName),
+          el('td', {}, a.salesOrder?.orderNo || a.purchaseOrder?.orderNo || ''),
+          el('td', {}, `${a.billingYear}/${String(a.billingMonth).padStart(2, '0')}`),
+          el('td', { class: 'num' }, fmtMoney(a.amount)),
+          el('td', {}, fmtDate(a.dueDate)),
+          el('td', {}, a.isPaid
+            ? el('span', { class: 'badge ok' }, '已結案')
+            : (isOverdue ? el('span', { class: 'badge bad' }, '已逾期') : el('span', { class: 'badge warn' }, '未收款'))),
+          el('td', {}, a.invoiceNo || ''),
+          el('td', { class: 'actions' },
+            !a.isPaid ? el('button', { class: 'btn small primary', onClick: () => markPaid(a) }, '標記已付') : null,
+          ),
+        ));
+      }
+
+      const statusParts = [];
+      if (unpaidCount) statusParts.push(`${unpaidCount} 未收款${overdueCount ? `（含 ${overdueCount} 逾期）` : ''}`);
+      if (paidCount) statusParts.push(`${paidCount} 已結案`);
+
+      const monthLabel = `${group.billingYear}/${String(group.billingMonth).padStart(2, '0')}`;
+      tbody.append(el('tr', { class: 'subtotal-row' },
+        el('td', { colspan: '3', style: 'text-align:right;font-weight:600;background:#eef2ff;color:#1e3a8a;' },
+          `${group.partyName} ${monthLabel} 小計（${group.items.length} 筆）`),
+        el('td', { class: 'num', style: 'font-weight:600;background:#eef2ff;color:#1e3a8a;' }, fmtMoney(subtotal)),
+        el('td', { colspan: '4', style: 'font-size:12px;color:#475569;background:#eef2ff;' }, statusParts.join('　/　')),
       ));
     }
   }
