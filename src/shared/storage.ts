@@ -28,13 +28,18 @@ export async function uploadProductDoc(
   bytes: Buffer,
   mimeType: string,
 ): Promise<void> {
+  const bucket = config.supabase.productDocsBucket;
   const { error } = await client()
-    .storage.from(config.supabase.productDocsBucket)
+    .storage.from(bucket)
     .upload(storagePath, bytes, {
       contentType: mimeType,
       upsert: false,
     });
-  if (error) throw new Error(`Storage upload failed: ${error.message}`);
+  if (error) {
+    // Include bucket + url host so misconfigured env vars surface clearly.
+    const host = (() => { try { return new URL(config.supabase.url).host; } catch { return '?'; } })();
+    throw new Error(`Storage upload failed (bucket=${bucket}, host=${host}): ${error.message}`);
+  }
 }
 
 export async function deleteProductDoc(storagePath: string): Promise<void> {
