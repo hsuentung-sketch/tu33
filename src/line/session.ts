@@ -27,6 +27,7 @@ export interface Session {
     | 'ar:pay'
     | 'ap:pay'
     | 'master:search'
+    | 'master:product-list'
     | 'mgmt:emp:add'
     | 'mgmt:sup:add';
   step: 'party' | 'items' | 'confirm';
@@ -46,6 +47,12 @@ export interface Session {
     /** For multi-step add flows (mgmt:emp:add, mgmt:sup:add). */
     pendingCreate?: { stage: string; draft: Record<string, any> };
     ocrCard?: OcrCard;
+    /**
+     * For 'master:product-list' flow: cached product id list so that
+     * pagination postbacks don't re-query the whole table every page.
+     * 30-min TTL is plenty for browsing.
+     */
+    productListIds?: string[];
   };
   updatedAt: number;
 }

@@ -41,7 +41,7 @@ export async function handleMasterText(text: string, ctx: any): Promise<boolean>
   const isAll = ALL_KEYWORDS.has(q) || q === '';
 
   if (mode === 'customer') return replySearchCustomer(client, event, tenantId, q, isAll);
-  if (mode === 'product') return replySearchProduct(client, event, tenantId, q, isAll);
+  if (mode === 'product') return replySearchProduct(client, event, tenantId, q, isAll, lineUserId);
   if (mode === 'ar') return replySearchAr(client, event, tenantId, q, isAll);
 
   // No mode set (legacy empty-q path) — fall through to combined search.
@@ -85,8 +85,11 @@ async function replySearchCustomer(
   return true;
 }
 
+const PRODUCT_LIST_PAGE_SIZE = 25;
+
 async function replySearchProduct(
   client: any, event: any, tenantId: string, query: string, isAll: boolean,
+  lineUserId?: string,
 ): Promise<boolean> {
   const products = isAll
     ? await productService.list(tenantId)
@@ -100,7 +103,22 @@ async function replySearchProduct(
     return true;
   }
 
-  // Flex carousel — up to 10 bubbles, each with document download buttons.
+  // 「全部」→ 品名列表模式（使用者點選某筆才顯示完整詳情）。
+  // 關鍵字搜尋結果 ≤ 20 筆，維持 carousel 顯示完整卡片較直接。
+  if (isAll) {
+    if (lineUserId) {
+      session.set(tenantId, lineUserId, {
+        flow: 'master:product-list',
+        step: 'party',
+        data: { items: [], productListIds: products.map((p) => p.id) },
+        updatedAt: Date.now(),
+      });
+    }
+    await sendProductListPage(client, event.replyToken, products, 0);
+    return true;
+  }
+
+  // 關鍵字搜尋：Flex carousel（原本行為）
   const shown = products.slice(0, 10);
   const docsByProduct = await loadDocsByProduct(tenantId, shown.map((p) => p.id));
   const bubbles = shown.map((p) => buildProductBubble(p, docsByProduct.get(p.id) ?? []));
@@ -124,6 +142,117 @@ async function replySearchProduct(
 
   await client.replyMessage({ replyToken: event.replyToken, messages });
   return true;
+}
+
+/**
+ * Send the N-th page of the product list as a single Flex bubble. Each
+ * row is a postback button that, when tapped, replies with the full
+ * product detail bubble (see `master:product-select`).
+ */
+async function sendProductListPage(
+  client: any,
+  replyToken: string,
+  products: Array<{ id: string; name: string; code: string }>,
+  page: number,
+): Promise<void> {
+  const total = products.length;
+  const totalPages = Math.max(1, Math.ceil(total / PRODUCT_LIST_PAGE_SIZE));
+  const clamped = Math.min(Math.max(0, page), totalPages - 1);
+  const slice = products.slice(
+    clamped * PRODUCT_LIST_PAGE_SIZE,
+    (clamped + 1) * PRODUCT_LIST_PAGE_SIZE,
+  );
+
+  await client.replyMessage({
+    replyToken,
+    messages: [{
+      type: 'flex',
+      altText: `產品清單（共 ${total} 筆）`,
+      contents: buildProductListBubble(slice, clamped, totalPages, total),
+    }],
+  });
+}
+
+function buildProductListBubble(
+  products: Array<{ id: string; name: string; code: string }>,
+  page: number,
+  totalPages: number,
+  total: number,
+) {
+  const header = totalPages > 1
+    ? `產品清單（共 ${total} 筆，第 ${page + 1}/${totalPages} 頁）`
+    : `產品清單（共 ${total} 筆）`;
+
+  const rows = products.map((p) => {
+    // LINE button label 上限 40 字，且 bubble 若太長會擠；
+    // 優先顯示品名，過長時改用「code · 品名 slice」。
+    const fullLabel = p.code ? `${p.code}　${p.name}` : p.name;
+    const label = fullLabel.length > 36 ? fullLabel.slice(0, 35) + '…' : fullLabel;
+    return {
+      type: 'button' as const,
+      style: 'link' as const,
+      color: '#1565C0',
+      height: 'sm' as const,
+      action: {
+        type: 'postback' as const,
+        label,
+        data: `action=master:product-select&id=${p.id}`,
+        displayText: `查看：${p.name}`,
+      },
+    };
+  });
+
+  const footerBtns: any[] = [];
+  if (page > 0) {
+    footerBtns.push({
+      type: 'button' as const,
+      style: 'secondary' as const,
+      height: 'sm' as const,
+      action: {
+        type: 'postback' as const,
+        label: '◀ 上一頁',
+        data: `action=master:product-list&page=${page - 1}`,
+        displayText: `產品清單第 ${page} 頁`,
+      },
+    });
+  }
+  if (page < totalPages - 1) {
+    footerBtns.push({
+      type: 'button' as const,
+      style: 'secondary' as const,
+      height: 'sm' as const,
+      action: {
+        type: 'postback' as const,
+        label: '下一頁 ▶',
+        data: `action=master:product-list&page=${page + 1}`,
+        displayText: `產品清單第 ${page + 2} 頁`,
+      },
+    });
+  }
+
+  return {
+    type: 'bubble' as const,
+    size: 'mega' as const,
+    body: {
+      type: 'box' as const,
+      layout: 'vertical' as const,
+      spacing: 'sm' as const,
+      contents: [
+        { type: 'text', text: header, weight: 'bold', size: 'md', wrap: true },
+        { type: 'text', text: '點選品名可查看詳情與下載文件', size: 'xs', color: '#888888' },
+        { type: 'separator', margin: 'sm' },
+        { type: 'box', layout: 'vertical', spacing: 'xs', margin: 'sm', contents: rows },
+      ],
+    },
+    ...(footerBtns.length > 0 ? {
+      footer: {
+        type: 'box' as const,
+        layout: 'horizontal' as const,
+        spacing: 'sm' as const,
+        contents: footerBtns,
+      },
+    } : {}),
+  };
 }
 
 async function loadDocsByProduct(tenantId: string, productIds: string[]) {
@@ -377,6 +506,75 @@ export async function handleMasterCommand(action: string, ctx: any): Promise<voi
           messages: [{ type: 'text', text: `下載失敗：${(err as Error).message}` }],
         });
       }
+      return;
+    }
+
+    case 'master:product-select': {
+      // Tap a row from the "all products" list → show full detail bubble.
+      const productId = params.get('id') || '';
+      if (!productId) {
+        await client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: '產品連結參數缺失。' }],
+        });
+        return;
+      }
+      const product = await prisma.product.findFirst({
+        where: { id: productId, tenantId },
+      });
+      if (!product) {
+        await client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: '找不到該產品（可能已停用）。' }],
+        });
+        return;
+      }
+      const docsMap = await loadDocsByProduct(tenantId, [productId]);
+      const bubble = buildProductBubble(product, docsMap.get(productId) ?? []);
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'flex', altText: `產品：${product.name}`, contents: bubble }],
+      });
+      return;
+    }
+
+    case 'master:product-list': {
+      // Pagination for the "all products" list.
+      const page = Math.max(0, parseInt(params.get('page') || '0', 10));
+      const lineUserId = employee.lineUserId;
+      const s = lineUserId ? session.get(tenantId, lineUserId) : undefined;
+      const cachedIds = s?.flow === 'master:product-list' ? s.data.productListIds : undefined;
+      if (!cachedIds || cachedIds.length === 0) {
+        await client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{
+            type: 'text',
+            text: '產品清單已過期，請重新點「查詢 → 產品」並輸入「全部」。',
+          }],
+        });
+        return;
+      }
+      // Re-fetch the products referenced by the cached ID list so we get
+      // fresh name/price without re-querying the whole table.
+      const rows = await prisma.product.findMany({
+        where: { tenantId, id: { in: cachedIds }, isActive: true },
+        select: { id: true, name: true, code: true },
+      });
+      // Preserve the original order captured at list time.
+      const byId = new Map(rows.map((p) => [p.id, p]));
+      const products = cachedIds
+        .map((id) => byId.get(id))
+        .filter(Boolean) as Array<{ id: string; name: string; code: string }>;
+      // Refresh session TTL for continued browsing.
+      if (lineUserId) {
+        session.set(tenantId, lineUserId, {
+          flow: 'master:product-list',
+          step: 'party',
+          data: { items: [], productListIds: cachedIds },
+          updatedAt: Date.now(),
+        });
+      }
+      await sendProductListPage(client, event.replyToken, products, page);
       return;
     }
 
