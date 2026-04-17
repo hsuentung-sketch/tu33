@@ -1,6 +1,7 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 import { ValidationError } from '../../../shared/errors.js';
+import { prisma } from '../../../shared/prisma.js';
 import * as salesOrderService from './sales-order.service.js';
 
 export const salesOrderRouter = Router();
@@ -23,10 +24,26 @@ const createSchema = z.object({
 });
 
 const updateSchema = z.object({
+  customerId: z.string().min(1).optional(),
   salesPerson: z.string().min(1).optional(),
-  salesPhone: z.string().optional(),
-  deliveryNote: z.string().optional(),
+  salesPhone: z.string().nullable().optional(),
+  deliveryNote: z.string().nullable().optional(),
+  items: z.array(itemSchema).min(1),
+  reason: z.string().optional(),
 });
+
+const deleteSchema = z.object({ reason: z.string().optional() });
+
+async function assertCanEdit(tenantId: string, id: string, employee: { id: string; role: string }) {
+  const o = await prisma.salesOrder.findFirst({
+    where: { id, tenantId },
+    select: { createdBy: true },
+  });
+  if (!o) throw new ValidationError('銷貨單不存在');
+  if (employee.role !== 'ADMIN' && o.createdBy !== employee.id) {
+    throw new ValidationError('⛔ 僅 ADMIN 或建單人可修改 / 刪除');
+  }
+}
 
 const deliverSchema = z.object({
   deliveredBy: z.string().min(1),
@@ -68,11 +85,31 @@ salesOrderRouter.post('/', async (req: Request, res: Response, next: NextFunctio
 
 salesOrderRouter.put('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    await assertCanEdit(req.tenantId, String(req.params.id), req.employee);
     const parsed = updateSchema.safeParse(req.body);
     if (!parsed.success) {
       throw new ValidationError(parsed.error.issues.map((i) => i.message).join(', '));
     }
-    const result = await salesOrderService.update(req.tenantId, String(req.params.id), parsed.data);
+    const result = await salesOrderService.edit(req.tenantId, String(req.params.id), {
+      ...parsed.data,
+      editedBy: req.employee.id,
+    });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+salesOrderRouter.delete('/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await assertCanEdit(req.tenantId, String(req.params.id), req.employee);
+    const parsed = deleteSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      throw new ValidationError(parsed.error.issues.map((i) => i.message).join(', '));
+    }
+    const result = await salesOrderService.softDelete(
+      req.tenantId, String(req.params.id), req.employee.id, parsed.data.reason,
+    );
     res.json(result);
   } catch (err) {
     next(err);

@@ -32,11 +32,12 @@ export interface QuotationCreateInput {
 
 export async function list(
   tenantId: string,
-  filters: { status?: QuotationStatus; customerId?: string } = {},
+  filters: { status?: QuotationStatus; customerId?: string; includeDeleted?: boolean } = {},
 ) {
   return prisma.quotation.findMany({
     where: {
       tenantId,
+      ...(filters.includeDeleted ? {} : { isDeleted: false }),
       ...(filters.status ? { status: filters.status } : {}),
       ...(filters.customerId ? { customerId: filters.customerId } : {}),
     },
@@ -54,6 +55,97 @@ export async function getById(tenantId: string, id: string) {
     throw new NotFoundError('Quotation', id);
   }
   return quotation;
+}
+
+/**
+ * Edit a quotation — replaces header fields + item list in one transaction.
+ * Rules:
+ *   - Already soft-deleted → reject
+ *   - Already converted to SalesOrder (WON) → reject
+ *   - Status in LOST / CANCELLED → reject
+ *   - Status in TRACKING → requires `reason`
+ * Totals are recomputed from the new item list.
+ */
+export interface QuotationEditInput {
+  customerId?: string;
+  salesPerson?: string;
+  salesPhone?: string | null;
+  supplyTime?: string | null;
+  paymentTerms?: string | null;
+  validUntil?: string | null;
+  note?: string | null;
+  items: QuotationItemInput[];
+  reason?: string;
+  editedBy: string;
+}
+
+export async function edit(tenantId: string, id: string, input: QuotationEditInput) {
+  const existing = await getById(tenantId, id);
+  if (existing.isDeleted) throw new ValidationError('此報價單已刪除');
+  if (existing.salesOrder) throw new ValidationError('此報價單已轉銷貨單，請先刪除銷貨單');
+  if (existing.status === 'LOST' || existing.status === 'CANCELLED') {
+    throw new ValidationError(`狀態 ${existing.status} 不可編輯`);
+  }
+  if (existing.status !== 'DRAFT' && existing.status !== 'SENT') {
+    if (!input.reason || input.reason.trim().length === 0) {
+      throw new ValidationError('此狀態下修改需填寫修改原因');
+    }
+  }
+  if (!input.items?.length) {
+    throw new ValidationError('至少需要一個品項');
+  }
+
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+  if (!tenant) throw new NotFoundError('Tenant', tenantId);
+  const settings = getTenantSettings(tenant.settings);
+
+  const { subtotal, taxAmount, totalAmount } = calculateTotals(
+    input.items.map((i) => ({ quantity: i.quantity, unitPrice: i.unitPrice })),
+    settings.taxRate,
+  );
+
+  return prisma.$transaction(async (tx) => {
+    await tx.quotationItem.deleteMany({ where: { quotationId: id } });
+    return tx.quotation.update({
+      where: { id },
+      data: {
+        ...(input.customerId ? { customerId: input.customerId } : {}),
+        ...(input.salesPerson !== undefined ? { salesPerson: input.salesPerson } : {}),
+        ...(input.salesPhone !== undefined ? { salesPhone: input.salesPhone } : {}),
+        ...(input.supplyTime !== undefined ? { supplyTime: input.supplyTime } : {}),
+        ...(input.paymentTerms !== undefined ? { paymentTerms: input.paymentTerms } : {}),
+        ...(input.validUntil !== undefined ? { validUntil: input.validUntil } : {}),
+        ...(input.note !== undefined ? { note: input.note } : {}),
+        subtotal,
+        taxAmount,
+        totalAmount,
+        items: {
+          create: input.items.map((i, idx) => ({
+            productName: i.productName,
+            quantity: i.quantity,
+            unitPrice: i.unitPrice,
+            amount: i.quantity * i.unitPrice,
+            note: i.note,
+            suggestedPrice: i.suggestedPrice,
+            sortOrder: i.sortOrder ?? idx,
+          })),
+        },
+      },
+      include: { items: true, customer: true },
+    });
+  });
+}
+
+export async function softDelete(
+  tenantId: string, id: string, deletedBy: string, _reason?: string,
+) {
+  const existing = await getById(tenantId, id);
+  if (existing.isDeleted) throw new ValidationError('此報價單已刪除');
+  if (existing.salesOrder) throw new ValidationError('此報價單已轉銷貨單，請先刪除銷貨單');
+  return prisma.quotation.update({
+    where: { id },
+    data: { isDeleted: true, deletedAt: new Date(), deletedBy, status: 'CANCELLED' },
+  });
 }
 
 export async function create(tenantId: string, data: QuotationCreateInput) {

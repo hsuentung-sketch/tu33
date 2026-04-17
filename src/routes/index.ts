@@ -15,6 +15,7 @@ import { inventoryRouter } from '../modules/inventory/inventory.router.js';
 import { statementsRouter } from './statements.router.js';
 import { auditLogRouter } from '../modules/core/audit-log/audit-log.router.js';
 import { errorLogRouter } from '../modules/core/error-log/error-log.router.js';
+import { tenantRouter } from '../modules/core/tenant/tenant.router.js';
 
 export const apiRouter = Router();
 
@@ -48,3 +49,4 @@ apiRouter.use('/inventory', inventoryRouter);
 apiRouter.use('/statements', statementsRouter);
 apiRouter.use('/audit-logs', auditLogRouter);
 apiRouter.use('/error-logs', errorLogRouter);
+apiRouter.use('/tenant', tenantRouter);

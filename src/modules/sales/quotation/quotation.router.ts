@@ -32,14 +32,31 @@ const createSchema = z.object({
 });
 
 const updateSchema = z.object({
+  customerId: z.string().min(1).optional(),
   salesPerson: z.string().min(1).optional(),
-  salesPhone: z.string().optional(),
-  supplyTime: z.string().optional(),
-  paymentTerms: z.string().optional(),
-  validUntil: z.string().optional(),
-  note: z.string().optional(),
-  trackingNote: z.string().optional(),
+  salesPhone: z.string().nullable().optional(),
+  supplyTime: z.string().nullable().optional(),
+  paymentTerms: z.string().nullable().optional(),
+  validUntil: z.string().nullable().optional(),
+  note: z.string().nullable().optional(),
+  items: z.array(itemSchema).min(1),
+  reason: z.string().optional(),
 });
+
+const deleteSchema = z.object({
+  reason: z.string().optional(),
+});
+
+async function assertCanEdit(tenantId: string, id: string, employee: { id: string; role: string }) {
+  const q = await prisma.quotation.findFirst({
+    where: { id, tenantId },
+    select: { createdBy: true, isDeleted: true },
+  });
+  if (!q) throw new ValidationError('報價單不存在');
+  if (employee.role !== 'ADMIN' && q.createdBy !== employee.id) {
+    throw new ValidationError('⛔ 僅 ADMIN 或建單人可修改 / 刪除');
+  }
+}
 
 const statusSchema = z.object({
   status: z.enum(['DRAFT', 'SENT', 'TRACKING', 'WON', 'LOST', 'CANCELLED']),
@@ -109,11 +126,31 @@ quotationRouter.post('/', async (req: Request, res: Response, next: NextFunction
 
 quotationRouter.put('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    await assertCanEdit(req.tenantId, String(req.params.id), req.employee);
     const parsed = updateSchema.safeParse(req.body);
     if (!parsed.success) {
       throw new ValidationError(parsed.error.issues.map((i) => i.message).join(', '));
     }
-    const result = await quotationService.update(req.tenantId, String(req.params.id), parsed.data);
+    const result = await quotationService.edit(req.tenantId, String(req.params.id), {
+      ...parsed.data,
+      editedBy: req.employee.id,
+    });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+quotationRouter.delete('/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await assertCanEdit(req.tenantId, String(req.params.id), req.employee);
+    const parsed = deleteSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      throw new ValidationError(parsed.error.issues.map((i) => i.message).join(', '));
+    }
+    const result = await quotationService.softDelete(
+      req.tenantId, String(req.params.id), req.employee.id, parsed.data.reason,
+    );
     res.json(result);
   } catch (err) {
     next(err);

@@ -1,6 +1,7 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 import { ValidationError } from '../../../shared/errors.js';
+import { prisma } from '../../../shared/prisma.js';
 import * as purchaseOrderService from './purchase-order.service.js';
 
 export const purchaseOrderRouter = Router();
@@ -25,10 +26,26 @@ const createSchema = z.object({
 });
 
 const updateSchema = z.object({
+  supplierId: z.string().min(1).optional(),
   internalStaff: z.string().min(1).optional(),
-  staffPhone: z.string().optional(),
-  deliveryNote: z.string().optional(),
+  staffPhone: z.string().nullable().optional(),
+  deliveryNote: z.string().nullable().optional(),
+  items: z.array(itemSchema).min(1),
+  reason: z.string().optional(),
 });
+
+const deleteSchema = z.object({ reason: z.string().optional() });
+
+async function assertCanEdit(tenantId: string, id: string, employee: { id: string; role: string }) {
+  const o = await prisma.purchaseOrder.findFirst({
+    where: { id, tenantId },
+    select: { createdBy: true },
+  });
+  if (!o) throw new ValidationError('進貨單不存在');
+  if (employee.role !== 'ADMIN' && o.createdBy !== employee.id) {
+    throw new ValidationError('⛔ 僅 ADMIN 或建單人可修改 / 刪除');
+  }
+}
 
 purchaseOrderRouter.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -65,11 +82,31 @@ purchaseOrderRouter.post('/', async (req: Request, res: Response, next: NextFunc
 
 purchaseOrderRouter.put('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    await assertCanEdit(req.tenantId, String(req.params.id), req.employee);
     const parsed = updateSchema.safeParse(req.body);
     if (!parsed.success) {
       throw new ValidationError(parsed.error.issues.map((i) => i.message).join(', '));
     }
-    const result = await purchaseOrderService.update(req.tenantId, String(req.params.id), parsed.data);
+    const result = await purchaseOrderService.edit(req.tenantId, String(req.params.id), {
+      ...parsed.data,
+      editedBy: req.employee.id,
+    });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+purchaseOrderRouter.delete('/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await assertCanEdit(req.tenantId, String(req.params.id), req.employee);
+    const parsed = deleteSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      throw new ValidationError(parsed.error.issues.map((i) => i.message).join(', '));
+    }
+    const result = await purchaseOrderService.softDelete(
+      req.tenantId, String(req.params.id), req.employee.id, parsed.data.reason,
+    );
     res.json(result);
   } catch (err) {
     next(err);

@@ -15,6 +15,7 @@ interface DocumentItem {
 
 interface QuotationPdfData {
   companyHeader: string;
+  companyTaxId?: string | null;
   quotationNo: string;
   date: Date;
   customer: {
@@ -39,6 +40,7 @@ interface QuotationPdfData {
 
 interface SalesOrderPdfData {
   companyHeader: string;
+  companyTaxId?: string | null;
   orderNo: string;
   date: Date;
   customer: {
@@ -63,6 +65,7 @@ interface SalesOrderPdfData {
 
 interface PurchaseOrderPdfData {
   companyHeader: string;
+  companyTaxId?: string | null;
   orderNo: string;
   date: Date;
   supplier: {
@@ -315,6 +318,7 @@ export function generateQuotationPdf(data: QuotationPdfData): InstanceType<typeo
   ], [
     { label: '業務', value: data.salesPerson },
     { label: '電話', value: data.salesPhone ?? '' },
+    { label: '我方統編', value: data.companyTaxId ?? '' },
     { label: '報價單號', value: data.quotationNo },
     { label: '日期', value: formatDate(data.date) },
   ]);
@@ -371,10 +375,10 @@ export function generateSalesOrderPdf(data: SalesOrderPdfData): InstanceType<typ
   const right: InfoRow[] = [
     { label: '業務', value: data.salesPerson },
     { label: '電話', value: data.salesPhone ?? '' },
+    { label: '我方統編', value: data.companyTaxId ?? '' },
     { label: '地址', value: data.companyAddress ?? '' },
     { label: '訂單編號', value: data.orderNo },
     { label: '開單日期', value: formatDate(data.date) },
-    { label: '', value: '' },
   ];
   y = drawInfoGrid(doc, y + 8, left, right);
 
@@ -426,10 +430,10 @@ export function generatePurchaseOrderPdf(data: PurchaseOrderPdfData): InstanceTy
   const right: InfoRow[] = [
     { label: '內勤', value: data.internalStaff },
     { label: '電話', value: data.staffPhone ?? '' },
+    { label: '我方統編', value: data.companyTaxId ?? '' },
     { label: '地址', value: data.companyAddress ?? '' },
     { label: '進貨單號', value: data.orderNo },
     { label: '開單日期', value: formatDate(data.date) },
-    { label: '', value: '' },
   ];
   y = drawInfoGrid(doc, y + 8, left, right);
 

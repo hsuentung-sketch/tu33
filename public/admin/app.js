@@ -161,6 +161,7 @@ async function viewCustomers(main) {
       el('th', {}, '公司'),
       el('th', {}, '聯絡人'),
       el('th', {}, '電話'),
+      el('th', {}, 'Email'),
       el('th', {}, '統編'),
       el('th', { class: 'num' }, '付款天數'),
       el('th', {}, '等級'),
@@ -175,12 +176,13 @@ async function viewCustomers(main) {
     const url = q ? `/customers?q=${encodeURIComponent(q)}` : `/customers${includeInactive.checked ? '?includeInactive=true' : ''}`;
     const list = await api.get(url);
     tbody.innerHTML = '';
-    if (!list.length) tbody.append(el('tr', {}, el('td', { colspan: '8', style: 'text-align:center;color:var(--muted);padding:24px;' }, '無資料')));
+    if (!list.length) tbody.append(el('tr', {}, el('td', { colspan: '9', style: 'text-align:center;color:var(--muted);padding:24px;' }, '無資料')));
     for (const c of list) {
       tbody.append(el('tr', {},
         el('td', {}, c.name),
         el('td', {}, c.contactName || ''),
         el('td', {}, c.phone || ''),
+        el('td', { style: 'font-size:12px;color:#555;' }, c.email || ''),
         el('td', {}, c.taxId || ''),
         el('td', { class: 'num' }, c.paymentDays ?? ''),
         el('td', {}, c.grade || ''),
@@ -639,12 +641,259 @@ async function viewEmployees(main) {
   reload();
 }
 
-// ----- Read-only views (transactions) -----
+// ----- Transaction views (quotation / sales / purchase) -----
+
+/**
+ * Can the current employee edit this order?
+ * Mirrors server rule: ADMIN or createdBy.
+ */
+function canEditOrder(order) {
+  const me = window.__session?.employee;
+  if (!me) return false;
+  if (me.role === 'ADMIN') return true;
+  return order.createdBy === me.id;
+}
+
+/**
+ * Shared order editor modal. kind ∈ 'quotation' | 'sales' | 'purchase'.
+ * Fetches full order (with items), shows editable form + items table.
+ */
+async function openOrderEditor(kind, orderId, onSaved) {
+  const urlBase = kind === 'quotation' ? '/quotations'
+                : kind === 'sales' ? '/sales-orders'
+                : '/purchase-orders';
+  let order;
+  try { order = await api.get(`${urlBase}/${orderId}`); }
+  catch (e) { toast(e.message, 'err'); return; }
+
+  const isQuote = kind === 'quotation';
+  const isPurchase = kind === 'purchase';
+  const partyKey = isPurchase ? 'supplierId' : 'customerId';
+  const staffKey = isPurchase ? 'internalStaff' : 'salesPerson';
+  const staffPhoneKey = isPurchase ? 'staffPhone' : 'salesPhone';
+
+  // Load candidate parties (customers / suppliers) for the selector.
+  const parties = isPurchase
+    ? await api.get('/suppliers').catch(() => [])
+    : await api.get('/customers').catch(() => []);
+
+  const state = {
+    [partyKey]: order[partyKey],
+    [staffKey]: order[staffKey] ?? '',
+    [staffPhoneKey]: order[staffPhoneKey] ?? '',
+    deliveryNote: order.deliveryNote ?? '',
+    supplyTime: order.supplyTime ?? '',
+    paymentTerms: order.paymentTerms ?? '',
+    validUntil: order.validUntil ?? '',
+    note: order.note ?? '',
+    items: (order.items || []).map((it) => ({
+      productName: it.productName,
+      quantity: it.quantity,
+      unitPrice: Number(it.unitPrice),
+      note: it.note ?? '',
+    })),
+    reason: '',
+  };
+
+  const lockedByPaid = isPurchase ? order.payable?.isPaid : order.receivable?.isPaid;
+  const nonPendingStatus = !['PENDING', 'DRAFT', 'SENT'].includes(order.status);
+  const closedStatus = ['WON', 'LOST', 'CANCELLED'].includes(order.status) && isQuote;
+
+  // --- Build modal body ---
+  const body = el('div', { class: 'body' });
+  const errBox = el('div', { class: 'err' });
+
+  // Party selector
+  const partyWrap = el('div', { class: 'field' });
+  partyWrap.append(el('label', {}, isPurchase ? '供應商' : '客戶'));
+  const partySelect = el('select', {});
+  for (const p of parties) {
+    const o = el('option', { value: p.id }, p.name);
+    if (p.id === state[partyKey]) o.selected = true;
+    partySelect.append(o);
+  }
+  partySelect.addEventListener('change', () => { state[partyKey] = partySelect.value; });
+  partyWrap.append(partySelect);
+  body.append(partyWrap);
+
+  // Staff + phone row
+  const staffRow = el('div', { class: 'field row' });
+  const staffInp = el('input', { type: 'text' }); staffInp.value = state[staffKey];
+  staffInp.addEventListener('input', () => { state[staffKey] = staffInp.value; });
+  const staffWrap = el('div', { class: 'field' },
+    el('label', {}, isPurchase ? '內勤' : '業務'), staffInp,
+  );
+  const phoneInp = el('input', { type: 'text' }); phoneInp.value = state[staffPhoneKey];
+  phoneInp.addEventListener('input', () => { state[staffPhoneKey] = phoneInp.value; });
+  const phoneWrap = el('div', { class: 'field' }, el('label', {}, '電話'), phoneInp);
+  staffRow.append(staffWrap, phoneWrap);
+  body.append(staffRow);
+
+  // Quotation-specific terms
+  if (isQuote) {
+    const r = el('div', { class: 'field row' });
+    const fieldOf = (label, key) => {
+      const inp = el('input', { type: 'text' }); inp.value = state[key];
+      inp.addEventListener('input', () => { state[key] = inp.value; });
+      return el('div', { class: 'field' }, el('label', {}, label), inp);
+    };
+    r.append(fieldOf('可供貨時間', 'supplyTime'), fieldOf('付款期限', 'paymentTerms'), fieldOf('有效日期', 'validUntil'));
+    body.append(r);
+    const noteInp = el('textarea', { rows: '2' }); noteInp.value = state.note;
+    noteInp.addEventListener('input', () => { state.note = noteInp.value; });
+    body.append(el('div', { class: 'field' }, el('label', {}, '備註'), noteInp));
+  } else {
+    const dn = el('textarea', { rows: '2' }); dn.value = state.deliveryNote;
+    dn.addEventListener('input', () => { state.deliveryNote = dn.value; });
+    body.append(el('div', { class: 'field' }, el('label', {}, '送貨備註'), dn));
+  }
+
+  // Items table
+  const itemsBox = el('div', { class: 'field' }, el('label', {}, '品項'));
+  const itemsTable = el('table', { class: 'data', style: 'font-size:12px;' });
+  const itemsHead = el('thead', {}, el('tr', {},
+    el('th', {}, '品名'),
+    el('th', { class: 'num' }, '數量'),
+    el('th', { class: 'num' }, '單價'),
+    el('th', { class: 'num' }, '小計'),
+    el('th', {}, '備註'),
+    el('th', {}, ''),
+  ));
+  const itemsBody = el('tbody');
+  itemsTable.append(itemsHead, itemsBody);
+  itemsBox.append(itemsTable);
+
+  const totalsDiv = el('div', { style: 'text-align:right;font-size:13px;margin-top:6px;color:#555;' });
+
+  function renderItems() {
+    itemsBody.innerHTML = '';
+    let sub = 0;
+    state.items.forEach((it, idx) => {
+      const nameInp = el('input', { type: 'text', style: 'width:100%;' });
+      nameInp.value = it.productName;
+      nameInp.addEventListener('input', () => { it.productName = nameInp.value; });
+      const qtyInp = el('input', { type: 'number', step: '1', style: 'width:70px;text-align:right;' });
+      qtyInp.value = String(it.quantity);
+      qtyInp.addEventListener('input', () => { it.quantity = Number(qtyInp.value) || 0; renderItems(); });
+      const priceInp = el('input', { type: 'number', step: '0.01', style: 'width:90px;text-align:right;' });
+      priceInp.value = String(it.unitPrice);
+      priceInp.addEventListener('input', () => { it.unitPrice = Number(priceInp.value) || 0; renderItems(); });
+      const noteInp = el('input', { type: 'text', style: 'width:100%;' });
+      noteInp.value = it.note || '';
+      noteInp.addEventListener('input', () => { it.note = noteInp.value; });
+      const removeBtn = el('button', { class: 'btn small danger', onClick: () => {
+        state.items.splice(idx, 1); renderItems();
+      } }, '刪');
+      const line = (it.quantity || 0) * (it.unitPrice || 0);
+      sub += line;
+      itemsBody.append(el('tr', {},
+        el('td', {}, nameInp),
+        el('td', { class: 'num' }, qtyInp),
+        el('td', { class: 'num' }, priceInp),
+        el('td', { class: 'num' }, fmtMoney(line)),
+        el('td', {}, noteInp),
+        el('td', {}, removeBtn),
+      ));
+    });
+    const tax = Math.round(sub * 0.05);
+    totalsDiv.textContent = `小計 ${fmtMoney(sub)}　營業稅 ${fmtMoney(tax)}　總計 ${fmtMoney(sub + tax)}`;
+  }
+  renderItems();
+  const addBtn = el('button', { class: 'btn small', onClick: () => {
+    state.items.push({ productName: '', quantity: 1, unitPrice: 0, note: '' }); renderItems();
+  } }, '+ 新增一列');
+  itemsBox.append(addBtn, totalsDiv);
+  body.append(itemsBox);
+
+  // Reason textarea (required if non-PENDING / non-DRAFT)
+  if (nonPendingStatus && !closedStatus) {
+    const rInp = el('textarea', { rows: '2', placeholder: '此狀態修改需填寫原因' });
+    rInp.addEventListener('input', () => { state.reason = rInp.value; });
+    body.append(el('div', { class: 'field' },
+      el('label', {}, '修改原因 *'), rInp,
+    ));
+  }
+
+  // Disable save entirely if paid or closed (view-only)
+  const locked = lockedByPaid || closedStatus || order.isDeleted;
+  if (locked) {
+    errBox.textContent = order.isDeleted ? '⛔ 此單已刪除' :
+                         closedStatus ? `⛔ 狀態 ${order.status} 不可修改` :
+                                        '⛔ 對應帳款已入帳/付款，無法修改';
+  }
+
+  // --- Mount modal ---
+  const backdrop = el('div', { class: 'modal-backdrop' });
+  const saveBtn = el('button', { class: 'btn primary' }, '儲存');
+  saveBtn.disabled = locked;
+  saveBtn.addEventListener('click', async () => {
+    try {
+      if (nonPendingStatus && !closedStatus && !state.reason.trim()) {
+        throw new Error('請填寫修改原因');
+      }
+      if (!state.items.length) throw new Error('至少需要一個品項');
+      const body = isQuote ? {
+        customerId: state.customerId,
+        salesPerson: state.salesPerson || null,
+        salesPhone: state.salesPhone || null,
+        supplyTime: state.supplyTime || null,
+        paymentTerms: state.paymentTerms || null,
+        validUntil: state.validUntil || null,
+        note: state.note || null,
+        items: state.items,
+        reason: state.reason || undefined,
+      } : isPurchase ? {
+        supplierId: state.supplierId,
+        internalStaff: state.internalStaff || null,
+        staffPhone: state.staffPhone || null,
+        deliveryNote: state.deliveryNote || null,
+        items: state.items,
+        reason: state.reason || undefined,
+      } : {
+        customerId: state.customerId,
+        salesPerson: state.salesPerson || null,
+        salesPhone: state.salesPhone || null,
+        deliveryNote: state.deliveryNote || null,
+        items: state.items,
+        reason: state.reason || undefined,
+      };
+      await api.put(`${urlBase}/${orderId}`, body);
+      toast('已儲存', 'ok');
+      backdrop.remove();
+      onSaved?.();
+    } catch (e) { errBox.textContent = e.message; }
+  });
+  const deleteBtn = el('button', { class: 'btn danger', onClick: async () => {
+    if (!confirmBox('確定刪除此單？連動的應收/應付及庫存會自動沖銷。')) return;
+    try {
+      await api.del(`${urlBase}/${orderId}`);
+      toast('已刪除', 'ok');
+      backdrop.remove();
+      onSaved?.();
+    } catch (e) { errBox.textContent = e.message; }
+  } }, '刪除');
+  deleteBtn.disabled = locked;
+  const modal = el('div', { class: 'modal', style: 'max-width:820px;width:92%;' },
+    el('h3', {}, `編輯 ${isQuote ? '報價單' : isPurchase ? '進貨單' : '銷貨單'}  ${order.quotationNo || order.orderNo}`),
+    body,
+    errBox,
+    el('div', { class: 'actions', style: 'justify-content:space-between;' },
+      deleteBtn,
+      el('div', {},
+        el('button', { class: 'btn', onClick: () => backdrop.remove() }, '取消'),
+        ' ', saveBtn,
+      ),
+    ),
+  );
+  backdrop.append(modal);
+  backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
+  document.body.append(backdrop);
+}
 
 async function viewQuotations(main) {
   main.innerHTML = '';
   main.append(el('h2', {}, '報價單'));
-  main.append(el('div', { class: 'page-sub' }, '報價單建立、成交轉銷貨單由 LIFF 表單/LINE 完成，這裡可查詢與修改狀態。'));
+  main.append(el('div', { class: 'page-sub' }, '可修改/刪除：ADMIN 或建單人；刪除為軟刪除。'));
   const tbody = el('tbody');
   main.append(el('table', { class: 'data' },
     el('thead', {}, el('tr', {},
@@ -654,83 +903,110 @@ async function viewQuotations(main) {
     )),
     tbody,
   ));
-  try {
-    const list = await api.get('/quotations');
-    if (!list.length) tbody.append(el('tr', {}, el('td', { colspan: '7', style: 'text-align:center;color:var(--muted);padding:24px;' }, '無資料')));
-    for (const q of list) {
-      tbody.append(el('tr', {},
-        el('td', {}, q.quotationNo),
-        el('td', {}, q.customer?.name || q.customerId),
-        el('td', {}, q.salesPerson),
-        el('td', { class: 'num' }, fmtMoney(q.totalAmount)),
-        el('td', {}, el('span', { class: 'badge ' + badgeForStatus(q.status) }, q.status)),
-        el('td', {}, fmtDate(q.createdAt)),
-        el('td', { class: 'actions' },
-          el('a', { class: 'btn small', href: `/api/quotations/${q.id}/pdf`, target: '_blank' }, 'PDF'),
-        ),
-      ));
-    }
-  } catch (e) { main.append(el('div', { class: 'err' }, e.message)); }
+  async function reload() {
+    tbody.innerHTML = '';
+    try {
+      const list = await api.get('/quotations');
+      if (!list.length) tbody.append(el('tr', {}, el('td', { colspan: '7', style: 'text-align:center;color:var(--muted);padding:24px;' }, '無資料')));
+      for (const q of list) {
+        const canEdit = canEditOrder(q);
+        tbody.append(el('tr', {},
+          el('td', {}, q.quotationNo),
+          el('td', {}, q.customer?.name || q.customerId),
+          el('td', {}, q.salesPerson),
+          el('td', { class: 'num' }, fmtMoney(q.totalAmount)),
+          el('td', {}, el('span', { class: 'badge ' + badgeForStatus(q.status) }, q.status)),
+          el('td', {}, fmtDate(q.createdAt)),
+          el('td', { class: 'actions' },
+            canEdit
+              ? el('button', { class: 'btn small', onClick: () => openOrderEditor('quotation', q.id, reload) }, '編輯')
+              : el('span', { style: 'color:#bbb;font-size:11px;' }, '—'),
+          ),
+        ));
+      }
+    } catch (e) { main.append(el('div', { class: 'err' }, e.message)); }
+  }
+  await reload();
 }
 
 async function viewSalesOrders(main) {
   main.innerHTML = '';
   main.append(el('h2', {}, '銷貨單'));
-  main.append(el('div', { class: 'page-sub' }, '銷貨紀錄。'));
+  main.append(el('div', { class: 'page-sub' }, '可修改/刪除：ADMIN 或建單人；已入帳者鎖定。'));
   const tbody = el('tbody');
   main.append(el('table', { class: 'data' },
     el('thead', {}, el('tr', {},
       el('th', {}, '單號'), el('th', {}, '客戶'), el('th', {}, '業務'),
       el('th', { class: 'num' }, '總額'), el('th', {}, '狀態'),
-      el('th', {}, '開單日'), el('th', {}, '送貨日'),
+      el('th', {}, '開單日'), el('th', {}, '送貨日'), el('th', {}, '操作'),
     )),
     tbody,
   ));
-  try {
-    const list = await api.get('/sales-orders');
-    if (!list.length) tbody.append(el('tr', {}, el('td', { colspan: '7', style: 'text-align:center;color:var(--muted);padding:24px;' }, '無資料')));
-    for (const o of list) {
-      tbody.append(el('tr', {},
-        el('td', {}, o.orderNo),
-        el('td', {}, o.customer?.name || o.customerId),
-        el('td', {}, o.salesPerson),
-        el('td', { class: 'num' }, fmtMoney(o.totalAmount)),
-        el('td', {}, el('span', { class: 'badge ' + badgeForStatus(o.status) }, o.status)),
-        el('td', {}, fmtDate(o.orderDate)),
-        el('td', {}, fmtDate(o.deliveryDate)),
-      ));
-    }
-  } catch (e) { main.append(el('div', { class: 'err' }, e.message)); }
+  async function reload() {
+    tbody.innerHTML = '';
+    try {
+      const list = await api.get('/sales-orders');
+      if (!list.length) tbody.append(el('tr', {}, el('td', { colspan: '8', style: 'text-align:center;color:var(--muted);padding:24px;' }, '無資料')));
+      for (const o of list) {
+        const canEdit = canEditOrder(o);
+        tbody.append(el('tr', {},
+          el('td', {}, o.orderNo),
+          el('td', {}, o.customer?.name || o.customerId),
+          el('td', {}, o.salesPerson),
+          el('td', { class: 'num' }, fmtMoney(o.totalAmount)),
+          el('td', {}, el('span', { class: 'badge ' + badgeForStatus(o.status) }, o.status)),
+          el('td', {}, fmtDate(o.orderDate)),
+          el('td', {}, fmtDate(o.deliveryDate)),
+          el('td', { class: 'actions' },
+            canEdit
+              ? el('button', { class: 'btn small', onClick: () => openOrderEditor('sales', o.id, reload) }, '編輯')
+              : el('span', { style: 'color:#bbb;font-size:11px;' }, '—'),
+          ),
+        ));
+      }
+    } catch (e) { main.append(el('div', { class: 'err' }, e.message)); }
+  }
+  await reload();
 }
 
 async function viewPurchaseOrders(main) {
   main.innerHTML = '';
   main.append(el('h2', {}, '進貨單'));
-  main.append(el('div', { class: 'page-sub' }, '進貨紀錄。'));
+  main.append(el('div', { class: 'page-sub' }, '可修改/刪除：ADMIN 或建單人；已付款者鎖定。'));
   const tbody = el('tbody');
   main.append(el('table', { class: 'data' },
     el('thead', {}, el('tr', {},
       el('th', {}, '單號'), el('th', {}, '供應商'), el('th', {}, '內勤'),
       el('th', { class: 'num' }, '總額'), el('th', {}, '狀態'),
-      el('th', {}, '開單日'), el('th', {}, '收貨日'),
+      el('th', {}, '開單日'), el('th', {}, '收貨日'), el('th', {}, '操作'),
     )),
     tbody,
   ));
-  try {
-    const list = await api.get('/purchase-orders');
-    if (!list.length) tbody.append(el('tr', {}, el('td', { colspan: '7', style: 'text-align:center;color:var(--muted);padding:24px;' }, '無資料')));
-    for (const o of list) {
-      tbody.append(el('tr', {},
-        el('td', {}, o.orderNo),
-        el('td', {}, o.supplier?.name || o.supplierId),
-        el('td', {}, o.internalStaff),
-        el('td', { class: 'num' }, fmtMoney(o.totalAmount)),
-        el('td', {}, el('span', { class: 'badge ' + badgeForStatus(o.status) }, o.status)),
-        el('td', {}, fmtDate(o.orderDate)),
-        el('td', {}, fmtDate(o.receivedDate)),
-      ));
-    }
-  } catch (e) { main.append(el('div', { class: 'err' }, e.message)); }
+  async function reload() {
+    tbody.innerHTML = '';
+    try {
+      const list = await api.get('/purchase-orders');
+      if (!list.length) tbody.append(el('tr', {}, el('td', { colspan: '8', style: 'text-align:center;color:var(--muted);padding:24px;' }, '無資料')));
+      for (const o of list) {
+        const canEdit = canEditOrder(o);
+        tbody.append(el('tr', {},
+          el('td', {}, o.orderNo),
+          el('td', {}, o.supplier?.name || o.supplierId),
+          el('td', {}, o.internalStaff),
+          el('td', { class: 'num' }, fmtMoney(o.totalAmount)),
+          el('td', {}, el('span', { class: 'badge ' + badgeForStatus(o.status) }, o.status)),
+          el('td', {}, fmtDate(o.orderDate)),
+          el('td', {}, fmtDate(o.receivedDate)),
+          el('td', { class: 'actions' },
+            canEdit
+              ? el('button', { class: 'btn small', onClick: () => openOrderEditor('purchase', o.id, reload) }, '編輯')
+              : el('span', { style: 'color:#bbb;font-size:11px;' }, '—'),
+          ),
+        ));
+      }
+    } catch (e) { main.append(el('div', { class: 'err' }, e.message)); }
+  }
+  await reload();
 }
 
 async function viewReceivables(main) { await viewAccount(main, 'receivables', '應收帳款', '客戶'); }
@@ -850,6 +1126,80 @@ async function viewAccount(main, path, title, partyLabel) {
     el('label', { style: 'font-size:12px;color:var(--muted);' }, showOverdue, ' 僅逾期'),
   ), table);
   reload();
+}
+
+// ----- 公司資料 (ADMIN only) -----
+
+async function viewCompany(main) {
+  if (window.__session?.employee?.role !== 'ADMIN') {
+    main.innerHTML = '';
+    main.append(el('h2', {}, '公司資料'));
+    main.append(el('div', { class: 'empty' }, '僅 ADMIN 可檢視此頁。'));
+    return;
+  }
+
+  main.innerHTML = '';
+  main.append(el('h2', {}, '公司資料'));
+  main.append(el('div', { class: 'page-sub' }, '公司抬頭、統一編號等會顯示在報價單／銷貨單／進貨單 PDF 上。'));
+
+  const form = el('form', { class: 'card', style: 'padding:16px;max-width:640px;' });
+  const errBox = el('div', { class: 'err', style: 'margin-top:8px;' });
+
+  function field(name, label, opts = {}) {
+    const input = el('input', { name, type: opts.type || 'text', style: 'width:100%;' });
+    if (opts.readonly) input.readOnly = true;
+    const row = el('div', { style: 'margin-bottom:12px;' },
+      el('label', { style: 'display:block;font-size:12px;color:#666;margin-bottom:4px;' }, label),
+      input,
+    );
+    form.append(row);
+    return input;
+  }
+
+  const companyName = field('companyName', '公司名稱 *');
+  const taxId = field('taxId', '統一編號（8 碼）');
+  const phone = field('phone', '電話');
+  const email = field('email', 'Email', { type: 'email' });
+  const address = field('address', '地址');
+
+  const saveBtn = el('button', { type: 'submit', class: 'btn primary' }, '儲存');
+  form.append(saveBtn, errBox);
+  main.append(form);
+
+  // Load current
+  let current = null;
+  try {
+    current = await api.get('/tenant/me');
+    companyName.value = current.companyName || '';
+    taxId.value = current.taxId || '';
+    phone.value = current.phone || '';
+    email.value = current.email || '';
+    address.value = current.address || '';
+  } catch (e) {
+    errBox.textContent = '讀取失敗：' + e.message;
+  }
+
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    errBox.textContent = '';
+    saveBtn.disabled = true;
+    try {
+      const body = {
+        companyName: companyName.value.trim(),
+        taxId: taxId.value.trim() || null,
+        phone: phone.value.trim() || null,
+        email: email.value.trim() || null,
+        address: address.value.trim() || null,
+      };
+      if (!body.companyName) throw new Error('公司名稱必填');
+      await api.put('/tenant/me', body);
+      toast('已儲存', 'ok');
+    } catch (e) {
+      errBox.textContent = e.message;
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
 }
 
 // ----- Audit log (ADMIN only) -----
@@ -1224,6 +1574,7 @@ const views = {
   inventory: viewInventory,
   'audit-logs': viewAuditLogs,
   'error-logs': viewErrorLogs,
+  company: viewCompany,
 };
 
 async function route() {

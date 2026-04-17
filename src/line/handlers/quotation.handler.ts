@@ -18,6 +18,7 @@ async function buildQuotationPdfBuffer(tenantId: string, quotationId: string): P
 
   const doc = generateQuotationPdf({
     companyHeader,
+    companyTaxId: tenant?.taxId ?? null,
     quotationNo: q.quotationNo,
     date: q.createdAt,
     customer: {

@@ -30,11 +30,12 @@ export interface PurchaseOrderCreateInput {
 
 export async function list(
   tenantId: string,
-  filters: { status?: PurchaseStatus; supplierId?: string } = {},
+  filters: { status?: PurchaseStatus; supplierId?: string; includeDeleted?: boolean } = {},
 ) {
   return prisma.purchaseOrder.findMany({
     where: {
       tenantId,
+      ...(filters.includeDeleted ? {} : { isDeleted: false }),
       ...(filters.status ? { status: filters.status } : {}),
       ...(filters.supplierId ? { supplierId: filters.supplierId } : {}),
     },
@@ -154,6 +155,154 @@ export async function markReceived(tenantId: string, id: string) {
     where: { id },
     data: { status: 'RECEIVED', receivedDate: new Date() },
   });
+}
+
+/**
+ * Full edit — replaces header + item list, recomputes totals, syncs AP.
+ */
+export interface PurchaseOrderEditInput {
+  supplierId?: string;
+  internalStaff?: string;
+  staffPhone?: string | null;
+  deliveryNote?: string | null;
+  items: PurchaseItemInput[];
+  reason?: string;
+  editedBy: string;
+}
+
+export async function edit(tenantId: string, id: string, input: PurchaseOrderEditInput) {
+  const existing = await getById(tenantId, id);
+  if (existing.isDeleted) throw new ValidationError('此進貨單已刪除');
+  if (existing.payable?.isPaid) {
+    throw new ValidationError('對應應付帳款已付款，無法修改');
+  }
+  if (existing.status !== 'PENDING') {
+    if (!input.reason || input.reason.trim().length === 0) {
+      throw new ValidationError(`狀態 ${existing.status} 下修改需填寫修改原因`);
+    }
+  }
+  if (!input.items?.length) throw new ValidationError('至少需要一個品項');
+
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+  if (!tenant) throw new NotFoundError('Tenant', tenantId);
+  const settings = getTenantSettings(tenant.settings);
+
+  const { subtotal, taxAmount, totalAmount } = calculateTotals(
+    input.items.map((i) => ({ quantity: i.quantity, unitPrice: i.unitPrice })),
+    settings.taxRate,
+  );
+
+  const oldItems = existing.items.map((it) => ({
+    productName: it.productName,
+    quantity: it.quantity,
+  }));
+
+  const updated = await prisma.$transaction(async (tx) => {
+    await tx.purchaseItem.deleteMany({ where: { purchaseOrderId: id } });
+    const row = await tx.purchaseOrder.update({
+      where: { id },
+      data: {
+        ...(input.supplierId ? { supplierId: input.supplierId } : {}),
+        ...(input.internalStaff !== undefined ? { internalStaff: input.internalStaff } : {}),
+        ...(input.staffPhone !== undefined ? { staffPhone: input.staffPhone } : {}),
+        ...(input.deliveryNote !== undefined ? { deliveryNote: input.deliveryNote } : {}),
+        subtotal,
+        taxAmount,
+        totalAmount,
+        items: {
+          create: input.items.map((i, idx) => ({
+            productName: i.productName,
+            quantity: i.quantity,
+            unitPrice: i.unitPrice,
+            amount: i.quantity * i.unitPrice,
+            note: i.note,
+            referenceCost: i.referenceCost,
+            lastPurchaseDate: i.lastPurchaseDate,
+            sortOrder: i.sortOrder ?? idx,
+          })),
+        },
+      },
+      include: { items: true, supplier: true, payable: true },
+    });
+    if (existing.payable) {
+      await tx.accountPayable.update({
+        where: { id: existing.payable.id },
+        data: { amount: totalAmount },
+      });
+    }
+    return row;
+  });
+
+  await reverseInventory(tenantId, id, oldItems, 'PURCHASE_IN', input.editedBy);
+  await eventBus.emitAsync('purchaseOrder:completed', { tenantId, purchaseOrderId: id });
+
+  return updated;
+}
+
+export async function softDelete(
+  tenantId: string, id: string, deletedBy: string, _reason?: string,
+) {
+  const existing = await getById(tenantId, id);
+  if (existing.isDeleted) throw new ValidationError('此進貨單已刪除');
+  if (existing.payable?.isPaid) {
+    throw new ValidationError('對應應付帳款已付款，無法刪除');
+  }
+  const oldItems = existing.items.map((it) => ({
+    productName: it.productName,
+    quantity: it.quantity,
+  }));
+
+  await prisma.$transaction(async (tx) => {
+    if (existing.payable) {
+      await tx.accountPayable.delete({ where: { id: existing.payable.id } });
+    }
+    await tx.purchaseOrder.update({
+      where: { id },
+      data: { isDeleted: true, deletedAt: new Date(), deletedBy },
+    });
+  });
+  await reverseInventory(tenantId, id, oldItems, 'PURCHASE_IN', deletedBy);
+  return { ok: true };
+}
+
+async function reverseInventory(
+  tenantId: string,
+  refId: string,
+  items: { productName: string; quantity: number }[],
+  reason: 'SALES_OUT' | 'PURCHASE_IN',
+  createdBy: string,
+) {
+  for (const it of items) {
+    const p = await prisma.product.findFirst({
+      where: { tenantId, name: it.productName },
+      select: { id: true },
+    });
+    if (!p) continue;
+    const delta = reason === 'PURCHASE_IN' ? -it.quantity : it.quantity;
+    try {
+      await prisma.$transaction([
+        prisma.inventoryTransaction.create({
+          data: {
+            tenantId,
+            productId: p.id,
+            delta,
+            reason,
+            refType: 'PurchaseOrder:edit',
+            refId,
+            note: '編輯/刪除連動沖銷',
+            createdBy,
+          },
+        }),
+        prisma.inventory.upsert({
+          where: { tenantId_productId: { tenantId, productId: p.id } },
+          create: { tenantId, productId: p.id, quantity: delta },
+          update: { quantity: { increment: delta } },
+        }),
+      ]);
+    } catch {
+      // non-fatal
+    }
+  }
 }
 
 export async function complete(tenantId: string, id: string) {

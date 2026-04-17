@@ -76,6 +76,7 @@ pdfRouter.get('/:kind/:id', async (req: Request, res: Response, next: NextFuncti
     if (!tenant) return res.status(404).send('Tenant not found');
     const settings = getTenantSettings(tenant.settings);
     const companyHeader = settings.companyHeader || tenant.companyName;
+    const companyTaxId = tenant.taxId ?? null;
 
     if (kind === 'quotation') {
       const q = await prisma.quotation.findFirst({
@@ -86,6 +87,7 @@ pdfRouter.get('/:kind/:id', async (req: Request, res: Response, next: NextFuncti
       return streamPdf(res, next, `quotation-${q.quotationNo}.pdf`, () =>
         generateQuotationPdf({
           companyHeader,
+          companyTaxId,
           quotationNo: q.quotationNo,
           date: q.createdAt,
           customer: {
@@ -125,6 +127,7 @@ pdfRouter.get('/:kind/:id', async (req: Request, res: Response, next: NextFuncti
       return streamPdf(res, next, `sales-${o.orderNo}.pdf`, () =>
         generateSalesOrderPdf({
           companyHeader,
+          companyTaxId,
           orderNo: o.orderNo,
           date: o.orderDate,
           customer: {
@@ -163,6 +166,7 @@ pdfRouter.get('/:kind/:id', async (req: Request, res: Response, next: NextFuncti
       return streamPdf(res, next, `purchase-${o.orderNo}.pdf`, () =>
         generatePurchaseOrderPdf({
           companyHeader,
+          companyTaxId,
           orderNo: o.orderNo,
           date: o.orderDate,
           supplier: {
