@@ -11,6 +11,13 @@ const paySchema = z.object({
   note: z.string().optional(),
 });
 
+const updateSchema = z.object({
+  isPaid: z.boolean().optional(),
+  paidDate: z.coerce.date().nullable().optional(),
+  invoiceNo: z.string().nullable().optional(),
+  note: z.string().nullable().optional(),
+});
+
 receivableRouter.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const isPaidParam = req.query.isPaid as string | undefined;
@@ -49,6 +56,31 @@ receivableRouter.post('/:id/pay', async (req: Request, res: Response, next: Next
     }
     const result = await receivableService.markPaid(req.tenantId, String(req.params.id), parsed.data);
     res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Partial update — edit invoiceNo / paidDate / isPaid / note at any time.
+receivableRouter.put('/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const parsed = updateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new ValidationError(parsed.error.issues.map((i) => i.message).join(', '));
+    }
+    const result = await receivableService.update(req.tenantId, String(req.params.id), parsed.data);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Electronic invoice issuance — stub for future provider integration.
+receivableRouter.post('/:id/einvoice', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const result = await receivableService.issueEinvoice(req.tenantId, String(req.params.id));
+    const code = result.ok ? 200 : 501;
+    res.status(code).json(result);
   } catch (err) {
     next(err);
   }

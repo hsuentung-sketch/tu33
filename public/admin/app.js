@@ -1015,7 +1015,7 @@ async function viewPayables(main) { await viewAccount(main, 'payables', '應付�
 async function viewAccount(main, path, title, partyLabel) {
   main.innerHTML = '';
   main.append(el('h2', {}, title));
-  main.append(el('div', { class: 'page-sub' }, `月結對帳。可標記已結案並填入發票號碼。`));
+  main.append(el('div', { class: 'page-sub' }, `月結對帳。發票號碼、付款日期與結案狀態可隨時編輯。`));
 
   const showOverdue = el('input', { type: 'checkbox' });
   const tbody = el('tbody');
@@ -1028,6 +1028,7 @@ async function viewAccount(main, path, title, partyLabel) {
       el('th', {}, '到期日'),
       el('th', {}, '狀態'),
       el('th', {}, '發票'),
+      el('th', {}, '付款日'),
       el('th', {}, '操作'),
     )),
     tbody,
@@ -1037,7 +1038,7 @@ async function viewAccount(main, path, title, partyLabel) {
     const list = await api.get(`/${path}${showOverdue.checked ? '/overdue' : ''}`);
     tbody.innerHTML = '';
     if (!list.length) {
-      tbody.append(el('tr', {}, el('td', { colspan: '8', style: 'text-align:center;color:var(--muted);padding:24px;' }, '無資料')));
+      tbody.append(el('tr', {}, el('td', { colspan: '9', style: 'text-align:center;color:var(--muted);padding:24px;' }, '無資料')));
       return;
     }
 
@@ -1084,7 +1085,10 @@ async function viewAccount(main, path, title, partyLabel) {
             ? el('span', { class: 'badge ok' }, '已結案')
             : (isOverdue ? el('span', { class: 'badge bad' }, '已逾期') : el('span', { class: 'badge warn' }, '未收款'))),
           el('td', {}, a.invoiceNo || ''),
+          el('td', {}, fmtDate(a.paidDate)),
           el('td', { class: 'actions' },
+            el('button', { class: 'btn small', onClick: () => editAccount(a) }, '編輯'),
+            !a.isPaid ? ' ' : null,
             !a.isPaid ? el('button', { class: 'btn small primary', onClick: () => markPaid(a) }, '標記已付') : null,
           ),
         ));
@@ -1099,7 +1103,7 @@ async function viewAccount(main, path, title, partyLabel) {
         el('td', { colspan: '3', style: 'text-align:right;font-weight:600;background:#eef2ff;color:#1e3a8a;' },
           `${group.partyName} ${monthLabel} 小計（${group.items.length} 筆）`),
         el('td', { class: 'num', style: 'font-weight:600;background:#eef2ff;color:#1e3a8a;' }, fmtMoney(subtotal)),
-        el('td', { colspan: '4', style: 'font-size:12px;color:#475569;background:#eef2ff;' }, statusParts.join('　/　')),
+        el('td', { colspan: '5', style: 'font-size:12px;color:#475569;background:#eef2ff;' }, statusParts.join('　/　')),
       ));
     }
   }
@@ -1109,13 +1113,50 @@ async function viewAccount(main, path, title, partyLabel) {
       title: '標記為已結案',
       initial: { paidDate: new Date().toISOString().slice(0, 10) },
       fields: [
-        { name: 'paidDate', label: '入帳日', type: 'date', required: true },
+        { name: 'paidDate', label: '付款/入帳日', type: 'date', required: true },
         { name: 'invoiceNo', label: '發票號碼' },
         { name: 'note', label: '備註', type: 'textarea' },
       ],
       onSubmit: async (v) => {
         await api.post(`/${path}/${a.id}/pay`, cleanObj(v, ['paidDate','invoiceNo','note']));
         toast('已標記', 'ok');
+        reload();
+      },
+    });
+  }
+
+  /**
+   * Edit 發票號碼 / 付款日期 / 已結案 — 任何狀態都可改。
+   * 走 PUT /api/{receivables|payables}/:id（partial update）。
+   */
+  function editAccount(a) {
+    const isPayable = path === 'payables';
+    openModal({
+      title: `編輯${isPayable ? '應付' : '應收'}帳款`,
+      initial: {
+        isPaid: !!a.isPaid,
+        paidDate: a.paidDate ? new Date(a.paidDate).toISOString().slice(0, 10) : '',
+        invoiceNo: a.invoiceNo || '',
+        note: a.note || '',
+      },
+      fields: [
+        { name: 'invoiceNo', label: '發票號碼' },
+        { name: 'paidDate', label: isPayable ? '付款日期' : '入帳日期', type: 'date' },
+        { name: 'isPaid', label: '已結案（勾選＝已付／已收）', type: 'select', options: [
+          { value: 'false', label: '未結案' },
+          { value: 'true', label: '已結案' },
+        ]},
+        { name: 'note', label: '備註', type: 'textarea' },
+      ],
+      onSubmit: async (v) => {
+        const body = {
+          isPaid: v.isPaid === 'true' || v.isPaid === true,
+          paidDate: v.paidDate ? v.paidDate : null,
+          invoiceNo: v.invoiceNo ? v.invoiceNo : null,
+          note: v.note ? v.note : null,
+        };
+        await api.put(`/${path}/${a.id}`, body);
+        toast('已儲存', 'ok');
         reload();
       },
     });

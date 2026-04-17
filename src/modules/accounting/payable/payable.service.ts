@@ -74,6 +74,46 @@ export async function markPaid(
   return updated;
 }
 
+/**
+ * Partial update — toggle isPaid, edit invoiceNo / paidDate / note at
+ * any time. Mirrors receivable.update().
+ */
+export async function update(
+  tenantId: string,
+  id: string,
+  data: {
+    isPaid?: boolean;
+    paidDate?: Date | null;
+    invoiceNo?: string | null;
+    note?: string | null;
+  },
+) {
+  const existing = await prisma.accountPayable.findFirst({ where: { id, tenantId } });
+  if (!existing) throw new NotFoundError('AccountPayable', id);
+
+  const patch: Record<string, unknown> = {};
+  if (data.isPaid !== undefined) patch.isPaid = data.isPaid;
+  if (data.paidDate !== undefined) patch.paidDate = data.paidDate;
+  if (data.invoiceNo !== undefined) patch.invoiceNo = data.invoiceNo;
+  if (data.note !== undefined) patch.note = data.note;
+
+  if (data.isPaid === true && !existing.isPaid && data.paidDate === undefined) {
+    patch.paidDate = new Date();
+  }
+  if (data.isPaid === false && data.paidDate === undefined) {
+    patch.paidDate = null;
+  }
+
+  const updated = await prisma.accountPayable.update({ where: { id }, data: patch });
+
+  if (!existing.isPaid && updated.isPaid) {
+    eventBus.emit('payment:received', {
+      tenantId, paymentId: updated.id, invoiceId: updated.id, amount: Number(updated.amount),
+    });
+  }
+  return updated;
+}
+
 export async function getOverdue(tenantId: string) {
   const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
   const settings = getTenantSettings(tenant?.settings);

@@ -11,6 +11,13 @@ const paySchema = z.object({
   note: z.string().optional(),
 });
 
+const updateSchema = z.object({
+  isPaid: z.boolean().optional(),
+  paidDate: z.coerce.date().nullable().optional(),
+  invoiceNo: z.string().nullable().optional(),
+  note: z.string().nullable().optional(),
+});
+
 payableRouter.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const isPaidParam = req.query.isPaid as string | undefined;
@@ -48,6 +55,20 @@ payableRouter.post('/:id/pay', async (req: Request, res: Response, next: NextFun
       throw new ValidationError(parsed.error.issues.map((i) => i.message).join(', '));
     }
     const result = await payableService.markPaid(req.tenantId, String(req.params.id), parsed.data);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Partial update — edit invoiceNo / paidDate / isPaid / note at any time.
+payableRouter.put('/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const parsed = updateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new ValidationError(parsed.error.issues.map((i) => i.message).join(', '));
+    }
+    const result = await payableService.update(req.tenantId, String(req.params.id), parsed.data);
     res.json(result);
   } catch (err) {
     next(err);

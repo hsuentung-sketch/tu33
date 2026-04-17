@@ -73,6 +73,69 @@ export async function markPaid(
   return updated;
 }
 
+/**
+ * Partial update — any field can be changed at any time (including
+ * toggling isPaid, editing invoiceNo, paidDate, note). Unlike markPaid
+ * this does NOT require the row to be unpaid. Used from admin 編輯 modal.
+ */
+export async function update(
+  tenantId: string,
+  id: string,
+  data: {
+    isPaid?: boolean;
+    paidDate?: Date | null;
+    invoiceNo?: string | null;
+    note?: string | null;
+  },
+) {
+  const existing = await prisma.accountReceivable.findFirst({ where: { id, tenantId } });
+  if (!existing) throw new NotFoundError('AccountReceivable', id);
+
+  const patch: Record<string, unknown> = {};
+  if (data.isPaid !== undefined) patch.isPaid = data.isPaid;
+  if (data.paidDate !== undefined) patch.paidDate = data.paidDate;
+  if (data.invoiceNo !== undefined) patch.invoiceNo = data.invoiceNo;
+  if (data.note !== undefined) patch.note = data.note;
+
+  // Implicit rule: toggling isPaid=true without paidDate → default to today.
+  if (data.isPaid === true && !existing.isPaid && data.paidDate === undefined) {
+    patch.paidDate = new Date();
+  }
+  // Reverse: unmark-paid clears paidDate unless explicitly kept.
+  if (data.isPaid === false && data.paidDate === undefined) {
+    patch.paidDate = null;
+  }
+
+  const updated = await prisma.accountReceivable.update({ where: { id }, data: patch });
+
+  // Emit paid event on transition false→true so downstream hooks still fire.
+  if (!existing.isPaid && updated.isPaid) {
+    eventBus.emit('invoice:paid', {
+      tenantId, invoiceId: updated.id, amount: Number(updated.amount),
+    });
+  }
+  return updated;
+}
+
+/**
+ * Electronic invoice issuance stub.
+ *
+ * Placeholder for future integration with 財政部電子發票 / ECPay / 綠界 /
+ * etc. Currently returns { ok:false, status:'not_implemented' } so that
+ * the frontend can probe for capability. When wiring a real provider,
+ * implement below and persist the returned invoice number into
+ * `AccountReceivable.invoiceNo`.
+ */
+export async function issueEinvoice(tenantId: string, id: string) {
+  const existing = await getById(tenantId, id);
+  return {
+    ok: false,
+    status: 'not_implemented',
+    message: '電子發票自動開立尚未串接，請手動填寫發票號碼。',
+    receivableId: existing.id,
+  };
+}
+
 export async function getOverdue(tenantId: string) {
   const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
   const settings = getTenantSettings(tenant?.settings);
