@@ -443,17 +443,15 @@ export function generatePurchaseOrderPdf(data: PurchaseOrderPdfData): InstanceTy
     String(it.quantity),
     formatCurrency(toNumber(it.unitPrice)),
     formatCurrency(toNumber(it.amount)),
-    it.referenceCost != null ? formatCurrency(it.referenceCost) : '',
     it.note ?? '',
   ]);
   y = drawItemTable(doc, y + 8, [
     { header: '編號', width: 6, align: 'center' },
-    { header: '品項', width: 32 },
+    { header: '品項', width: 36 },
     { header: '數量', width: 8, align: 'right' },
-    { header: '單價', width: 13, align: 'right' },
-    { header: '金額', width: 13, align: 'right' },
-    { header: '參考進價', width: 12, align: 'right' },
-    { header: '說明', width: 16 },
+    { header: '單價', width: 14, align: 'right' },
+    { header: '金額', width: 14, align: 'right' },
+    { header: '說明', width: 22 },
   ], rows);
 
   y = drawTotals(doc, y + 8, data.subtotal, data.taxAmount, data.totalAmount);

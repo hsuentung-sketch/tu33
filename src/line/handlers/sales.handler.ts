@@ -6,6 +6,7 @@ import * as salesOrderService from '../../modules/sales/sales-order/sales-order.
 import * as productService from '../../modules/master/product/product.service.js';
 import { runWithAuditContext } from '../../shared/audit.js';
 import { buildPdfShortUrl } from '../../documents/pdf-shortlink.js';
+import { sendItemConfirmCard } from './item-confirm.js';
 
 /**
  * Small helper: a "label: value" baseline row inside a Flex bubble.
@@ -23,6 +24,7 @@ function infoRow(label: string, value: string): any {
     ],
   };
 }
+
 
 /**
  * LINE command / postback handler for sales orders.
@@ -124,6 +126,7 @@ export async function handleSalesCommand(action: string, ctx: any): Promise<void
               productName: it.productName,
               quantity: it.quantity,
               unitPrice: it.unitPrice,
+              note: it.note,
             })),
           }),
         );
@@ -157,6 +160,67 @@ export async function handleSalesCommand(action: string, ctx: any): Promise<void
       await client.replyMessage({
         replyToken: event.replyToken,
         messages: [{ type: 'text', text: '已取消。' }],
+      });
+      return;
+    }
+
+    case 'sales:item-add-note': {
+      const s = session.get(tenantId, lineUserId);
+      if (!s?.data.pendingItem) {
+        await client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: '沒有待確認的品項，請重新輸入。' }],
+        });
+        return;
+      }
+      s.step = 'item-await-note';
+      session.set(tenantId, lineUserId, s);
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: '請輸入備註文字（或輸入「取消」返回）：' }],
+      });
+      return;
+    }
+
+    case 'sales:item-confirm': {
+      const s = session.get(tenantId, lineUserId);
+      const pi = s?.data.pendingItem;
+      if (!s || !pi) {
+        await client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: '沒有待確認的品項。' }],
+        });
+        return;
+      }
+      s.data.items.push({
+        productName: pi.productName!,
+        quantity: pi.quantity!,
+        unitPrice: pi.unitPrice!,
+        note: pi.note,
+      });
+      s.data.pendingItem = undefined;
+      s.step = 'items';
+      session.set(tenantId, lineUserId, s);
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{
+          type: 'text',
+          text: `已加入：${pi.productName} × ${pi.quantity} @ $${Number(pi.unitPrice).toLocaleString('zh-TW')}${pi.note ? `\n備註：${pi.note}` : ''}\n目前 ${s.data.items.length} 筆。繼續新增或輸入「完成」確認。`,
+        }],
+      });
+      return;
+    }
+
+    case 'sales:item-cancel': {
+      const s = session.get(tenantId, lineUserId);
+      if (s) {
+        s.data.pendingItem = undefined;
+        s.step = 'items';
+        session.set(tenantId, lineUserId, s);
+      }
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: '已取消此品項。可繼續輸入下一筆或「完成」。' }],
       });
       return;
     }
@@ -285,6 +349,30 @@ export async function handleSalesText(text: string, ctx: any): Promise<boolean> 
     return true;
   }
 
+  if (s.step === 'item-await-note') {
+    if (text === '取消') {
+      s.step = 'items';
+      s.data.pendingItem = undefined;
+      session.set(tenantId, lineUserId, s);
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: '已取消備註輸入。可繼續輸入品項或「完成」。' }],
+      });
+      return true;
+    }
+    const pi = s.data.pendingItem;
+    if (!pi || !pi.productName || pi.quantity == null || pi.unitPrice == null) {
+      s.step = 'items';
+      session.set(tenantId, lineUserId, s);
+      return false;
+    }
+    pi.note = text;
+    s.step = 'items';
+    session.set(tenantId, lineUserId, s);
+    await sendItemConfirmCard(client, event.replyToken, 'sales', pi as { productName: string; quantity: number; unitPrice: number; note?: string });
+    return true;
+  }
+
   if (s.step === 'items') {
     if (text === '取消') {
       session.clear(tenantId, lineUserId);
@@ -346,16 +434,10 @@ export async function handleSalesText(text: string, ctx: any): Promise<boolean> 
         return true;
       }
       const productName = s.data.pendingProduct.name;
-      s.data.items.push({ productName, quantity, unitPrice });
       s.data.pendingProduct = undefined;
+      s.data.pendingItem = { productName, quantity, unitPrice };
       session.set(tenantId, lineUserId, s);
-      await client.replyMessage({
-        replyToken: event.replyToken,
-        messages: [{
-          type: 'text',
-          text: `已加入：${productName} × ${quantity} @ $${unitPrice.toLocaleString('zh-TW')}\n目前 ${s.data.items.length} 筆。繼續新增或輸入「完成」確認。`,
-        }],
-      });
+      await sendItemConfirmCard(client, event.replyToken, 'sales', s.data.pendingItem as { productName: string; quantity: number; unitPrice: number; note?: string });
       return true;
     }
 
@@ -366,15 +448,9 @@ export async function handleSalesText(text: string, ctx: any): Promise<boolean> 
       const quantity = Number(parts[parts.length - 2]);
       if (Number.isFinite(unitPrice) && Number.isFinite(quantity) && quantity > 0) {
         const productName = parts.slice(0, parts.length - 2).join(' ');
-        s.data.items.push({ productName, quantity, unitPrice });
+        s.data.pendingItem = { productName, quantity, unitPrice };
         session.set(tenantId, lineUserId, s);
-        await client.replyMessage({
-          replyToken: event.replyToken,
-          messages: [{
-            type: 'text',
-            text: `已加入：${productName} × ${quantity} @ $${unitPrice.toLocaleString('zh-TW')}\n目前 ${s.data.items.length} 筆。繼續新增或輸入「完成」確認。`,
-          }],
-        });
+        await sendItemConfirmCard(client, event.replyToken, 'sales', s.data.pendingItem as { productName: string; quantity: number; unitPrice: number; note?: string });
         return true;
       }
     }

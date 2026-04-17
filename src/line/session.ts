@@ -7,6 +7,8 @@ export interface SessionItem {
   productName: string;
   quantity: number;
   unitPrice: number;
+  /** Optional free-form note captured via the 2026-04 item-note flow. */
+  note?: string;
 }
 
 export interface OcrCard {
@@ -30,7 +32,7 @@ export interface Session {
     | 'master:product-list'
     | 'mgmt:emp:add'
     | 'mgmt:sup:add';
-  step: 'party' | 'items' | 'confirm';
+  step: 'party' | 'items' | 'confirm' | 'item-await-note';
   data: {
     partyId?: string;
     partyName?: string;
