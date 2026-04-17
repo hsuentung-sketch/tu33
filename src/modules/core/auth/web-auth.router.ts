@@ -14,6 +14,7 @@ import jwt from 'jsonwebtoken';
 import { prisma } from '../../../shared/prisma.js';
 import { UnauthorizedError, ValidationError } from '../../../shared/errors.js';
 import { config } from '../../../config/index.js';
+import { writeAudit } from '../../../shared/audit.js';
 
 export const webAuthRouter = Router();
 
@@ -49,7 +50,18 @@ webAuthRouter.post('/login', async (req: Request, res: Response, next: NextFunct
     const emp = candidates[0];
     if (!emp.passwordHash) throw new UnauthorizedError('尚未設定密碼，請聯絡管理員');
     const ok = await bcrypt.compare(password, emp.passwordHash);
-    if (!ok) throw new UnauthorizedError('帳號或密碼錯誤');
+    if (!ok) {
+      // Audit failed login attempt (known employee, wrong password)
+      void writeAudit({
+        tenantId: emp.tenantId,
+        userId: emp.id,
+        action: 'WEB_LOGIN_FAILED',
+        entity: 'Employee',
+        entityId: emp.id,
+        detail: { employeeId, reason: 'bad_password' },
+      });
+      throw new UnauthorizedError('帳號或密碼錯誤');
+    }
 
     const token = jwt.sign(
       { employeeId: emp.id, tenantId: emp.tenantId, role: emp.role },
@@ -63,6 +75,14 @@ webAuthRouter.post('/login', async (req: Request, res: Response, next: NextFunct
       maxAge: SESSION_TTL_HOURS * 3600 * 1000,
       path: '/',
     });
+    void writeAudit({
+      tenantId: emp.tenantId,
+      userId: emp.id,
+      action: 'WEB_LOGIN',
+      entity: 'Employee',
+      entityId: emp.id,
+      detail: { role: emp.role },
+    });
     res.json({
       ok: true,
       employee: {
@@ -75,7 +95,23 @@ webAuthRouter.post('/login', async (req: Request, res: Response, next: NextFunct
   }
 });
 
-webAuthRouter.post('/logout', (_req: Request, res: Response) => {
+webAuthRouter.post('/logout', (req: Request, res: Response) => {
+  // Best-effort audit: decode existing cookie to find who logged out.
+  try {
+    const token = (req as any).cookies?.[SESSION_COOKIE];
+    if (token) {
+      const decoded = jwt.verify(token, config.jwt.secret) as { employeeId: string; tenantId: string };
+      void writeAudit({
+        tenantId: decoded.tenantId,
+        userId: decoded.employeeId,
+        action: 'WEB_LOGOUT',
+        entity: 'Employee',
+        entityId: decoded.employeeId,
+      });
+    }
+  } catch {
+    /* ignore — invalid/expired cookies just silently log out */
+  }
   res.clearCookie(SESSION_COOKIE, { path: '/' });
   res.json({ ok: true });
 });

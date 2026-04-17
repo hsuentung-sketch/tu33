@@ -1,10 +1,25 @@
 import { logger } from '../../shared/logger.js';
+import { prisma } from '../../shared/prisma.js';
 import * as customerService from '../../modules/master/customer/customer.service.js';
 import * as supplierService from '../../modules/master/supplier/supplier.service.js';
 import * as productService from '../../modules/master/product/product.service.js';
+import * as productDocService from '../../modules/master/product/product-document.service.js';
 import * as receivableService from '../../modules/accounting/receivable/receivable.service.js';
 import * as session from '../session.js';
 import { createCustomerFromOcrSession } from './media.handler.js';
+
+const DOC_BUTTON_COLORS: Record<string, string> = {
+  PDS: '#1565C0',
+  SDS: '#AD1457',
+  DM: '#2E7D32',
+  OTHER: '#616161',
+};
+const DOC_LABEL: Record<string, string> = {
+  PDS: 'PDS',
+  SDS: 'SDS',
+  DM: 'DM',
+  OTHER: '其他',
+};
 
 const ALL_KEYWORDS = new Set(['全部', 'all', 'ALL', '*']);
 
@@ -84,20 +99,111 @@ async function replySearchProduct(
     });
     return true;
   }
-  const lines = products.slice(0, 30).map((p, i) => {
-    const bits = [`${i + 1}. ${p.name}`];
-    if (p.code) bits.push(`   編號：${p.code}`);
-    if (p.category) bits.push(`   類別：${p.category}`);
-    bits.push(`   售價：${Number(p.salePrice).toLocaleString()}`);
-    if (p.note) bits.push(`   備註：${p.note}`);
-    return bits.join('\n');
-  }).join('\n\n');
-  const header = `【產品清單 ${products.length}】${products.length > 30 ? '（僅顯示前 30 筆）' : ''}`;
-  await client.replyMessage({
-    replyToken: event.replyToken,
-    messages: [{ type: 'text', text: `${header}\n\n${truncate(lines)}` }],
+
+  // Flex carousel — up to 10 bubbles, each with document download buttons.
+  const shown = products.slice(0, 10);
+  const docsByProduct = await loadDocsByProduct(tenantId, shown.map((p) => p.id));
+  const bubbles = shown.map((p) => buildProductBubble(p, docsByProduct.get(p.id) ?? []));
+
+  const altText = products.length === 1
+    ? `產品：${products[0].name}`
+    : `產品 ${products.length} 筆（顯示前 ${shown.length} 筆）`;
+
+  const messages: any[] = [];
+  if (products.length > shown.length) {
+    messages.push({
+      type: 'text',
+      text: `找到 ${products.length} 筆產品，顯示前 ${shown.length} 筆。若未列出，請輸入更精確的關鍵字。`,
+    });
+  }
+  messages.push({
+    type: 'flex',
+    altText,
+    contents: { type: 'carousel', contents: bubbles },
   });
+
+  await client.replyMessage({ replyToken: event.replyToken, messages });
   return true;
+}
+
+async function loadDocsByProduct(tenantId: string, productIds: string[]) {
+  const map = new Map<string, { id: string; type: string; fileName: string }[]>();
+  if (productIds.length === 0) return map;
+  const docs = await prisma.productDocument.findMany({
+    where: { tenantId, productId: { in: productIds } },
+    select: { id: true, productId: true, type: true, fileName: true, createdAt: true },
+    orderBy: [{ type: 'asc' }, { createdAt: 'desc' }],
+  });
+  // Keep newest-per-type so the bubble shows at most 4 buttons (PDS/SDS/DM/OTHER).
+  for (const d of docs) {
+    const arr = map.get(d.productId) ?? [];
+    if (!arr.find((x) => x.type === d.type)) {
+      arr.push({ id: d.id, type: d.type, fileName: d.fileName });
+      map.set(d.productId, arr);
+    }
+  }
+  return map;
+}
+
+function buildProductBubble(
+  p: { id: string; name: string; code: string; category: string | null; salePrice: unknown; note: string | null },
+  docs: { id: string; type: string; fileName: string }[],
+) {
+  const infoLines: any[] = [];
+  if (p.code) infoLines.push(kv('編號', p.code));
+  if (p.category) infoLines.push(kv('類別', p.category));
+  infoLines.push(kv('售價', Number(p.salePrice).toLocaleString()));
+  if (p.note) infoLines.push(kv('備註', p.note));
+
+  const docButtons = docs.length > 0
+    ? docs.map((d) => ({
+        type: 'button' as const,
+        style: 'primary' as const,
+        color: DOC_BUTTON_COLORS[d.type] ?? '#616161',
+        height: 'sm' as const,
+        action: {
+          type: 'postback' as const,
+          label: `下載 ${DOC_LABEL[d.type] ?? d.type}`,
+          data: `action=master:product-doc&id=${d.id}`,
+          displayText: `下載 ${DOC_LABEL[d.type] ?? d.type}：${p.name}`,
+        },
+      }))
+    : [{
+        type: 'text' as const,
+        text: '（無可下載文件）',
+        size: 'xs' as const,
+        color: '#9e9e9e',
+        align: 'center' as const,
+      }];
+
+  return {
+    type: 'bubble' as const,
+    size: 'kilo' as const,
+    body: {
+      type: 'box' as const,
+      layout: 'vertical' as const,
+      spacing: 'sm' as const,
+      contents: [
+        { type: 'text', text: p.name, weight: 'bold', size: 'md', wrap: true },
+        { type: 'separator' as const, margin: 'sm' as const },
+        { type: 'box', layout: 'vertical', spacing: 'xs', margin: 'sm', contents: infoLines },
+        { type: 'separator' as const, margin: 'sm' as const },
+        { type: 'box', layout: 'vertical', spacing: 'xs', margin: 'sm', contents: docButtons },
+      ],
+    },
+  };
+}
+
+function kv(k: string, v: string) {
+  return {
+    type: 'box' as const,
+    layout: 'baseline' as const,
+    spacing: 'sm' as const,
+    contents: [
+      { type: 'text' as const, text: k, color: '#9e9e9e', size: 'sm' as const, flex: 2 },
+      { type: 'text' as const, text: v, size: 'sm' as const, wrap: true, flex: 5 },
+    ],
+  };
 }
 
 async function replySearchAr(
@@ -238,6 +344,39 @@ export async function handleMasterCommand(action: string, ctx: any): Promise<voi
           text: created ? `✅ 已建立客戶：${created.name}` : '名片資訊已失效，請重新拍攝。',
         }],
       });
+      return;
+    }
+
+    case 'master:product-doc': {
+      const docId = params.get('id') || '';
+      if (!docId) {
+        await client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: '下載連結參數缺失。' }],
+        });
+        return;
+      }
+      try {
+        const { shortUrl, fileName, type } = await productDocService.buildShortDownloadUrl(
+          tenantId,
+          docId,
+          employee.id,
+        );
+        const label = DOC_LABEL[type] ?? type;
+        await client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{
+            type: 'text',
+            text: `📄 ${label}：${fileName}\n${shortUrl}\n\n（連結 7 天內有效）`,
+          }],
+        });
+      } catch (err) {
+        logger.error('product-doc download failed', err as Error);
+        await client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: `下載失敗：${(err as Error).message}` }],
+        });
+      }
       return;
     }
 

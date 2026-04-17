@@ -13,6 +13,8 @@ import { receivableRouter } from '../modules/accounting/receivable/receivable.ro
 import { payableRouter } from '../modules/accounting/payable/payable.router.js';
 import { inventoryRouter } from '../modules/inventory/inventory.router.js';
 import { statementsRouter } from './statements.router.js';
+import { auditLogRouter } from '../modules/core/audit-log/audit-log.router.js';
+import { errorLogRouter } from '../modules/core/error-log/error-log.router.js';
 
 export const apiRouter = Router();
 
@@ -44,3 +46,5 @@ apiRouter.use('/receivables', receivableRouter);
 apiRouter.use('/payables', payableRouter);
 apiRouter.use('/inventory', inventoryRouter);
 apiRouter.use('/statements', statementsRouter);
+apiRouter.use('/audit-logs', auditLogRouter);
+apiRouter.use('/error-logs', errorLogRouter);

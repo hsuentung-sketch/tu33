@@ -284,6 +284,8 @@ async function viewProducts(main) {
         el('td', { class: 'actions' },
           el('button', { class: 'btn small', onClick: () => edit(p) }, '編輯'),
           ' ',
+          el('button', { class: 'btn small', onClick: () => openProductDocs(p) }, '文件'),
+          ' ',
           p.isActive !== false ? el('button', { class: 'btn small danger', onClick: async () => {
             if (!confirmBox(`停用產品「${p.name}」？`)) return;
             try { await api.del('/products/' + p.id); toast('已停用', 'ok'); reload(); } catch (e) { toast(e.message, 'err'); }
@@ -328,6 +330,123 @@ async function viewProducts(main) {
     el('button', { class: 'btn primary', onClick: () => edit(null) }, '+ 新增產品'),
   ), table);
   reload();
+}
+
+// -------- Product documents modal --------
+
+const DOC_TYPE_LABEL = { PDS: 'PDS', SDS: 'SDS', DM: 'DM', OTHER: '其他' };
+
+function openProductDocs(product) {
+  const backdrop = el('div', { class: 'modal-backdrop' });
+  const listBox = el('div', {});
+  const errBox = el('div', { class: 'err' });
+
+  const typeSelect = el('select', {});
+  for (const t of ['PDS', 'SDS', 'DM', 'OTHER']) {
+    typeSelect.append(el('option', { value: t }, DOC_TYPE_LABEL[t]));
+  }
+  const fileInput = el('input', { type: 'file', accept: 'application/pdf,image/*' });
+  const uploadBtn = el('button', { class: 'btn primary' }, '上傳');
+
+  const modal = el('div', { class: 'modal' },
+    el('h3', {}, `文件管理：${product.name}`),
+    el('div', { class: 'body' },
+      el('div', { style: 'font-size:12px;color:var(--muted);margin-bottom:10px;' },
+        '支援 PDF 或圖片（≤ 10MB）。上傳後可在 LINE 上讓使用者下載。'),
+      el('div', { class: 'toolbar' }, typeSelect, fileInput, uploadBtn),
+      el('div', { style: 'font-weight:600;font-size:13px;margin:14px 0 6px;' }, '已上傳文件'),
+      listBox,
+      errBox,
+    ),
+    el('div', { class: 'actions' },
+      el('button', { class: 'btn', onClick: () => backdrop.remove() }, '關閉'),
+    ),
+  );
+  backdrop.append(modal);
+  backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
+  document.body.append(backdrop);
+
+  async function refresh() {
+    errBox.textContent = '';
+    listBox.innerHTML = '載入中…';
+    try {
+      const docs = await api.get(`/products/${product.id}/documents`);
+      listBox.innerHTML = '';
+      if (!docs.length) {
+        listBox.append(el('div', { class: 'empty', style: 'padding:16px;font-size:13px;' }, '尚未上傳任何文件'));
+        return;
+      }
+      const tbl = el('table', { class: 'data' },
+        el('thead', {}, el('tr', {},
+          el('th', {}, '類別'),
+          el('th', {}, '檔名'),
+          el('th', { class: 'num' }, '大小'),
+          el('th', {}, '上傳時間'),
+          el('th', {}, ''),
+        )),
+      );
+      const tb = el('tbody');
+      for (const d of docs) {
+        const kb = (d.fileSize / 1024).toFixed(0);
+        const sizeLabel = d.fileSize > 1024 * 1024
+          ? `${(d.fileSize / 1024 / 1024).toFixed(1)} MB`
+          : `${kb} KB`;
+        tb.append(el('tr', {},
+          el('td', {}, el('span', { class: 'badge ok' }, DOC_TYPE_LABEL[d.type] || d.type)),
+          el('td', { style: 'font-size:12px;word-break:break-all;' }, d.fileName),
+          el('td', { class: 'num' }, sizeLabel),
+          el('td', { style: 'font-size:12px;' }, fmtDate(d.createdAt)),
+          el('td', { class: 'actions' },
+            el('button', { class: 'btn small danger', onClick: async () => {
+              if (!confirmBox(`刪除「${d.fileName}」？`)) return;
+              try {
+                await api.del(`/products/${product.id}/documents/${d.id}`);
+                toast('已刪除', 'ok');
+                refresh();
+              } catch (e) { toast(e.message, 'err'); }
+            } }, '刪除'),
+          ),
+        ));
+      }
+      tbl.append(tb);
+      listBox.append(tbl);
+    } catch (e) {
+      listBox.innerHTML = '';
+      errBox.textContent = e.message;
+    }
+  }
+
+  uploadBtn.addEventListener('click', async () => {
+    errBox.textContent = '';
+    const f = fileInput.files?.[0];
+    if (!f) { errBox.textContent = '請先選擇檔案'; return; }
+    if (f.size > 10 * 1024 * 1024) { errBox.textContent = '檔案超過 10 MB'; return; }
+    uploadBtn.disabled = true;
+    uploadBtn.textContent = '上傳中…';
+    try {
+      const fd = new FormData();
+      fd.append('file', f);
+      fd.append('type', typeSelect.value);
+      const res = await fetch(`/api/products/${product.id}/documents`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        body: fd,
+      });
+      if (res.status === 401) { location.href = './login.html'; return; }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error?.message || '上傳失敗');
+      toast('上傳完成', 'ok');
+      fileInput.value = '';
+      refresh();
+    } catch (e) {
+      errBox.textContent = e.message;
+    } finally {
+      uploadBtn.disabled = false;
+      uploadBtn.textContent = '上傳';
+    }
+  });
+
+  refresh();
 }
 
 // Suppliers
@@ -733,6 +852,313 @@ async function viewAccount(main, path, title, partyLabel) {
   reload();
 }
 
+// ----- Audit log (ADMIN only) -----
+
+const AUDIT_ACTION_LABEL = {
+  CREATE_CUSTOMER: '建立客戶',
+  UPDATE_CUSTOMER: '修改客戶',
+  DELETE_CUSTOMER: '停用客戶',
+  CREATE_PRODUCT: '建立產品',
+  UPDATE_PRODUCT: '修改產品',
+  DELETE_PRODUCT: '停用產品',
+  CREATE_SUPPLIER: '建立供應商',
+  UPDATE_SUPPLIER: '修改供應商',
+  DELETE_SUPPLIER: '停用供應商',
+  CREATE_EMPLOYEE: '建立員工',
+  UPDATE_EMPLOYEE: '修改員工',
+  DELETE_EMPLOYEE: '停用員工',
+  CREATE_QUOTATION: '建立報價單',
+  UPDATE_QUOTATION: '修改報價單',
+  CREATE_SALESORDER: '建立銷貨單',
+  UPDATE_SALESORDER: '修改銷貨單',
+  CREATE_PURCHASEORDER: '建立進貨單',
+  UPDATE_PURCHASEORDER: '修改進貨單',
+  UPDATE_ACCOUNTRECEIVABLE: '更新應收帳款',
+  UPDATE_ACCOUNTPAYABLE: '更新應付帳款',
+  WEB_LOGIN: '後台登入',
+  WEB_LOGIN_FAILED: '後台登入失敗',
+  WEB_LOGOUT: '後台登出',
+  LINE_BIND_CODE_CREATED: '產生 LINE 綁定碼',
+  LINE_BIND_SUCCESS: 'LINE 綁定成功',
+};
+
+async function viewAuditLogs(main) {
+  if (window.__session?.employee?.role !== 'ADMIN') {
+    main.innerHTML = '';
+    main.append(el('h2', {}, '操作紀錄'));
+    main.append(el('div', { class: 'empty' }, '僅 ADMIN 可檢視此頁。'));
+    return;
+  }
+
+  main.innerHTML = '';
+  main.append(el('h2', {}, '操作紀錄'));
+  main.append(el('div', { class: 'page-sub' }, '系統操作稽核日誌（ADMIN 限定）。'));
+
+  const state = {
+    from: '', to: '', userId: '', entity: '', action: '', q: '',
+    page: 1, pageSize: 50, total: 0,
+  };
+
+  const fromInput = el('input', { type: 'date', placeholder: '起日' });
+  const toInput = el('input', { type: 'date', placeholder: '迄日' });
+  const userSelect = el('select', {});
+  userSelect.append(el('option', { value: '' }, '— 所有使用者 —'));
+  const entitySelect = el('select', {});
+  for (const o of [
+    { v: '', t: '— 所有模組 —' },
+    { v: 'Customer', t: '客戶' },
+    { v: 'Product', t: '產品' },
+    { v: 'Supplier', t: '供應商' },
+    { v: 'Employee', t: '員工' },
+    { v: 'Quotation', t: '報價單' },
+    { v: 'SalesOrder', t: '銷貨單' },
+    { v: 'PurchaseOrder', t: '進貨單' },
+    { v: 'AccountReceivable', t: '應收' },
+    { v: 'AccountPayable', t: '應付' },
+  ]) entitySelect.append(el('option', { value: o.v }, o.t));
+  const searchInput = el('input', { type: 'text', placeholder: '關鍵字（動作/ID/詳情）' });
+  const refreshBtn = el('button', { class: 'btn primary' }, '查詢');
+
+  const toolbar = el('div', { class: 'toolbar' },
+    fromInput, toInput, userSelect, entitySelect, searchInput, refreshBtn,
+  );
+  main.append(toolbar);
+
+  const meta = el('div', { class: 'page-sub' });
+  main.append(meta);
+  const tbody = el('tbody');
+  main.append(el('table', { class: 'data' },
+    el('thead', {}, el('tr', {},
+      el('th', {}, '時間'),
+      el('th', {}, '操作者'),
+      el('th', {}, '動作'),
+      el('th', {}, '模組'),
+      el('th', {}, '對象 ID'),
+      el('th', {}, '詳情'),
+    )),
+    tbody,
+  ));
+  const pager = el('div', { class: 'toolbar', style: 'justify-content:flex-end;' });
+  main.append(pager);
+
+  // Prefill users dropdown by calling employees API (ADMIN can see all)
+  try {
+    const emps = await api.get('/employees?includeInactive=true');
+    for (const e of emps) {
+      userSelect.append(el('option', { value: e.id }, `${e.employeeId} ${e.name}`));
+    }
+  } catch { /* non-fatal */ }
+
+  async function load() {
+    state.from = fromInput.value;
+    state.to = toInput.value;
+    state.userId = userSelect.value;
+    state.entity = entitySelect.value;
+    state.q = searchInput.value.trim();
+
+    const qs = new URLSearchParams();
+    for (const k of ['from', 'to', 'userId', 'entity', 'action', 'q']) {
+      if (state[k]) qs.set(k, state[k]);
+    }
+    qs.set('page', String(state.page));
+    qs.set('pageSize', String(state.pageSize));
+
+    tbody.innerHTML = '';
+    pager.innerHTML = '';
+    meta.textContent = '載入中…';
+    try {
+      const data = await api.get('/audit-logs?' + qs.toString());
+      state.total = data.total;
+      const usersById = new Map((data.users || []).map((u) => [u.id, u]));
+      meta.textContent = `共 ${data.total} 筆，第 ${data.page} 頁（每頁 ${data.pageSize}）`;
+      if (!data.items.length) {
+        tbody.append(el('tr', {}, el('td', { colspan: '6', style: 'text-align:center;color:var(--muted);padding:24px;' }, '無資料')));
+      } else {
+        for (const row of data.items) {
+          const u = usersById.get(row.userId);
+          const userLabel = u ? `${u.employeeId} ${u.name}` : (row.userId || '—');
+          const action = AUDIT_ACTION_LABEL[row.action] || row.action;
+          const time = new Date(row.createdAt).toLocaleString('zh-TW');
+          const detailCell = el('td', { style: 'max-width:360px;font-size:11px;color:#555;word-break:break-all;' });
+          if (row.detail) {
+            const short = row.detail.length > 80 ? row.detail.slice(0, 80) + '…' : row.detail;
+            const pre = el('span', { title: row.detail }, short);
+            detailCell.append(pre);
+          } else {
+            detailCell.append(el('span', { style: 'color:#aaa;' }, '—'));
+          }
+          tbody.append(el('tr', {},
+            el('td', { style: 'white-space:nowrap;' }, time),
+            el('td', {}, userLabel),
+            el('td', {}, action),
+            el('td', {}, row.entity),
+            el('td', { style: 'font-family:monospace;font-size:11px;color:#666;' }, row.entityId),
+            detailCell,
+          ));
+        }
+      }
+      // Pagination controls
+      const totalPages = Math.max(1, Math.ceil(data.total / data.pageSize));
+      const prev = el('button', { class: 'btn small' }, '上一頁');
+      prev.disabled = state.page <= 1;
+      prev.addEventListener('click', () => { state.page = Math.max(1, state.page - 1); load(); });
+      const next = el('button', { class: 'btn small' }, '下一頁');
+      next.disabled = state.page >= totalPages;
+      next.addEventListener('click', () => { state.page = Math.min(totalPages, state.page + 1); load(); });
+      pager.append(prev, el('span', { style: 'font-size:12px;color:#666;' }, ` ${state.page} / ${totalPages} `), next);
+    } catch (e) {
+      meta.textContent = '';
+      tbody.append(el('tr', {}, el('td', { colspan: '6' }, el('div', { class: 'err' }, e.message))));
+    }
+  }
+
+  refreshBtn.addEventListener('click', () => { state.page = 1; load(); });
+  searchInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { state.page = 1; load(); } });
+
+  await load();
+}
+
+// ----- Error log (ADMIN only) -----
+
+async function viewErrorLogs(main) {
+  if (window.__session?.employee?.role !== 'ADMIN') {
+    main.innerHTML = '';
+    main.append(el('h2', {}, '異常紀錄'));
+    main.append(el('div', { class: 'empty' }, '僅 ADMIN 可檢視此頁。'));
+    return;
+  }
+
+  main.innerHTML = '';
+  main.append(el('h2', {}, '異常紀錄'));
+  main.append(el('div', { class: 'page-sub' }, '系統執行期例外與警告，協助排錯。'));
+
+  const state = {
+    from: '', to: '', userId: '', source: '', level: '', q: '',
+    page: 1, pageSize: 50, total: 0,
+  };
+
+  const fromInput = el('input', { type: 'date', placeholder: '起日' });
+  const toInput = el('input', { type: 'date', placeholder: '迄日' });
+  const userSelect = el('select', {});
+  userSelect.append(el('option', { value: '' }, '— 所有使用者 —'));
+  const levelSelect = el('select', {});
+  for (const o of [
+    { v: '', t: '— 全部等級 —' },
+    { v: 'error', t: 'error' },
+    { v: 'warn', t: 'warn' },
+  ]) levelSelect.append(el('option', { value: o.v }, o.t));
+  const sourceInput = el('input', { type: 'text', placeholder: '來源 (e.g. line.webhook)' });
+  const searchInput = el('input', { type: 'text', placeholder: '關鍵字（訊息/路由/requestId）' });
+  const refreshBtn = el('button', { class: 'btn primary' }, '查詢');
+
+  const toolbar = el('div', { class: 'toolbar' },
+    fromInput, toInput, userSelect, levelSelect, sourceInput, searchInput, refreshBtn,
+  );
+  main.append(toolbar);
+
+  const meta = el('div', { class: 'page-sub' });
+  main.append(meta);
+  const tbody = el('tbody');
+  main.append(el('table', { class: 'data' },
+    el('thead', {}, el('tr', {},
+      el('th', {}, '時間'),
+      el('th', {}, '等級'),
+      el('th', {}, '來源'),
+      el('th', {}, '路由'),
+      el('th', {}, '訊息'),
+      el('th', {}, '操作者'),
+      el('th', {}, 'requestId'),
+    )),
+    tbody,
+  ));
+  const pager = el('div', { class: 'toolbar', style: 'justify-content:flex-end;' });
+  main.append(pager);
+
+  try {
+    const emps = await api.get('/employees?includeInactive=true');
+    for (const e of emps) {
+      userSelect.append(el('option', { value: e.id }, `${e.employeeId} ${e.name}`));
+    }
+  } catch { /* non-fatal */ }
+
+  async function load() {
+    state.from = fromInput.value;
+    state.to = toInput.value;
+    state.userId = userSelect.value;
+    state.level = levelSelect.value;
+    state.source = sourceInput.value.trim();
+    state.q = searchInput.value.trim();
+
+    const qs = new URLSearchParams();
+    for (const k of ['from', 'to', 'userId', 'level', 'source', 'q']) {
+      if (state[k]) qs.set(k, state[k]);
+    }
+    qs.set('page', String(state.page));
+    qs.set('pageSize', String(state.pageSize));
+
+    tbody.innerHTML = '';
+    pager.innerHTML = '';
+    meta.textContent = '載入中…';
+    try {
+      const data = await api.get('/error-logs?' + qs.toString());
+      state.total = data.total;
+      const usersById = new Map((data.users || []).map((u) => [u.id, u]));
+      meta.textContent = `共 ${data.total} 筆，第 ${data.page} 頁（每頁 ${data.pageSize}）`;
+      if (!data.items.length) {
+        tbody.append(el('tr', {}, el('td', { colspan: '7', style: 'text-align:center;color:var(--muted);padding:24px;' }, '無資料')));
+      } else {
+        for (const row of data.items) {
+          const u = row.userId ? usersById.get(row.userId) : null;
+          const userLabel = u ? `${u.employeeId} ${u.name}` : (row.userId || '—');
+          const time = new Date(row.createdAt).toLocaleString('zh-TW');
+          const levelBadge = row.level === 'warn'
+            ? el('span', { class: 'badge warn' }, 'warn')
+            : el('span', { class: 'badge bad' }, 'error');
+          const msgCell = el('td', { style: 'max-width:420px;font-size:12px;word-break:break-all;' });
+          const shortMsg = (row.message || '').length > 120 ? row.message.slice(0, 120) + '…' : (row.message || '');
+          const msgSpan = el('span', { title: row.message || '' }, shortMsg);
+          msgCell.append(msgSpan);
+          if (row.stack) {
+            const toggle = el('a', { href: 'javascript:void(0)', style: 'margin-left:8px;font-size:11px;color:#1565C0;' }, '[stack]');
+            const stackBox = el('pre', { style: 'display:none;margin-top:6px;padding:8px;background:#f8f8f8;border:1px solid #eee;font-size:11px;white-space:pre-wrap;max-height:240px;overflow:auto;' }, row.stack);
+            toggle.addEventListener('click', () => {
+              stackBox.style.display = stackBox.style.display === 'none' ? 'block' : 'none';
+            });
+            msgCell.append(toggle, stackBox);
+          }
+          const tr = el('tr', {},
+            el('td', { style: 'white-space:nowrap;' }, time),
+            el('td', {}, levelBadge),
+            el('td', { style: 'font-family:monospace;font-size:11px;' }, row.source || '—'),
+            el('td', { style: 'font-family:monospace;font-size:11px;color:#666;' }, row.route || '—'),
+            msgCell,
+            el('td', {}, userLabel),
+            el('td', { style: 'font-family:monospace;font-size:10px;color:#999;' }, row.requestId ? row.requestId.slice(0, 8) : '—'),
+          );
+          tbody.append(tr);
+        }
+      }
+      const totalPages = Math.max(1, Math.ceil(data.total / data.pageSize));
+      const prev = el('button', { class: 'btn small' }, '上一頁');
+      prev.disabled = state.page <= 1;
+      prev.addEventListener('click', () => { state.page = Math.max(1, state.page - 1); load(); });
+      const next = el('button', { class: 'btn small' }, '下一頁');
+      next.disabled = state.page >= totalPages;
+      next.addEventListener('click', () => { state.page = Math.min(totalPages, state.page + 1); load(); });
+      pager.append(prev, el('span', { style: 'font-size:12px;color:#666;' }, ` ${state.page} / ${totalPages} `), next);
+    } catch (e) {
+      meta.textContent = '';
+      tbody.append(el('tr', {}, el('td', { colspan: '7' }, el('div', { class: 'err' }, e.message))));
+    }
+  }
+
+  refreshBtn.addEventListener('click', () => { state.page = 1; load(); });
+  searchInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { state.page = 1; load(); } });
+  sourceInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { state.page = 1; load(); } });
+
+  await load();
+}
+
 async function viewInventory(main) {
   main.innerHTML = '';
   main.append(el('h2', {}, '庫存'));
@@ -796,6 +1222,8 @@ const views = {
   receivables: viewReceivables,
   payables: viewPayables,
   inventory: viewInventory,
+  'audit-logs': viewAuditLogs,
+  'error-logs': viewErrorLogs,
 };
 
 async function route() {
@@ -816,12 +1244,19 @@ async function boot() {
     session = await r.json();
   } catch { location.href = './login.html'; return; }
 
+  window.__session = session;
   document.getElementById('brandSub').textContent = session.tenant?.companyName || '';
   document.getElementById('meLabel').textContent = `${session.employee?.name}（${session.employee?.role}）`;
   document.getElementById('logoutBtn').addEventListener('click', async () => {
     try { await fetch('/api/auth/web/logout', { method: 'POST' }); } catch {}
     location.href = './login.html';
   });
+  // Hide ADMIN-only nav links from non-admins.
+  if (session.employee?.role !== 'ADMIN') {
+    for (const a of document.querySelectorAll('#nav a[data-admin-only]')) {
+      a.style.display = 'none';
+    }
+  }
   window.addEventListener('hashchange', route);
   route();
 }

@@ -3,6 +3,7 @@ import express from 'express';
 import { validateSignature, webhook } from '@line/bot-sdk';
 import { prisma } from '../shared/prisma.js';
 import { logger } from '../shared/logger.js';
+import { logError } from '../shared/error-log.js';
 import { handleEvent, type HandlerTenant } from './handlers/index.js';
 
 export const webhookRouter = Router();
@@ -41,6 +42,10 @@ webhookRouter.post(
       res.status(200).json({ status: 'ok' });
     } catch (err) {
       logger.error('Webhook error', { error: err });
+      void logError('line.webhook', err, {
+        tenantId: (req.params as { tenantId?: string }).tenantId ?? null,
+        route: `POST /webhook/${(req.params as { tenantId?: string }).tenantId ?? ''}`,
+      });
       next(err);
     }
   },

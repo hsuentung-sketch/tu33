@@ -43,4 +43,13 @@ export const config = {
   anthropic: {
     apiKey: process.env.ANTHROPIC_API_KEY || '',
   },
+
+  // Supabase Storage — for product documents (PDS / SDS / DM)
+  supabase: {
+    url: process.env.SUPABASE_URL || '',
+    // Service role key — required for server-side uploads & signed URLs.
+    // NEVER expose to the browser.
+    serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
+    productDocsBucket: process.env.SUPABASE_PRODUCT_DOCS_BUCKET || 'product-docs',
+  },
 } as const;

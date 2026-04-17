@@ -97,3 +97,42 @@ function summarizeArgs(args: unknown): string | null {
     return null;
   }
 }
+
+/**
+ * Manual audit write for events the Prisma extension does not cover
+ * (logins, binding-code generation, password resets, …). Fire-and-forget:
+ * failures are logged but never bubble to the caller.
+ */
+export async function writeAudit(input: {
+  tenantId: string;
+  userId: string;
+  action: string;
+  entity: string;
+  entityId?: string;
+  detail?: string | Record<string, unknown> | null;
+}): Promise<void> {
+  try {
+    let detail: string | null = null;
+    if (typeof input.detail === 'string') {
+      detail = input.detail.length > 2000 ? input.detail.slice(0, 2000) + '…' : input.detail;
+    } else if (input.detail != null) {
+      const s = JSON.stringify(input.detail);
+      detail = s.length > 2000 ? s.slice(0, 2000) + '…' : s;
+    }
+    await auditClient.auditLog.create({
+      data: {
+        tenantId: input.tenantId,
+        userId: input.userId,
+        action: input.action,
+        entity: input.entity,
+        entityId: input.entityId ?? 'N/A',
+        detail,
+      },
+    });
+  } catch (err) {
+    logger.warn('writeAudit failed', {
+      error: (err as Error).message,
+      action: input.action,
+    });
+  }
+}

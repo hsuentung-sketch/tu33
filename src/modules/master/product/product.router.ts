@@ -1,9 +1,19 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
+import multer from 'multer';
 import { z } from 'zod';
 import { ValidationError } from '../../../shared/errors.js';
 import * as productService from './product.service.js';
+import * as productDocService from './product-document.service.js';
 
 export const productRouter = Router();
+
+// In-memory buffer, capped at 10 MB. Product docs are small PDFs/images.
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
+
+const DOC_TYPES = ['PDS', 'SDS', 'DM', 'OTHER'] as const;
 
 const createSchema = z.object({
   code: z.string().min(1),
@@ -81,3 +91,56 @@ productRouter.delete('/:id', async (req: Request, res: Response, next: NextFunct
     next(err);
   }
 });
+
+// -------- Product documents (PDS / SDS / DM / OTHER) --------
+
+productRouter.get(
+  '/:id/documents',
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const docs = await productDocService.list(req.tenantId, String(req.params.id));
+      res.json(docs);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+productRouter.post(
+  '/:id/documents',
+  upload.single('file'),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const file = (req as Request & { file?: Express.Multer.File }).file;
+      if (!file) throw new ValidationError('缺少 file 欄位');
+      const type = String(req.body?.type || '').toUpperCase();
+      if (!DOC_TYPES.includes(type as (typeof DOC_TYPES)[number])) {
+        throw new ValidationError(`type 必須為 ${DOC_TYPES.join(' / ')}`);
+      }
+      const doc = await productDocService.upload({
+        tenantId: req.tenantId,
+        productId: String(req.params.id),
+        type: type as productDocService.DocumentType,
+        fileName: file.originalname,
+        mimeType: file.mimetype,
+        bytes: file.buffer,
+        uploadedBy: req.employee.id,
+      });
+      res.status(201).json(doc);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+productRouter.delete(
+  '/:id/documents/:docId',
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await productDocService.remove(req.tenantId, String(req.params.docId));
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  },
+);

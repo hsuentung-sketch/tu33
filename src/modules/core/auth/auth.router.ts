@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { ValidationError, ForbiddenError } from '../../../shared/errors.js';
 import { authMiddleware, requireRole } from './auth.middleware.js';
 import { createBindingCode } from './auth.service.js';
+import { writeAudit } from '../../../shared/audit.js';
 
 export const authRouter = Router();
 
@@ -25,6 +26,14 @@ authRouter.post(
       // An admin can only mint codes for their own tenant.
       if (req.employee.role !== 'ADMIN') throw new ForbiddenError();
       const result = await createBindingCode(req.tenantId, parsed.data.employeeId);
+      void writeAudit({
+        tenantId: req.tenantId,
+        userId: req.employee.id,
+        action: 'LINE_BIND_CODE_CREATED',
+        entity: 'Employee',
+        entityId: parsed.data.employeeId,
+        detail: { expiresAt: result.expiresAt.toISOString() },
+      });
       res.json(result);
     } catch (err) {
       next(err);

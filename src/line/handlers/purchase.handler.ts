@@ -5,8 +5,7 @@ import { prisma } from '../../shared/prisma.js';
 import * as purchaseOrderService from '../../modules/purchase/purchase-order/purchase-order.service.js';
 import * as productService from '../../modules/master/product/product.service.js';
 import { runWithAuditContext } from '../../shared/audit.js';
-import { signPdfToken, buildPdfUrl } from '../../documents/pdf-link.js';
-import { config } from '../../config/index.js';
+import { buildPdfShortUrl } from '../../documents/pdf-shortlink.js';
 
 /** See sales.handler.ts for rationale. */
 function infoRow(label: string, value: string): any {
@@ -125,17 +124,18 @@ export async function handlePurchaseCommand(action: string, ctx: any): Promise<v
           }),
         );
         session.clear(tenantId, lineUserId);
-        const pdfUrl = buildPdfUrl(
-          config.publicBaseUrl,
-          'purchase-order',
-          order.id,
-          signPdfToken(tenantId, 'purchase-order', order.id),
-        );
+        const pdfUrl = await buildPdfShortUrl({
+          tenantId,
+          kind: 'purchase-order',
+          id: order.id,
+          label: `purchase-${order.orderNo}.pdf`,
+          createdBy: employee.id,
+        });
         await client.replyMessage({
           replyToken: event.replyToken,
           messages: [{
             type: 'text',
-            text: `✅ 進貨單已建立\n單號：${order.orderNo}\n總計：$${Number(order.totalAmount).toLocaleString('zh-TW')}\n\n📄 下載 PDF：\n${pdfUrl}`,
+            text: `✅ 進貨單已建立\n單號：${order.orderNo}\n總計：$${Number(order.totalAmount).toLocaleString('zh-TW')}\n\n📄 purchase-${order.orderNo}.pdf\n${pdfUrl}`,
           }],
         });
       } catch (err) {
@@ -173,13 +173,14 @@ export async function handlePurchaseCommand(action: string, ctx: any): Promise<v
       }
       const fmtDate = (d: Date) =>
         `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
-      const bubbles = orders.map((o) => {
-        const pdfUrl = buildPdfUrl(
-          config.publicBaseUrl,
-          'purchase-order',
-          o.id,
-          signPdfToken(tenantId, 'purchase-order', o.id),
-        );
+      const bubbles = await Promise.all(orders.map(async (o) => {
+        const pdfUrl = await buildPdfShortUrl({
+          tenantId,
+          kind: 'purchase-order',
+          id: o.id,
+          label: `purchase-${o.orderNo}.pdf`,
+          createdBy: employee.id,
+        });
         return {
           type: 'bubble',
           size: 'kilo',
@@ -219,11 +220,11 @@ export async function handlePurchaseCommand(action: string, ctx: any): Promise<v
               style: 'primary',
               color: '#06c755',
               height: 'sm',
-              action: { type: 'uri', label: '下載 PDF', uri: pdfUrl },
+              action: { type: 'uri', label: `purchase-${o.orderNo}.pdf`.slice(0, 20), uri: pdfUrl },
             }],
           },
         };
-      });
+      }));
       await client.replyMessage({
         replyToken: event.replyToken,
         messages: [{

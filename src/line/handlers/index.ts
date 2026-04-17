@@ -3,6 +3,7 @@ import { prisma } from '../../shared/prisma.js';
 import { getLineClient } from '../client.js';
 import { logger } from '../../shared/logger.js';
 import { tryConsumeBindingCode, createBindingCode } from '../../modules/core/auth/auth.service.js';
+import { writeAudit } from '../../shared/audit.js';
 import { handleQuotationCommand } from './quotation.handler.js';
 import { handleSalesCommand, handleSalesText } from './sales.handler.js';
 import { handlePurchaseCommand, handlePurchaseText } from './purchase.handler.js';
@@ -45,6 +46,16 @@ async function handleMessage(event: MessageEvent, tenant: HandlerTenant): Promis
     if (m) {
       const code = m[1].toUpperCase();
       const employee = await tryConsumeBindingCode(tenant.id, code, userId);
+      if (employee) {
+        void writeAudit({
+          tenantId: tenant.id,
+          userId: employee.id,
+          action: 'LINE_BIND_SUCCESS',
+          entity: 'Employee',
+          entityId: employee.id,
+          detail: { lineUserId: userId },
+        });
+      }
       await client.replyMessage({
         replyToken,
         messages: [{

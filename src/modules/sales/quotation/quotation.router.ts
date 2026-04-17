@@ -2,8 +2,7 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import { z } from 'zod';
 import { ValidationError } from '../../../shared/errors.js';
 import * as quotationService from './quotation.service.js';
-import { signPdfToken, buildPdfUrl } from '../../../documents/pdf-link.js';
-import { config } from '../../../config/index.js';
+import { buildPdfShortUrl } from '../../../documents/pdf-shortlink.js';
 import { prisma } from '../../../shared/prisma.js';
 import { getLineClient } from '../../../line/client.js';
 import { logger } from '../../../shared/logger.js';
@@ -87,12 +86,13 @@ quotationRouter.post('/', async (req: Request, res: Response, next: NextFunction
     }
     const payload = { ...parsed.data, createdBy: parsed.data.createdBy ?? req.employee.id };
     const result = await quotationService.create(req.tenantId, payload);
-    const pdfUrl = buildPdfUrl(
-      config.publicBaseUrl,
-      'quotation',
-      result.id,
-      signPdfToken(req.tenantId, 'quotation', result.id),
-    );
+    const pdfUrl = await buildPdfShortUrl({
+      tenantId: req.tenantId,
+      kind: 'quotation',
+      id: result.id,
+      label: `quotation-${result.quotationNo}.pdf`,
+      createdBy: req.employee.id,
+    });
 
     // Push a LINE message with the PDF link. Best-effort: we already
     // have a persisted quotation and a usable JSON response, so any
@@ -187,7 +187,7 @@ async function pushQuotationPdf(
     messages: [
       {
         type: 'text',
-        text: `✅ 報價單已建立\n單號：${quotationNo}\n\n📄 下載 PDF：\n${pdfUrl}`,
+        text: `✅ 報價單已建立\n單號：${quotationNo}\n\n📄 quotation-${quotationNo}.pdf\n${pdfUrl}`,
       },
       {
         type: 'template',

@@ -3,6 +3,7 @@ import { prisma } from '../../../shared/prisma.js';
 import { UnauthorizedError, ForbiddenError } from '../../../shared/errors.js';
 import { getTenantSettings } from '../../../shared/utils.js';
 import { runWithAuditContext } from '../../../shared/audit.js';
+import { updateRequestContext } from '../../../shared/error-log.js';
 import { logger } from '../../../shared/logger.js';
 
 /**
@@ -77,6 +78,7 @@ export async function liffAuthMiddleware(
     };
     req.tenantSettings = getTenantSettings(tenant.settings);
 
+    updateRequestContext({ tenantId: tenant.id, userId: employee.id });
     runWithAuditContext({ tenantId: tenant.id, userId: employee.id }, async () => {
       next();
     }).catch(next);

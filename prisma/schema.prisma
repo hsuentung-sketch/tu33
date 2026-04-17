@@ -95,9 +95,38 @@ model Product {
 
   inventory     Inventory?
   inventoryTxns InventoryTransaction[]
+  documents     ProductDocument[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
+}
+
+// ============================================================
+// Master: Product Documents (PDS / SDS / DM / etc.)
+// ============================================================
+
+model ProductDocument {
+  id          String      @id @default(cuid())
+  tenantId    String
+  productId   String
+  product     Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  type        DocumentType
+  fileName    String      // original filename for display
+  storagePath String      // path inside the storage bucket
+  fileSize    Int         // bytes
+  mimeType    String
+  uploadedBy  String?     // employee id
+  createdAt   DateTime    @default(now())
+
+  @@index([tenantId])
+  @@index([productId, type])
+}
+
+enum DocumentType {
+  PDS
+  SDS
+  DM
+  OTHER
 }
 
 // ============================================================
@@ -449,4 +478,52 @@ enum InventoryReason {
   PURCHASE_IN
   ADJUSTMENT
   INITIAL
+}
+
+// ============================================================
+// Short Links (for LINE-friendly download URLs)
+// ============================================================
+
+// A short opaque code that resolves to a full download URL. Lets us
+// send "https://host/s/AX7B2K" in LINE instead of 150-char JWT links.
+// The target is stored as-is (e.g. a /pdf/:kind/:id?token=... URL);
+// /s/:code simply 302-redirects to it. The underlying JWT still guards
+// the resource, so short-link rows themselves are not secrets.
+model ShortLink {
+  id        String    @id @default(cuid())
+  code      String    @unique
+  tenantId  String?
+  target    String    @db.Text
+  label     String?
+  kind      String?
+  expiresAt DateTime?
+  hits      Int       @default(0)
+  createdBy String?
+  createdAt DateTime  @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([expiresAt])
+}
+
+// ============================================================
+// Error Log (runtime exceptions, surfaced in admin "異常紀錄")
+// ============================================================
+
+model ErrorLog {
+  id         String   @id @default(cuid())
+  tenantId   String?                      // null for pre-auth errors
+  userId     String?                      // null for anonymous / cron
+  level      String   @default("error")   // error | warn
+  source     String                       // "line.webhook", "api.products", "pdf.router", ...
+  message    String   @db.Text
+  stack      String?  @db.Text
+  requestId  String?                      // correlation id (if set by middleware)
+  route      String?                      // e.g. "POST /api/products"
+  statusCode Int?
+  context    Json?                        // arbitrary structured extras
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([createdAt])
+  @@index([level, createdAt])
 }

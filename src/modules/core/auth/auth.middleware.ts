@@ -5,6 +5,7 @@ import { prisma } from '../../../shared/prisma.js';
 import { UnauthorizedError, ForbiddenError } from '../../../shared/errors.js';
 import { getTenantSettings, type TenantSettings } from '../../../shared/utils.js';
 import { runWithAuditContext } from '../../../shared/audit.js';
+import { updateRequestContext } from '../../../shared/error-log.js';
 import { liffAuthMiddleware } from './liff-auth.middleware.js';
 import { config } from '../../../config/index.js';
 
@@ -77,6 +78,7 @@ async function cookieAuthMiddleware(req: Request, _res: Response, next: NextFunc
     };
     req.tenantSettings = getTenantSettings(employee.tenant.settings);
 
+    updateRequestContext({ tenantId: employee.tenantId, userId: employee.id });
     runWithAuditContext({ tenantId: employee.tenantId, userId: employee.id }, async () => {
       next();
     }).catch(next);
@@ -117,6 +119,7 @@ async function headerAuthMiddleware(req: Request, _res: Response, next: NextFunc
     };
     req.tenantSettings = getTenantSettings(employee.tenant.settings);
 
+    updateRequestContext({ tenantId, userId: employee.id });
     runWithAuditContext({ tenantId, userId: employee.id }, async () => {
       next();
     }).catch(next);
