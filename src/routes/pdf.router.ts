@@ -77,6 +77,19 @@ pdfRouter.get('/:kind/:id', async (req: Request, res: Response, next: NextFuncti
     const settings = getTenantSettings(tenant.settings);
     const companyHeader = settings.companyHeader || tenant.companyName;
     const companyTaxId = tenant.taxId ?? null;
+    const companyAddress = tenant.address ?? '';
+
+    // Fallback for legacy orders that don't have salesPhone/staffPhone persisted:
+    // look up the creator employee's phone at render time.
+    const tenantIdLocal = payload.t;
+    async function fallbackEmployeePhone(createdBy: string | null | undefined): Promise<string> {
+      if (!createdBy) return '';
+      const emp = await prisma.employee.findFirst({
+        where: { id: createdBy, tenantId: tenantIdLocal },
+        select: { phone: true },
+      });
+      return emp?.phone ?? '';
+    }
 
     if (kind === 'quotation') {
       const q = await prisma.quotation.findFirst({
@@ -84,6 +97,7 @@ pdfRouter.get('/:kind/:id', async (req: Request, res: Response, next: NextFuncti
         include: { items: { orderBy: { sortOrder: 'asc' } }, customer: true },
       });
       if (!q) return res.status(404).send('Quotation not found');
+      const qPhone = q.salesPhone || await fallbackEmployeePhone(q.createdBy);
       return streamPdf(res, next, `quotation-${q.quotationNo}.pdf`, () =>
         generateQuotationPdf({
           companyHeader,
@@ -97,7 +111,7 @@ pdfRouter.get('/:kind/:id', async (req: Request, res: Response, next: NextFuncti
             address: q.customer.address,
           },
           salesPerson: q.salesPerson,
-          salesPhone: q.salesPhone,
+          salesPhone: qPhone,
           items: q.items.map((it) => ({
             productName: it.productName,
             quantity: it.quantity,
@@ -124,10 +138,12 @@ pdfRouter.get('/:kind/:id', async (req: Request, res: Response, next: NextFuncti
         include: { items: { orderBy: { sortOrder: 'asc' } }, customer: true },
       });
       if (!o) return res.status(404).send('Sales order not found');
+      const sPhone = o.salesPhone || await fallbackEmployeePhone(o.createdBy);
       return streamPdf(res, next, `sales-${o.orderNo}.pdf`, () =>
         generateSalesOrderPdf({
           companyHeader,
           companyTaxId,
+          companyAddress,
           orderNo: o.orderNo,
           date: o.orderDate,
           customer: {
@@ -138,7 +154,7 @@ pdfRouter.get('/:kind/:id', async (req: Request, res: Response, next: NextFuncti
             address: o.customer.address,
           },
           salesPerson: o.salesPerson,
-          salesPhone: o.salesPhone,
+          salesPhone: sPhone,
           deliveryNote: o.deliveryNote,
           items: o.items.map((it) => ({
             productName: it.productName,
@@ -163,10 +179,12 @@ pdfRouter.get('/:kind/:id', async (req: Request, res: Response, next: NextFuncti
         include: { items: { orderBy: { sortOrder: 'asc' } }, supplier: true },
       });
       if (!o) return res.status(404).send('Purchase order not found');
+      const pPhone = o.staffPhone || await fallbackEmployeePhone(o.createdBy);
       return streamPdf(res, next, `purchase-${o.orderNo}.pdf`, () =>
         generatePurchaseOrderPdf({
           companyHeader,
           companyTaxId,
+          companyAddress,
           orderNo: o.orderNo,
           date: o.orderDate,
           supplier: {
@@ -177,7 +195,7 @@ pdfRouter.get('/:kind/:id', async (req: Request, res: Response, next: NextFuncti
             address: o.supplier.address,
           },
           internalStaff: o.internalStaff,
-          staffPhone: o.staffPhone,
+          staffPhone: pPhone,
           deliveryNote: o.deliveryNote,
           items: o.items.map((it) => ({
             productName: it.productName,

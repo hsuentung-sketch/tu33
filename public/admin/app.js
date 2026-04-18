@@ -890,6 +890,97 @@ async function openOrderEditor(kind, orderId, onSaved) {
   document.body.append(backdrop);
 }
 
+/**
+ * Read-only order viewer — any authenticated user can open.
+ * Shows header, items table, totals, delivery note + PDF download link.
+ */
+async function openOrderViewer(kind, orderId) {
+  const urlBase = kind === 'quotation' ? '/quotations'
+                : kind === 'sales' ? '/sales-orders'
+                : '/purchase-orders';
+  let order;
+  try { order = await api.get(`${urlBase}/${orderId}`); }
+  catch (e) { toast(e.message, 'err'); return; }
+
+  const isQuote = kind === 'quotation';
+  const isPurchase = kind === 'purchase';
+  const partyName = isPurchase ? (order.supplier?.name || '') : (order.customer?.name || '');
+  const staffName = isPurchase ? order.internalStaff : order.salesPerson;
+  const staffLabel = isPurchase ? '內勤' : '業務';
+  const no = order.quotationNo || order.orderNo;
+
+  function row(label, value) {
+    return el('div', { style: 'display:flex;gap:10px;padding:4px 0;font-size:13px;' },
+      el('div', { style: 'min-width:88px;color:#888;' }, label),
+      el('div', { style: 'flex:1;color:#333;word-break:break-all;' }, value || '—'),
+    );
+  }
+
+  const header = el('div', {},
+    row('單號', no),
+    row(isPurchase ? '供應商' : '客戶', partyName),
+    row(staffLabel, staffName),
+    row('狀態', order.status || '—'),
+    row('開單日', fmtDate(order.orderDate || order.createdAt)),
+    isQuote ? row('報價期限', order.validUntil || '—') : null,
+    row('送貨備註', order.deliveryNote || order.note || '—'),
+    order.isDeleted ? row('⚠ 狀態', '此單已刪除') : null,
+  );
+
+  const itemsBody = el('tbody');
+  (order.items || []).forEach((it, idx) => {
+    itemsBody.append(el('tr', {},
+      el('td', {}, String(idx + 1)),
+      el('td', {}, it.productName),
+      el('td', { class: 'num' }, it.quantity),
+      el('td', { class: 'num' }, fmtMoney(it.unitPrice)),
+      el('td', { class: 'num' }, fmtMoney(it.amount)),
+      el('td', { style: 'font-size:11px;color:#666;' }, it.note || ''),
+    ));
+  });
+  const itemsTable = el('table', { class: 'data', style: 'font-size:12px;margin-top:12px;' },
+    el('thead', {}, el('tr', {},
+      el('th', {}, '#'),
+      el('th', {}, '品名'),
+      el('th', { class: 'num' }, '數量'),
+      el('th', { class: 'num' }, '單價'),
+      el('th', { class: 'num' }, '小計'),
+      el('th', {}, '備註'),
+    )),
+    itemsBody,
+  );
+
+  const totalsDiv = el('div', { style: 'text-align:right;margin-top:10px;font-size:13px;color:#555;' },
+    `小計 ${fmtMoney(order.subtotal)}　　營業稅 ${fmtMoney(order.taxAmount)}　　總計 ${fmtMoney(order.totalAmount)}`,
+  );
+
+  const pdfKind = kind === 'quotation' ? 'quotation' : kind === 'sales' ? 'sales-order' : 'purchase-order';
+  const pdfBtn = el('a', {
+    class: 'btn primary',
+    href: `/api/${pdfKind === 'quotation' ? 'quotations' : pdfKind === 'sales-order' ? 'sales-orders' : 'purchase-orders'}/${orderId}/pdf`,
+    target: '_blank',
+    style: 'text-decoration:none;',
+  }, '📄 下載 PDF');
+  // Above URL is not used — our PDF endpoint is /pdf/:kind/:id?token=... which
+  // needs a signed token. Easier: ask server to produce short URL on demand.
+  // For now we'll wire via /api/statements proxy? Actually simplest: don't
+  // bother generating a fresh token in the viewer — we already show all data.
+  pdfBtn.style.display = 'none'; // hide until we add a backend shortlink fetch
+
+  const backdrop = el('div', { class: 'modal-backdrop' });
+  const modal = el('div', { class: 'modal', style: 'max-width:820px;width:92%;' },
+    el('h3', {}, `檢視 ${isQuote ? '報價單' : isPurchase ? '進貨單' : '銷貨單'}  ${no}`),
+    el('div', { class: 'body' }, header, itemsTable, totalsDiv),
+    el('div', { class: 'actions', style: 'justify-content:flex-end;' },
+      pdfBtn,
+      el('button', { class: 'btn', onClick: () => backdrop.remove() }, '關閉'),
+    ),
+  );
+  backdrop.append(modal);
+  backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
+  document.body.append(backdrop);
+}
+
 async function viewQuotations(main) {
   main.innerHTML = '';
   main.append(el('h2', {}, '報價單'));
@@ -918,9 +1009,11 @@ async function viewQuotations(main) {
           el('td', {}, el('span', { class: 'badge ' + badgeForStatus(q.status) }, q.status)),
           el('td', {}, fmtDate(q.createdAt)),
           el('td', { class: 'actions' },
+            el('button', { class: 'btn small', onClick: () => openOrderViewer('quotation', q.id) }, '檢視'),
+            canEdit ? ' ' : null,
             canEdit
               ? el('button', { class: 'btn small', onClick: () => openOrderEditor('quotation', q.id, reload) }, '編輯')
-              : el('span', { style: 'color:#bbb;font-size:11px;' }, '—'),
+              : null,
           ),
         ));
       }
@@ -958,9 +1051,11 @@ async function viewSalesOrders(main) {
           el('td', {}, fmtDate(o.orderDate)),
           el('td', {}, fmtDate(o.deliveryDate)),
           el('td', { class: 'actions' },
+            el('button', { class: 'btn small', onClick: () => openOrderViewer('sales', o.id) }, '檢視'),
+            canEdit ? ' ' : null,
             canEdit
               ? el('button', { class: 'btn small', onClick: () => openOrderEditor('sales', o.id, reload) }, '編輯')
-              : el('span', { style: 'color:#bbb;font-size:11px;' }, '—'),
+              : null,
           ),
         ));
       }
@@ -998,9 +1093,11 @@ async function viewPurchaseOrders(main) {
           el('td', {}, fmtDate(o.orderDate)),
           el('td', {}, fmtDate(o.receivedDate)),
           el('td', { class: 'actions' },
+            el('button', { class: 'btn small', onClick: () => openOrderViewer('purchase', o.id) }, '檢視'),
+            canEdit ? ' ' : null,
             canEdit
               ? el('button', { class: 'btn small', onClick: () => openOrderEditor('purchase', o.id, reload) }, '編輯')
-              : el('span', { style: 'color:#bbb;font-size:11px;' }, '—'),
+              : null,
           ),
         ));
       }
@@ -1009,8 +1106,53 @@ async function viewPurchaseOrders(main) {
   await reload();
 }
 
-async function viewReceivables(main) { await viewAccount(main, 'receivables', '應收帳款', '客戶'); }
+async function viewReceivables(main) {
+  await viewAccount(main, 'receivables', '應收帳款', '客戶');
+  // Inject "產生月結請款單" button below the table.
+  const bar = el('div', { class: 'toolbar', style: 'justify-content:flex-end;margin-top:12px;' },
+    el('button', { class: 'btn primary', onClick: openMonthlyInvoiceDialog }, '📄 產生月結請款單'),
+  );
+  main.append(bar);
+}
 async function viewPayables(main) { await viewAccount(main, 'payables', '應付帳款', '供應商'); }
+
+/**
+ * Modal: pick customer + year + month → open PDF in new tab.
+ */
+async function openMonthlyInvoiceDialog() {
+  let customers = [];
+  try { customers = await api.get('/customers'); }
+  catch (e) { toast(e.message, 'err'); return; }
+
+  const now = new Date();
+  const defaults = {
+    customerId: customers[0]?.id || '',
+    year: String(now.getFullYear()),
+    month: String(now.getMonth() + 1).padStart(2, '0'),
+  };
+
+  openModal({
+    title: '產生月結請款單',
+    initial: defaults,
+    fields: [
+      { name: 'customerId', label: '客戶', type: 'select', required: true,
+        options: customers.map((c) => ({ value: c.id, label: c.name })) },
+      { type: 'row', fields: [
+        { name: 'year', label: '年' },
+        { name: 'month', label: '月（1-12）' },
+      ]},
+    ],
+    onSubmit: async (v) => {
+      if (!v.customerId) throw new Error('請選擇客戶');
+      const year = Number(v.year), month = Number(v.month);
+      if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) {
+        throw new Error('年/月格式錯誤');
+      }
+      const url = `/api/statements/monthly-invoice/${v.customerId}/${year}/${month}`;
+      window.open(url, '_blank');
+    },
+  });
+}
 
 async function viewAccount(main, path, title, partyLabel) {
   main.innerHTML = '';

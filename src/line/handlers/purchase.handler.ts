@@ -116,6 +116,8 @@ export async function handlePurchaseCommand(action: string, ctx: any): Promise<v
           () => purchaseOrderService.create(tenantId, {
             supplierId: s.data.partyId!,
             internalStaff: employee.name,
+            staffPhone: (employee as { phone?: string | null }).phone ?? undefined,
+            deliveryNote: s.data.deliveryNote,
             createdBy: employee.id,
             items: s.data.items.map((it) => ({
               productName: it.productName,
@@ -367,6 +369,42 @@ export async function handlePurchaseText(text: string, ctx: any): Promise<boolea
     return true;
   }
 
+  if (s.step === 'await-delivery-note') {
+    const trimmed = text.trim();
+    const skip = ['無', '跳過', 'skip', 'none'].includes(trimmed.toLowerCase());
+    s.data.deliveryNote = skip ? undefined : trimmed;
+    s.step = 'confirm';
+    session.set(tenantId, lineUserId, s);
+    const subtotal = s.data.items.reduce((sum, it) => sum + it.quantity * it.unitPrice, 0);
+    const tax = Math.round(subtotal * 0.05);
+    const total = subtotal + tax;
+    const summary = s.data.items
+      .map((it, i) => `${i + 1}. ${it.productName} × ${it.quantity} @ $${it.unitPrice}`)
+      .join('\n');
+    const body =
+      `供應商：${s.data.partyName}\n${summary}\n` +
+      (s.data.deliveryNote ? `送貨備註：${s.data.deliveryNote}\n` : '') +
+      `小計：$${subtotal.toLocaleString('zh-TW')}\n` +
+      `稅：$${tax.toLocaleString('zh-TW')}\n` +
+      `總計：$${total.toLocaleString('zh-TW')}`;
+    await client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [{
+        type: 'template',
+        altText: '確認進貨單',
+        template: {
+          type: 'confirm',
+          text: body.slice(0, 240),
+          actions: [
+            { type: 'postback', label: '送出', data: 'action=purchase:confirm' },
+            { type: 'postback', label: '取消', data: 'action=purchase:cancel' },
+          ],
+        },
+      }],
+    });
+    return true;
+  }
+
   if (s.step === 'items') {
     if (text === '取消') {
       session.clear(tenantId, lineUserId);
@@ -384,27 +422,13 @@ export async function handlePurchaseText(text: string, ctx: any): Promise<boolea
         });
         return true;
       }
-      s.step = 'confirm';
+      s.step = 'await-delivery-note';
       session.set(tenantId, lineUserId, s);
-      const subtotal = s.data.items.reduce((sum, it) => sum + it.quantity * it.unitPrice, 0);
-      const tax = Math.round(subtotal * 0.05);
-      const total = subtotal + tax;
-      const summary = s.data.items
-        .map((it, i) => `${i + 1}. ${it.productName} × ${it.quantity} @ $${it.unitPrice}`)
-        .join('\n');
       await client.replyMessage({
         replyToken: event.replyToken,
         messages: [{
-          type: 'template',
-          altText: '確認進貨單',
-          template: {
-            type: 'confirm',
-            text: `供應商：${s.data.partyName}\n${summary}\n小計：$${subtotal.toLocaleString('zh-TW')}\n稅：$${tax.toLocaleString('zh-TW')}\n總計：$${total.toLocaleString('zh-TW')}`.slice(0, 240),
-            actions: [
-              { type: 'postback', label: '送出', data: 'action=purchase:confirm' },
-              { type: 'postback', label: '取消', data: 'action=purchase:cancel' },
-            ],
-          },
+          type: 'text',
+          text: '請輸入送貨備註（不需要請輸入「無」或「跳過」）：',
         }],
       });
       return true;

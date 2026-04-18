@@ -461,3 +461,116 @@ export function generatePurchaseOrderPdf(data: PurchaseOrderPdfData): InstanceTy
   }
   return doc;
 }
+
+// ============================================================
+// 月結請款單 (Monthly Invoice / Statement)
+// ============================================================
+
+interface MonthlyInvoiceItem {
+  orderNo: string;
+  orderDate: Date;
+  productName: string;
+  quantity: number;
+  unitPrice: Decimal | number;
+  amount: Decimal | number;
+  note?: string | null;
+}
+
+interface MonthlyInvoicePdfData {
+  companyHeader: string;
+  companyTaxId?: string | null;
+  companyPhone?: string | null;
+  companyAddress?: string | null;
+  period: string;          // "2026/04"
+  dueDate?: Date | null;
+  customer: {
+    name: string;
+    contactName?: string | null;
+    taxId?: string | null;
+    phone?: string | null;
+    address?: string | null;
+  };
+  rows: MonthlyInvoiceItem[];
+  subtotal: number;
+  taxAmount: number;
+  totalAmount: number;
+  paidAmount: number;       // 已收
+  pdfFooter?: string;
+}
+
+export function generateMonthlyInvoicePdf(data: MonthlyInvoicePdfData): InstanceType<typeof PDFDocument> {
+  const doc = new PDFDocument({ size: 'A4', margin: PAGE.margin });
+  doc.font(CJK_FONT);
+
+  let y = drawTitleBand(doc, '月結請款單', data.companyHeader);
+
+  const left: InfoRow[] = [
+    { label: '客戶', value: data.customer.name },
+    { label: '聯絡人', value: data.customer.contactName ?? '' },
+    { label: '統一編號', value: data.customer.taxId ?? '' },
+    { label: '電話', value: data.customer.phone ?? '' },
+    { label: '地址', value: data.customer.address ?? '' },
+  ];
+  const right: InfoRow[] = [
+    { label: '請款期間', value: data.period },
+    { label: '我方統編', value: data.companyTaxId ?? '' },
+    { label: '電話', value: data.companyPhone ?? '' },
+    { label: '地址', value: data.companyAddress ?? '' },
+    { label: '付款截止', value: data.dueDate ? formatDate(data.dueDate) : '' },
+  ];
+  y = drawInfoGrid(doc, y + 8, left, right);
+
+  const rows = data.rows.map((it, i) => [
+    String(i + 1),
+    it.orderNo,
+    formatDate(it.orderDate),
+    it.productName,
+    String(it.quantity),
+    formatCurrency(toNumber(it.unitPrice)),
+    formatCurrency(toNumber(it.amount)),
+    it.note ?? '',
+  ]);
+  y = drawItemTable(doc, y + 8, [
+    { header: '編號', width: 5, align: 'center' },
+    { header: '銷貨單號', width: 14 },
+    { header: '日期', width: 10 },
+    { header: '品項', width: 26 },
+    { header: '數量', width: 6, align: 'right' },
+    { header: '單價', width: 11, align: 'right' },
+    { header: '金額', width: 12, align: 'right' },
+    { header: '備註', width: 16 },
+  ], rows);
+
+  // Custom totals block: subtotal / tax / total / paid / unpaid.
+  const rowH = 20;
+  const blockW = 240;
+  const x = PAGE.right - blockW;
+  const labelW = 120;
+  const startY = y + 8;
+  const unpaid = data.totalAmount - data.paidAmount;
+
+  doc.lineWidth(0.9).strokeColor('#333');
+  doc.rect(x, startY, blockW, rowH * 5).stroke();
+  for (let i = 1; i < 5; i++) {
+    doc.moveTo(x, startY + rowH * i).lineTo(x + blockW, startY + rowH * i).stroke();
+  }
+  doc.moveTo(x + labelW, startY).lineTo(x + labelW, startY + rowH * 5).stroke();
+
+  doc.fillColor('#222').fontSize(10);
+  const labels = ['小計', '營業稅 (5%)', '總計', '已收', '本期應付'];
+  const values = [data.subtotal, data.taxAmount, data.totalAmount, data.paidAmount, unpaid];
+  labels.forEach((label, i) => {
+    const big = i === 2 || i === 4;
+    doc.fillColor('#222').fontSize(big ? 11 : 10);
+    doc.text(label, x + 6, startY + rowH * i + 6, { width: labelW - 12 });
+    doc.fillColor(big ? '#000' : '#000').fontSize(big ? 11 : 10);
+    doc.text(formatCurrency(values[i]), x + labelW + 6, startY + rowH * i + 6, {
+      width: blockW - labelW - 12, align: 'right',
+    });
+  });
+
+  if (data.pdfFooter) {
+    doc.fontSize(8).fillColor('#555').text(data.pdfFooter, PAGE.left, 800, { width: PAGE.contentWidth, align: 'center' });
+  }
+  return doc;
+}

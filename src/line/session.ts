@@ -32,10 +32,12 @@ export interface Session {
     | 'master:product-list'
     | 'mgmt:emp:add'
     | 'mgmt:sup:add';
-  step: 'party' | 'items' | 'confirm' | 'item-await-note';
+  step: 'party' | 'items' | 'confirm' | 'item-await-note' | 'await-delivery-note';
   data: {
     partyId?: string;
     partyName?: string;
+    /** Delivery note collected once the item list is "完成". */
+    deliveryNote?: string;
     items: SessionItem[];
     pendingItem?: Partial<SessionItem>;
     /**
