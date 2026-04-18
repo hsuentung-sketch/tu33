@@ -16,6 +16,7 @@ import { statementsRouter } from './statements.router.js';
 import { auditLogRouter } from '../modules/core/audit-log/audit-log.router.js';
 import { errorLogRouter } from '../modules/core/error-log/error-log.router.js';
 import { tenantRouter } from '../modules/core/tenant/tenant.router.js';
+import { VERSION_INFO } from '../shared/version.js';
 
 export const apiRouter = Router();
 
@@ -23,6 +24,11 @@ export const apiRouter = Router();
 apiRouter.use('/auth', authRouter);
 // Web console login/logout/session — publicly accessible (login issues cookie).
 apiRouter.use('/auth/web', webAuthRouter);
+
+// Version info — public (no secrets, surfaced in admin footer).
+apiRouter.get('/version', (_req, res) => {
+  res.json(VERSION_INFO);
+});
 
 apiRouter.use(authMiddleware);
 

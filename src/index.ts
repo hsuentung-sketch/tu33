@@ -10,6 +10,7 @@ import { AppError } from './shared/errors.js';
 import { writeErrorLog, runWithRequestContext, newRequestId } from './shared/error-log.js';
 import { scheduleOverdueReminder } from './jobs/overdue-reminder.js';
 import { scheduleMonthlyStatements } from './jobs/monthly-statement.js';
+import { scheduleDailyBackup } from './jobs/daily-backup.js';
 import { registerInventoryEventHandlers } from './modules/inventory/inventory.events.js';
 
 const app = express();
@@ -90,6 +91,7 @@ app.listen(config.port, '0.0.0.0', () => {
   logger.info(`Environment: ${config.nodeEnv}`);
   scheduleOverdueReminder();
   scheduleMonthlyStatements();
+  scheduleDailyBackup();
   registerInventoryEventHandlers();
 });
 

@@ -1108,13 +1108,18 @@ async function viewPurchaseOrders(main) {
 
 async function viewReceivables(main) {
   await viewAccount(main, 'receivables', '應收帳款', '客戶');
-  // Inject "產生月結請款單" button below the table.
   const bar = el('div', { class: 'toolbar', style: 'justify-content:flex-end;margin-top:12px;' },
     el('button', { class: 'btn primary', onClick: openMonthlyInvoiceDialog }, '📄 產生月結請款單'),
   );
   main.append(bar);
 }
-async function viewPayables(main) { await viewAccount(main, 'payables', '應付帳款', '供應商'); }
+async function viewPayables(main) {
+  await viewAccount(main, 'payables', '應付帳款', '供應商');
+  const bar = el('div', { class: 'toolbar', style: 'justify-content:flex-end;margin-top:12px;' },
+    el('button', { class: 'btn primary', onClick: openMonthlyPayableDialog }, '📄 產生月結對帳單'),
+  );
+  main.append(bar);
+}
 
 /**
  * Modal: pick customer + year + month → open PDF in new tab.
@@ -1149,6 +1154,44 @@ async function openMonthlyInvoiceDialog() {
         throw new Error('年/月格式錯誤');
       }
       const url = `/api/statements/monthly-invoice/${v.customerId}/${year}/${month}`;
+      window.open(url, '_blank');
+    },
+  });
+}
+
+/**
+ * Modal: pick supplier + year + month → open AP statement PDF in new tab.
+ */
+async function openMonthlyPayableDialog() {
+  let suppliers = [];
+  try { suppliers = await api.get('/suppliers'); }
+  catch (e) { toast(e.message, 'err'); return; }
+
+  const now = new Date();
+  const defaults = {
+    supplierId: suppliers[0]?.id || '',
+    year: String(now.getFullYear()),
+    month: String(now.getMonth() + 1).padStart(2, '0'),
+  };
+
+  openModal({
+    title: '產生月結應付對帳單',
+    initial: defaults,
+    fields: [
+      { name: 'supplierId', label: '供應商', type: 'select', required: true,
+        options: suppliers.map((s) => ({ value: s.id, label: s.name })) },
+      { type: 'row', fields: [
+        { name: 'year', label: '年' },
+        { name: 'month', label: '月（1-12）' },
+      ]},
+    ],
+    onSubmit: async (v) => {
+      if (!v.supplierId) throw new Error('請選擇供應商');
+      const year = Number(v.year), month = Number(v.month);
+      if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) {
+        throw new Error('年/月格式錯誤');
+      }
+      const url = `/api/statements/monthly-payable/${v.supplierId}/${year}/${month}`;
       window.open(url, '_blank');
     },
   });
@@ -1791,6 +1834,20 @@ async function boot() {
       a.style.display = 'none';
     }
   }
+  // System version display (fire-and-forget; failure is non-fatal).
+  try {
+    const v = await (await fetch('/api/version')).json();
+    const el = document.getElementById('versionInfo');
+    if (el) {
+      const deployDate = v.deployedAt ? new Date(v.deployedAt).toLocaleString('zh-TW', {
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', hour12: false,
+      }) : '';
+      el.textContent = `v${v.version} · ${v.commit} · ${deployDate}`;
+      el.title = `版本：v${v.version}\ncommit：${v.commit}\n部署時間：${deployDate}`;
+    }
+  } catch { /* non-fatal */ }
+
   window.addEventListener('hashchange', route);
   route();
 }

@@ -1,13 +1,31 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { requireRole } from '../modules/core/auth/auth.middleware.js';
 import { runMonthlyStatements } from '../jobs/monthly-statement.js';
+import { runDailyBackup } from '../jobs/daily-backup.js';
 import { ValidationError, NotFoundError } from '../shared/errors.js';
 import { prisma } from '../shared/prisma.js';
 import { getTenantSettings } from '../shared/utils.js';
-import { generateMonthlyInvoicePdf } from '../documents/pdf-generator.js';
+import { generateMonthlyInvoicePdf, generateMonthlyPayablePdf } from '../documents/pdf-generator.js';
 import { logger } from '../shared/logger.js';
 
 export const statementsRouter = Router();
+
+/**
+ * Manual backup trigger — ADMIN only. Useful for verifying the job
+ * works right after deploy and any time the admin wants an ad-hoc copy.
+ */
+statementsRouter.post(
+  '/backup',
+  requireRole('ADMIN'),
+  async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await runDailyBackup();
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 statementsRouter.post(
   '/run',
@@ -162,6 +180,141 @@ statementsRouter.get(
         doc.end();
       } catch (err) {
         logger.error('monthly-invoice generate failed', { error: (err as Error).message });
+        if (!res.headersSent) next(err);
+      }
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+/**
+ * 月結應付對帳單 PDF — 單一供應商該月所有進貨彙整（品項層級）。
+ * GET /api/statements/monthly-payable/:supplierId/:year/:month
+ */
+statementsRouter.get(
+  '/monthly-payable/:supplierId/:year/:month',
+  requireRole('ADMIN', 'ACCOUNTING'),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const supplierId = String(req.params.supplierId);
+      const year = parseInt(String(req.params.year), 10);
+      const month = parseInt(String(req.params.month), 10);
+      if (!supplierId || !Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) {
+        throw new ValidationError('supplierId, year, month are required (month 1-12)');
+      }
+
+      const supplier = await prisma.supplier.findFirst({
+        where: { id: supplierId, tenantId: req.tenantId },
+      });
+      if (!supplier) throw new NotFoundError('Supplier', supplierId);
+
+      const tenant = await prisma.tenant.findUnique({ where: { id: req.tenantId } });
+      const settings = getTenantSettings(tenant?.settings);
+      const companyHeader = settings.companyHeader || tenant?.companyName || '';
+
+      const payables = await prisma.accountPayable.findMany({
+        where: { tenantId: req.tenantId, supplierId, billingYear: year, billingMonth: month },
+        include: {
+          purchaseOrder: {
+            include: { items: { orderBy: { sortOrder: 'asc' } } },
+          },
+        },
+        orderBy: { dueDate: 'asc' },
+      });
+
+      if (payables.length === 0) {
+        res.status(404).json({ error: `該供應商 ${year}/${month} 無應付帳款紀錄` });
+        return;
+      }
+
+      const rows: Array<{
+        orderNo: string;
+        orderDate: Date;
+        productName: string;
+        quantity: number;
+        unitPrice: number;
+        amount: number;
+        note: string | null;
+      }> = [];
+      let subtotal = 0;
+      let taxAmount = 0;
+      let totalAmount = 0;
+      let paidAmount = 0;
+      let latestDue: Date | null = null;
+
+      for (const ap of payables) {
+        const po = ap.purchaseOrder;
+        if (!po) continue;
+        for (const it of po.items) {
+          rows.push({
+            orderNo: po.orderNo,
+            orderDate: po.orderDate,
+            productName: it.productName,
+            quantity: it.quantity,
+            unitPrice: Number(it.unitPrice),
+            amount: Number(it.amount),
+            note: it.note,
+          });
+        }
+        subtotal += Number(po.subtotal);
+        taxAmount += Number(po.taxAmount);
+        totalAmount += Number(po.totalAmount);
+        if (ap.isPaid) paidAmount += Number(ap.amount);
+        if (!latestDue || ap.dueDate > latestDue) latestDue = ap.dueDate;
+      }
+
+      // All unpaid periods for this supplier
+      const unpaidAll = await prisma.accountPayable.findMany({
+        where: { tenantId: req.tenantId, supplierId, isPaid: false },
+        select: { billingYear: true, billingMonth: true, amount: true },
+      });
+      const unpaidMap = new Map<string, number>();
+      for (const ap of unpaidAll) {
+        const key = `${ap.billingYear}/${String(ap.billingMonth).padStart(2, '0')}`;
+        unpaidMap.set(key, (unpaidMap.get(key) ?? 0) + Number(ap.amount));
+      }
+      const unpaidPeriods = [...unpaidMap.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([period, amount]) => ({ period, amount }));
+
+      const period = `${year}/${String(month).padStart(2, '0')}`;
+      const filename = `payable-${supplier.name.replace(/[^\w\u4e00-\u9fff-]/g, '_')}-${period.replace('/', '')}.pdf`;
+
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(filename)}`);
+
+      try {
+        const doc = generateMonthlyPayablePdf({
+          companyHeader,
+          companyTaxId: tenant?.taxId ?? null,
+          companyPhone: tenant?.phone ?? null,
+          companyAddress: tenant?.address ?? null,
+          period,
+          dueDate: latestDue,
+          supplier: {
+            name: supplier.name,
+            contactName: supplier.contactName,
+            taxId: supplier.taxId,
+            phone: supplier.phone,
+            address: supplier.address,
+          },
+          rows,
+          subtotal,
+          taxAmount,
+          totalAmount,
+          paidAmount,
+          unpaidPeriods,
+          pdfFooter: settings.pdfFooter,
+        });
+        doc.on('error', (err) => {
+          logger.error('monthly-payable pdf error', { error: (err as Error).message });
+          if (!res.headersSent) next(err); else res.end();
+        });
+        doc.pipe(res);
+        doc.end();
+      } catch (err) {
+        logger.error('monthly-payable generate failed', { error: (err as Error).message });
         if (!res.headersSent) next(err);
       }
     } catch (err) {
