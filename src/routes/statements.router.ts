@@ -110,6 +110,21 @@ statementsRouter.get(
         if (!latestDue || ar.dueDate > latestDue) latestDue = ar.dueDate;
       }
 
+      // Collect ALL unpaid periods for this customer (includes current).
+      const unpaidAll = await prisma.accountReceivable.findMany({
+        where: { tenantId: req.tenantId, customerId, isPaid: false },
+        select: { billingYear: true, billingMonth: true, amount: true },
+      });
+      // Group by (year, month) so a single period sums multiple SO's.
+      const unpaidMap = new Map<string, number>();
+      for (const ar of unpaidAll) {
+        const key = `${ar.billingYear}/${String(ar.billingMonth).padStart(2, '0')}`;
+        unpaidMap.set(key, (unpaidMap.get(key) ?? 0) + Number(ar.amount));
+      }
+      const unpaidPeriods = [...unpaidMap.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([period, amount]) => ({ period, amount }));
+
       const period = `${year}/${String(month).padStart(2, '0')}`;
       const filename = `invoice-${customer.name.replace(/[^\w\u4e00-\u9fff-]/g, '_')}-${period.replace('/', '')}.pdf`;
 
@@ -136,6 +151,7 @@ statementsRouter.get(
           taxAmount,
           totalAmount,
           paidAmount,
+          unpaidPeriods,
           pdfFooter: settings.pdfFooter,
         });
         doc.on('error', (err) => {
