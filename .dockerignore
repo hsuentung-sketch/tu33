@@ -1,0 +1,48 @@
+# Source control
+.git
+.gitignore
+
+# Node
+node_modules
+npm-debug.log*
+
+# Build output (rebuilt inside container)
+dist
+
+# Local env + secrets
+.env
+.env.local
+.env.*.local
+
+# Tooling caches
+.vscode
+.idea
+coverage
+*.log
+
+# Local-only docs (not needed at runtime)
+docs
+*.md
+!README.md
+
+# Claude CLI metadata
+.claude
+
+# Local test artefacts
+tests
+vitest.config.ts
+vitest.integration.config.ts
+
+# Local-only assets (fonts are downloaded fresh in builder stage)
+assets/fonts/*.ttf
+assets/fonts/*.otf
+
+# Desktop rubbish
+.DS_Store
+Thumbs.db
+
+# Render-specific (Fly image doesn't need this)
+render.yaml
+
+# Excel dumps in repo root
+*.xlsx
