@@ -60,7 +60,7 @@ async function main() {
   console.log('Tenant     :', updated.companyName);
   console.log('Old (last 20):', before.lineAccessToken?.slice(-20));
   console.log('New (last 20):', updated.lineAccessToken?.slice(-20));
-  console.log('\nRemember to also update LINE_CHANNEL_ACCESS_TOKEN in Render env.');
+  console.log('\nRemember to also update LINE_CHANNEL_ACCESS_TOKEN via `fly secrets set`.');
 
   await db.$disconnect();
 }

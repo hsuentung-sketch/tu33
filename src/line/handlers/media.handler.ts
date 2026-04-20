@@ -298,30 +298,13 @@ export async function createCustomerFromOcrSession(ctx: {
     taxId: card.taxId ?? undefined,
     address: card.address ?? undefined,
   };
-  let created;
-  try {
-    created = await runWithAuditContext({ tenantId: ctx.tenantId, userId: ctx.employee.id }, () =>
-      prisma.customer.upsert({
-        where: { tenantId_name: { tenantId: ctx.tenantId, name } },
-        create: { ...baseCreate, createdBy: ctx.employee.id },
-        update: baseUpdate,
-      }),
-    );
-  } catch (err: any) {
-    const msg = String(err?.message ?? '');
-    if (err?.code === 'P2022' || msg.includes('createdBy')) {
-      logger.warn('Customer.createdBy missing in DB — retrying without it');
-      created = await runWithAuditContext({ tenantId: ctx.tenantId, userId: ctx.employee.id }, () =>
-        prisma.customer.upsert({
-          where: { tenantId_name: { tenantId: ctx.tenantId, name } },
-          create: baseCreate,
-          update: baseUpdate,
-        }),
-      );
-    } else {
-      throw err;
-    }
-  }
+  const created = await runWithAuditContext({ tenantId: ctx.tenantId, userId: ctx.employee.id }, () =>
+    prisma.customer.upsert({
+      where: { tenantId_name: { tenantId: ctx.tenantId, name } },
+      create: { ...baseCreate, createdBy: ctx.employee.id },
+      update: baseUpdate,
+    }),
+  );
   session.clear(ctx.tenantId, ctx.employee.lineUserId!);
   return { id: created.id, name: created.name };
 }

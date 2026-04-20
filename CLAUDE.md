@@ -8,7 +8,7 @@
 
 - **後端**：Express 5 + TypeScript (ESM)
 - **DB**：PostgreSQL + Prisma 7（driver adapter）
-- **部署**：Render（自動從 GitHub main 分支部署）
+- **部署**：Fly.io（Dockerfile，nrt region，主機 24h 運行不休眠）
 - **LINE**：Messaging API + LIFF（複雜表單）
 - **文件**：PDFKit（PDF）、ExcelJS（匯入）
 - **AI**：OpenAI Whisper（語音）、Google Vision（名片 OCR）、Claude Haiku（語音指令解析）
@@ -16,7 +16,7 @@
 ## 關鍵環境 & URL
 
 - GitHub: https://github.com/hsuentung-sketch/tu33
-- Render: https://erp-line-bot.onrender.com
+- Fly: https://erp-line-bot.fly.dev（2026-04-19 從 Render 搬遷）
 - LIFF ID (報價單): `2009797959-uDVN0eGQ`（LINE Login channel 2009797959）
 - Messaging API Channel ID: 2009636862
 - Tenant 設定中存 `settings.lineLoginChannelId = '2009797959'` 用來把 LIFF id-token → tenant
@@ -28,7 +28,7 @@
 ```
 src/
 ├── index.ts                 # Express 入口，/pdf 掛在 authMiddleware 之前
-├── config/index.ts          # 讀 env，publicBaseUrl 預設 onrender.com
+├── config/index.ts          # 讀 env，publicBaseUrl 由 PUBLIC_BASE_URL 覆蓋（Fly 設 fly.dev）
 ├── routes/
 │   ├── index.ts             # apiRouter 掛 authMiddleware，含 /api/me
 │   └── pdf.router.ts        # 公開 PDF 下載（JWT-token 驗證）
@@ -94,7 +94,7 @@ dueDate = endOfMonth(addMonths(firstOfMonth(billingYear, billingMonth), paymentD
 ### 1. 部署基礎設施
 - 多租戶 LIFF 驗證：`lineChannelId` OR `settings.lineLoginChannelId` 雙路查找（`liff-auth.middleware.ts`）
 - `/api/me` 端點回員工資訊（給 LIFF 表單帶入業務姓名）
-- Render build command: `npm ci --include=dev && npx prisma generate && npm run fonts:download && npm run build`
+- Fly build：`Dockerfile`（multi-stage builder + runner），fly.toml 指定 nrt region、min_machines_running=1、auto_stop=off
 
 ### 2. Rich Menu
 - `src/tools/generate-rich-menu-image.ts`：SVG + sharp 產生 2500×1686 PNG
@@ -109,7 +109,7 @@ dueDate = endOfMonth(addMonths(firstOfMonth(billingYear, billingMonth), paymentD
 ### 4. PDF 下載（公開連結）
 - 每筆銷貨/進貨/報價建立後產生 JWT 簽名的短連結（預設 7 天）
 - `/pdf/:kind/:id?token=...` **掛在 authMiddleware 之前**，讓 LINE 用戶點連結能直接下載
-- 訊息格式：`📄 下載 PDF：https://erp-line-bot.onrender.com/pdf/sales-order/xxx?token=…`
+- 訊息格式：`📄 下載 PDF：https://erp-line-bot.fly.dev/s/<shortcode>`（再 302 到 /pdf/:kind/:id?token=…）
 
 ### 5. CJK 字型處理（踩過兩個坑）
 - ❌ `notofonts/noto-cjk` raw URL 回的是 Git LFS 指針（~130B），字型載入失敗 fallback Helvetica → PDF 中文亂碼
@@ -238,7 +238,7 @@ npx tsx src/tools/generate-binding-code.ts <員工編號>
 ## Schema 變更 SOP
 Supabase `.env` 的 `DATABASE_URL` 走 pgbouncer port 6543（不支援 DDL），所以：
 - 平常開發：`npx prisma db push`（用 direct URL）或改 migration
-- **Render 生產**：改 `prisma/schema.prisma` 後，實務作法是去 **Supabase SQL Editor** 手動貼 ALTER TABLE，再 push code
+- **Fly 生產**：改 `prisma/schema.prisma` 後，實務作法是去 **Supabase SQL Editor** 手動貼 ALTER TABLE，再 `git push` 觸發 `fly deploy`
 - 程式端加 try/catch P2022 fallback，保護「schema 已改但 DB 還沒 migrate」的短暫不一致期（見 `customer.service.ts` / `media.handler.ts`）
 
 ## Git 身份

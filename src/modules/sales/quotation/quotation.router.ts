@@ -6,6 +6,7 @@ import { buildPdfShortUrl } from '../../../documents/pdf-shortlink.js';
 import { prisma } from '../../../shared/prisma.js';
 import { getLineClient } from '../../../line/client.js';
 import { logger } from '../../../shared/logger.js';
+import { writeErrorLog } from '../../../shared/error-log.js';
 
 export const quotationRouter = Router();
 
@@ -114,9 +115,19 @@ quotationRouter.post('/', async (req: Request, res: Response, next: NextFunction
     // Push a LINE message with the PDF link. Best-effort: we already
     // have a persisted quotation and a usable JSON response, so any
     // push failure (missing token, user not linked, LINE API blip) is
-    // logged but does not fail the request.
-    void pushQuotationPdf(req.tenantId, req.employee.lineUserId, result.id, result.quotationNo, pdfUrl)
-      .catch((err) => logger.warn('LINE push failed', { error: (err as Error).message }));
+    // logged but does not fail the request. Persists to ErrorLog so
+    // ADMIN can see recurring push failures in the backend view.
+    pushQuotationPdf(req.tenantId, req.employee.lineUserId, result.id, result.quotationNo, pdfUrl)
+      .catch(async (err) => {
+        logger.error('Quotation LINE push failed', { error: (err as Error).message, quotationId: result.id });
+        await writeErrorLog({
+          source: 'quotation.push-pdf',
+          message: (err as Error).message,
+          stack: (err as Error).stack ?? null,
+          tenantId: req.tenantId,
+          context: { quotationId: result.id, quotationNo: result.quotationNo },
+        });
+      });
 
     res.status(201).json({ ...result, pdfUrl });
   } catch (err) {

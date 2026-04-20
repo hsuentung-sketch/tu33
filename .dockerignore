@@ -24,6 +24,7 @@ coverage
 docs
 *.md
 !README.md
+!public/admin/manual.md
 
 # Claude CLI metadata
 .claude

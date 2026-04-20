@@ -3,11 +3,12 @@ import { prisma } from '../../../shared/prisma.js';
 import { NotFoundError, ValidationError } from '../../../shared/errors.js';
 import { eventBus } from '../../../shared/event-bus.js';
 import {
-  generateDocumentNo,
   calculateDueDate,
   calculateTotals,
   getTenantSettings,
 } from '../../../shared/utils.js';
+import { createWithDailyNumber } from '../../../shared/document-no.js';
+import { taipeiNow } from '../../../shared/timezone.js';
 
 export interface SalesItemInput {
   productName: string;
@@ -70,20 +71,17 @@ export async function create(tenantId: string, data: SalesOrderCreateInput) {
     settings.taxRate,
   );
 
-  const created = await prisma.$transaction(async (tx) => {
-    const now = new Date();
-    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-    const todayCount = await tx.salesOrder.count({
-      where: { tenantId, createdAt: { gte: startOfDay, lt: endOfDay } },
-    });
-    const orderNo = generateDocumentNo(now, todayCount + 1);
+  const tp = taipeiNow();
+  const billingYear = tp.year;
+  const billingMonth = tp.month;
+  const dueDate = calculateDueDate(billingYear, billingMonth, customer.paymentDays);
 
-    const billingYear = now.getFullYear();
-    const billingMonth = now.getMonth() + 1;
-    const dueDate = calculateDueDate(billingYear, billingMonth, customer.paymentDays);
-
-    const row = await tx.salesOrder.create({
+  const created = await createWithDailyNumber({
+    counter: (tx, w) =>
+      tx.salesOrder.count({
+        where: { tenantId, createdAt: { gte: w.start, lt: w.end } },
+      }),
+    createFn: (tx, orderNo) => tx.salesOrder.create({
       data: {
         tenantId,
         orderNo,
@@ -117,9 +115,7 @@ export async function create(tenantId: string, data: SalesOrderCreateInput) {
         },
       },
       include: { items: true, receivable: true },
-    });
-
-    return row;
+    }),
   });
 
   await eventBus.emitAsync('salesOrder:created', { tenantId, salesOrderId: created.id });
@@ -290,12 +286,18 @@ async function reverseInventory(
   reason: 'SALES_OUT' | 'PURCHASE_IN',
   createdBy: string,
 ) {
+  if (!items.length) return;
+  // Batch product lookup: 1 query instead of N.
+  const names = Array.from(new Set(items.map((i) => i.productName)));
+  const products = await prisma.product.findMany({
+    where: { tenantId, name: { in: names } },
+    select: { id: true, name: true },
+  });
+  const byName = new Map(products.map((p) => [p.name, p.id]));
+
   for (const it of items) {
-    const p = await prisma.product.findFirst({
-      where: { tenantId, name: it.productName },
-      select: { id: true },
-    });
-    if (!p) continue;
+    const productId = byName.get(it.productName);
+    if (!productId) continue;
     // Reversal: if original was SALES_OUT (負數)，反向寫正數；PURCHASE_IN 反之。
     const delta = reason === 'SALES_OUT' ? it.quantity : -it.quantity;
     try {
@@ -303,7 +305,7 @@ async function reverseInventory(
         prisma.inventoryTransaction.create({
           data: {
             tenantId,
-            productId: p.id,
+            productId,
             delta,
             reason,
             refType: reason === 'SALES_OUT' ? 'SalesOrder:edit' : 'PurchaseOrder:edit',
@@ -313,8 +315,8 @@ async function reverseInventory(
           },
         }),
         prisma.inventory.upsert({
-          where: { tenantId_productId: { tenantId, productId: p.id } },
-          create: { tenantId, productId: p.id, quantity: delta },
+          where: { tenantId_productId: { tenantId, productId } },
+          create: { tenantId, productId, quantity: delta },
           update: { quantity: { increment: delta } },
         }),
       ]);

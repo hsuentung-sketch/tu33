@@ -15,6 +15,7 @@ import { prisma } from '../../../shared/prisma.js';
 import { UnauthorizedError, ValidationError } from '../../../shared/errors.js';
 import { config } from '../../../config/index.js';
 import { writeAudit } from '../../../shared/audit.js';
+import { tryConsume } from '../../../shared/rate-limit.js';
 
 export const webAuthRouter = Router();
 
@@ -33,6 +34,13 @@ webAuthRouter.post('/login', async (req: Request, res: Response, next: NextFunct
     if (!parsed.success) throw new ValidationError('Invalid payload');
     const { tenantCompany, employeeId, password } = parsed.data;
 
+    // 10 attempts per (IP, employeeId) per 10 minutes. Blocks credential-stuffing
+    // and slow password-spraying while leaving honest users room for typos.
+    const ip = req.ip || req.socket.remoteAddress || 'unknown';
+    if (!tryConsume(`login:${ip}:${employeeId}`, 10, 10 * 60 * 1000)) {
+      throw new UnauthorizedError('嘗試次數過多，請 10 分鐘後再試');
+    }
+
     // Narrow to a tenant if the login form provided a hint; otherwise
     // allow single-tenant matches.
     const candidates = await prisma.employee.findMany({
@@ -44,8 +52,9 @@ webAuthRouter.post('/login', async (req: Request, res: Response, next: NextFunct
       include: { tenant: true },
     });
     if (candidates.length === 0) throw new UnauthorizedError('帳號或密碼錯誤');
-    // Ambiguous match across tenants → require tenant hint
-    if (candidates.length > 1) throw new UnauthorizedError('多個租戶符合，請填寫「公司名稱」欄位');
+    // Ambiguous match across tenants → require tenant hint.
+    // Deliberately generic to avoid confirming "this employeeId exists in N tenants".
+    if (candidates.length > 1) throw new UnauthorizedError('請填寫「公司名稱」欄位以完成登入');
 
     const emp = candidates[0];
     if (!emp.passwordHash) throw new UnauthorizedError('尚未設定密碼，請聯絡管理員');

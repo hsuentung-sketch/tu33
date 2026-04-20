@@ -25,7 +25,7 @@ export interface BuildPdfShortUrlInput {
 /**
  * Build a short, LINE-friendly download URL for a PDF document.
  *
- * @returns a URL like "https://erp-line-bot.onrender.com/s/AX7B2K"
+ * @returns a URL like "https://erp-line-bot.fly.dev/s/AX7B2K"
  */
 export async function buildPdfShortUrl(input: BuildPdfShortUrlInput): Promise<string> {
   const ttl = input.ttlSeconds ?? DEFAULT_TTL_SECONDS;

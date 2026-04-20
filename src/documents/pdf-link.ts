@@ -40,7 +40,7 @@ export function verifyPdfToken(token: string): PdfTokenPayload | null {
 
 /**
  * Build a public URL for a PDF download. `baseUrl` should be configured
- * via PUBLIC_BASE_URL env var (e.g. https://erp-line-bot.onrender.com).
+ * via PUBLIC_BASE_URL env var (e.g. https://erp-line-bot.fly.dev).
  */
 export function buildPdfUrl(
   baseUrl: string,

@@ -3,11 +3,12 @@ import { prisma } from '../../../shared/prisma.js';
 import { NotFoundError, ValidationError } from '../../../shared/errors.js';
 import { eventBus } from '../../../shared/event-bus.js';
 import {
-  generateDocumentNo,
   calculateDueDate,
   calculateTotals,
   getTenantSettings,
 } from '../../../shared/utils.js';
+import { createWithDailyNumber } from '../../../shared/document-no.js';
+import { taipeiNow } from '../../../shared/timezone.js';
 
 export interface QuotationItemInput {
   productName: string;
@@ -162,16 +163,12 @@ export async function create(tenantId: string, data: QuotationCreateInput) {
     settings.taxRate,
   );
 
-  return prisma.$transaction(async (tx) => {
-    const now = new Date();
-    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-    const todayCount = await tx.quotation.count({
-      where: { tenantId, createdAt: { gte: startOfDay, lt: endOfDay } },
-    });
-    const quotationNo = generateDocumentNo(now, todayCount + 1);
-
-    const created = await tx.quotation.create({
+  const created = await createWithDailyNumber({
+    counter: (tx, w) =>
+      tx.quotation.count({
+        where: { tenantId, createdAt: { gte: w.start, lt: w.end } },
+      }),
+    createFn: (tx, quotationNo) => tx.quotation.create({
       data: {
         tenantId,
         quotationNo,
@@ -199,16 +196,16 @@ export async function create(tenantId: string, data: QuotationCreateInput) {
         },
       },
       include: { items: true },
-    });
-
-    eventBus.emit('quotation:created', {
-      tenantId,
-      quotationId: created.id,
-      customerId: created.customerId,
-    });
-
-    return created;
+    }),
   });
+
+  eventBus.emit('quotation:created', {
+    tenantId,
+    quotationId: created.id,
+    customerId: created.customerId,
+  });
+
+  return created;
 }
 
 export async function update(
@@ -283,64 +280,62 @@ export async function convertToSalesOrder(
   if (!tenant) throw new NotFoundError('Tenant', tenantId);
   const settings = getTenantSettings(tenant.settings);
 
-  const salesOrder = await prisma.$transaction(async (tx) => {
-    const now = new Date();
-    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-    const todayCount = await tx.salesOrder.count({
-      where: { tenantId, createdAt: { gte: startOfDay, lt: endOfDay } },
-    });
-    const orderNo = generateDocumentNo(now, todayCount + 1);
+  const tp = taipeiNow();
+  const billingYear = tp.year;
+  const billingMonth = tp.month;
+  const dueDate = calculateDueDate(billingYear, billingMonth, customer.paymentDays);
+  void settings;
 
-    const billingYear = now.getFullYear();
-    const billingMonth = now.getMonth() + 1;
-    const dueDate = calculateDueDate(billingYear, billingMonth, customer.paymentDays);
-
-    const row = await tx.salesOrder.create({
-      data: {
-        tenantId,
-        orderNo,
-        customerId: quotation.customerId,
-        quotationId: quotation.id,
-        salesPerson: quotation.salesPerson,
-        salesPhone: quotation.salesPhone,
-        subtotal: quotation.subtotal,
-        taxAmount: quotation.taxAmount,
-        totalAmount: quotation.totalAmount,
-        createdBy,
-        items: {
-          create: quotation.items.map((i, idx) => ({
-            productName: i.productName,
-            quantity: i.quantity,
-            unitPrice: i.unitPrice,
-            amount: i.amount,
-            note: i.note,
-            sortOrder: i.sortOrder ?? idx,
-          })),
-        },
-        receivable: {
-          create: {
-            tenantId,
-            customerId: quotation.customerId,
-            billingYear,
-            billingMonth,
-            amount: quotation.totalAmount,
-            dueDate,
+  const salesOrder = await createWithDailyNumber({
+    counter: (tx, w) =>
+      tx.salesOrder.count({
+        where: { tenantId, createdAt: { gte: w.start, lt: w.end } },
+      }),
+    createFn: async (tx, orderNo) => {
+      const row = await tx.salesOrder.create({
+        data: {
+          tenantId,
+          orderNo,
+          customerId: quotation.customerId,
+          quotationId: quotation.id,
+          salesPerson: quotation.salesPerson,
+          salesPhone: quotation.salesPhone,
+          subtotal: quotation.subtotal,
+          taxAmount: quotation.taxAmount,
+          totalAmount: quotation.totalAmount,
+          createdBy,
+          items: {
+            create: quotation.items.map((i, idx) => ({
+              productName: i.productName,
+              quantity: i.quantity,
+              unitPrice: i.unitPrice,
+              amount: i.amount,
+              note: i.note,
+              sortOrder: i.sortOrder ?? idx,
+            })),
+          },
+          receivable: {
+            create: {
+              tenantId,
+              customerId: quotation.customerId,
+              billingYear,
+              billingMonth,
+              amount: quotation.totalAmount,
+              dueDate,
+            },
           },
         },
-      },
-      include: { items: true, receivable: true },
-    });
+        include: { items: true, receivable: true },
+      });
 
-    void settings;
+      // Flip quotation to WON so it's marked closed.
+      await tx.quotation.update({
+        where: { id: quotation.id },
+        data: { status: 'WON', dealClosed: true },
+      });
 
-    // Flip quotation to WON so it's marked closed.
-    await tx.quotation.update({
-      where: { id: quotation.id },
-      data: { status: 'WON', dealClosed: true },
-    });
-
-    return row;
+      return row;
+    },
   });
 
   await eventBus.emitAsync('quotation:won', {

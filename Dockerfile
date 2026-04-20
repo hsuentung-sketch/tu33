@@ -33,6 +33,13 @@ FROM node:20-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
+# Commit SHA for /api/version. The control plane uses this to detect outdated
+# instances. Pass via: fly deploy --build-arg GIT_COMMIT=$(git rev-parse HEAD)
+# Defaults to "dev" for local builds that forget it — control plane then
+# renders the customer as "未知" (unknown) instead of comparing.
+ARG GIT_COMMIT=dev
+ENV GIT_COMMIT=${GIT_COMMIT}
+
 # postgresql-client for pg_dump backups (src/jobs/daily-backup.ts).
 # If the binary is missing the backup job falls back to a JSON export,
 # so installing it is an improvement but not a hard requirement.

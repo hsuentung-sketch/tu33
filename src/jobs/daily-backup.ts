@@ -18,6 +18,7 @@ import { logger } from '../shared/logger.js';
 import { writeErrorLog } from '../shared/error-log.js';
 import { prisma } from '../shared/prisma.js';
 import { sendEmail } from '../documents/email-sender.js';
+import { taipeiDateStamp } from '../shared/timezone.js';
 
 const BACKUP_EMAIL_TO = process.env.BACKUP_EMAIL_TO || '';
 
@@ -59,6 +60,10 @@ async function pgDumpToBuffer(): Promise<Buffer> {
  * Fallback: dump every known Prisma table as JSON, concat into one
  * document, gzip. Not a full SQL restore — but preserves row content.
  */
+function daysAgo(n: number): Date {
+  return new Date(Date.now() - n * 24 * 60 * 60 * 1000);
+}
+
 async function prismaJsonDump(): Promise<Buffer> {
   const tables: Array<[string, () => Promise<unknown[]>]> = [
     ['tenant', () => prisma.tenant.findMany()],
@@ -76,9 +81,11 @@ async function prismaJsonDump(): Promise<Buffer> {
     ['accountReceivable', () => prisma.accountReceivable.findMany()],
     ['accountPayable', () => prisma.accountPayable.findMany()],
     ['inventory', () => prisma.inventory.findMany()],
-    ['inventoryTransaction', () => prisma.inventoryTransaction.findMany()],
-    ['auditLog', () => prisma.auditLog.findMany()],
-    ['errorLog', () => prisma.errorLog.findMany()],
+    // Log tables can grow huge — cap to last 90 days to keep backup emails
+    // under SMTP attachment limits (typ. 25MB). Full history stays in DB.
+    ['inventoryTransaction', () => prisma.inventoryTransaction.findMany({ where: { createdAt: { gte: daysAgo(90) } } })],
+    ['auditLog', () => prisma.auditLog.findMany({ where: { createdAt: { gte: daysAgo(90) } } })],
+    ['errorLog', () => prisma.errorLog.findMany({ where: { createdAt: { gte: daysAgo(90) } } })],
     ['shortLink', () => prisma.shortLink.findMany()],
   ];
 
@@ -107,7 +114,9 @@ export async function runDailyBackup(): Promise<{ ok: boolean; mode: string; siz
     throw new Error(msg);
   }
 
-  const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  // Use Taipei calendar date; backup runs at 02:00 Taipei (18:00 UTC previous day),
+  // so naive UTC slice would tag the file with yesterday's date.
+  const stamp = taipeiDateStamp(new Date());
   let buf: Buffer;
   let filename: string;
   let mode: 'sql-gz' | 'json-gz';

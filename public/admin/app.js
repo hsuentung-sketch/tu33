@@ -1786,6 +1786,66 @@ function badgeForStatus(s) {
   return 'mute';
 }
 
+// Load marked.js (markdown renderer) on demand — used by the help view only.
+// CDN version is tiny (~40KB) and cached by browser. If offline / blocked,
+// falls back to plain <pre> rendering so the manual is still readable.
+let _markedPromise = null;
+function loadMarked() {
+  if (window.marked) return Promise.resolve(window.marked);
+  if (_markedPromise) return _markedPromise;
+  _markedPromise = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js';
+    s.onload = () => resolve(window.marked);
+    s.onerror = () => reject(new Error('markdown renderer offline'));
+    document.head.appendChild(s);
+  });
+  return _markedPromise;
+}
+
+async function viewHelp(main) {
+  main.innerHTML = '';
+  const toolbar = el('div', { class: 'toolbar', style: 'display:flex;gap:8px;justify-content:space-between;align-items:center;margin-bottom:12px;' },
+    el('h2', { style: 'margin:0;' }, '使用說明'),
+    el('div', {},
+      el('button', { class: 'btn', onClick: () => window.print() }, '🖨 列印 / 儲存 PDF'),
+      ' ',
+      el('a', { class: 'btn', href: './manual.md', target: '_blank', style: 'margin-left:6px;' }, '📄 下載原始 Markdown'),
+    ),
+  );
+  const content = el('div', { class: 'help-content markdown-body' }, el('div', { class: 'empty' }, '載入中…'));
+  main.append(toolbar, content);
+
+  let md;
+  try {
+    md = await (await fetch('./manual.md?v=' + Date.now())).text();
+  } catch (e) {
+    content.innerHTML = '';
+    content.append(el('div', { class: 'err' }, '無法載入手冊：' + e.message));
+    return;
+  }
+
+  try {
+    const marked = await loadMarked();
+    content.innerHTML = marked.parse(md);
+    // Anchor-style links inside the TOC reference #section — rewrite to
+    // plain in-page scroll so they don't collide with the SPA's hash router.
+    for (const a of content.querySelectorAll('a[href^="#"]')) {
+      a.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        const id = decodeURIComponent(a.getAttribute('href').slice(1));
+        const target = content.querySelector(`[id="${CSS.escape(id)}"]`)
+          || [...content.querySelectorAll('h1,h2,h3,h4')].find((h) => h.textContent.trim() === id);
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    }
+  } catch {
+    // Fallback: show raw markdown in a <pre> if CDN blocked.
+    content.innerHTML = '';
+    content.append(el('pre', { style: 'white-space:pre-wrap;font-family:system-ui;font-size:14px;line-height:1.6;' }, md));
+  }
+}
+
 const views = {
   dashboard: viewDashboard,
   customers: viewCustomers,
@@ -1801,6 +1861,7 @@ const views = {
   'audit-logs': viewAuditLogs,
   'error-logs': viewErrorLogs,
   company: viewCompany,
+  help: viewHelp,
 };
 
 async function route() {

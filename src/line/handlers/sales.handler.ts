@@ -7,6 +7,7 @@ import * as productService from '../../modules/master/product/product.service.js
 import { runWithAuditContext } from '../../shared/audit.js';
 import { buildPdfShortUrl } from '../../documents/pdf-shortlink.js';
 import { sendItemConfirmCard } from './item-confirm.js';
+import { makeSafeSend } from '../safe-send.js';
 
 /**
  * Small helper: a "label: value" baseline row inside a Flex bubble.
@@ -115,6 +116,14 @@ export async function handleSalesCommand(action: string, ctx: any): Promise<void
         return;
       }
 
+      // Order creation may span DB transaction + event handlers + PDF shortlink.
+      // Use safeSend so a >30s delay falls back to push instead of losing the reply.
+      const safeSend = makeSafeSend({
+        client,
+        replyToken: event.replyToken,
+        lineUserId: employee.lineUserId,
+        source: 'sales:confirm',
+      });
       try {
         const order = await runWithAuditContext(
           { tenantId, userId: employee.id },
@@ -140,19 +149,13 @@ export async function handleSalesCommand(action: string, ctx: any): Promise<void
           label: `sales-${order.orderNo}.pdf`,
           createdBy: employee.id,
         });
-        await client.replyMessage({
-          replyToken: event.replyToken,
-          messages: [{
-            type: 'text',
-            text: `✅ 銷貨單已建立\n單號：${order.orderNo}\n總計：$${Number(order.totalAmount).toLocaleString('zh-TW')}\n\n📄 sales-${order.orderNo}.pdf\n${pdfUrl}`,
-          }],
-        });
+        await safeSend([{
+          type: 'text',
+          text: `✅ 銷貨單已建立\n單號：${order.orderNo}\n總計：$${Number(order.totalAmount).toLocaleString('zh-TW')}\n\n📄 sales-${order.orderNo}.pdf\n${pdfUrl}`,
+        }]);
       } catch (err) {
         logger.error('Sales order create failed', { error: err });
-        await client.replyMessage({
-          replyToken: event.replyToken,
-          messages: [{ type: 'text', text: `建立失敗：${(err as Error).message}` }],
-        });
+        await safeSend([{ type: 'text', text: `建立失敗：${(err as Error).message}` }]);
       }
       return;
     }

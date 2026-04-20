@@ -7,6 +7,7 @@ import * as productService from '../../modules/master/product/product.service.js
 import { runWithAuditContext } from '../../shared/audit.js';
 import { buildPdfShortUrl } from '../../documents/pdf-shortlink.js';
 import { sendItemConfirmCard } from './item-confirm.js';
+import { makeSafeSend } from '../safe-send.js';
 
 /** See sales.handler.ts for rationale. */
 function infoRow(label: string, value: string): any {
@@ -110,6 +111,12 @@ export async function handlePurchaseCommand(action: string, ctx: any): Promise<v
         return;
       }
 
+      const safeSend = makeSafeSend({
+        client,
+        replyToken: event.replyToken,
+        lineUserId: employee.lineUserId,
+        source: 'purchase:confirm',
+      });
       try {
         const order = await runWithAuditContext(
           { tenantId, userId: employee.id },
@@ -135,19 +142,13 @@ export async function handlePurchaseCommand(action: string, ctx: any): Promise<v
           label: `purchase-${order.orderNo}.pdf`,
           createdBy: employee.id,
         });
-        await client.replyMessage({
-          replyToken: event.replyToken,
-          messages: [{
-            type: 'text',
-            text: `✅ 進貨單已建立\n單號：${order.orderNo}\n總計：$${Number(order.totalAmount).toLocaleString('zh-TW')}\n\n📄 purchase-${order.orderNo}.pdf\n${pdfUrl}`,
-          }],
-        });
+        await safeSend([{
+          type: 'text',
+          text: `✅ 進貨單已建立\n單號：${order.orderNo}\n總計：$${Number(order.totalAmount).toLocaleString('zh-TW')}\n\n📄 purchase-${order.orderNo}.pdf\n${pdfUrl}`,
+        }]);
       } catch (err) {
         logger.error('Purchase order create failed', { error: err });
-        await client.replyMessage({
-          replyToken: event.replyToken,
-          messages: [{ type: 'text', text: `建立失敗：${(err as Error).message}` }],
-        });
+        await safeSend([{ type: 'text', text: `建立失敗：${(err as Error).message}` }]);
       }
       return;
     }

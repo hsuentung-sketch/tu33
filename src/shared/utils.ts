@@ -1,15 +1,18 @@
 import { endOfMonth, addMonths } from 'date-fns';
+import { taipeiDateStamp } from './timezone.js';
 
 /**
- * Generate document number: YYYYMMDD + 3-digit sequence
+ * Generate document number: YYYYMMDD (Asia/Taipei) + 3-digit sequence
  * Example: 20260413001
+ *
+ * IMPORTANT: the YYYYMMDD portion is the Taipei calendar date, not the
+ * server's UTC date. A sale at 01:00 Taipei time (= 17:00 UTC previous day)
+ * must produce a number with today's Taipei date.
  */
 export function generateDocumentNo(date: Date, sequence: number): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
+  const stamp = taipeiDateStamp(date);
   const seq = String(sequence).padStart(3, '0');
-  return `${y}${m}${d}${seq}`;
+  return `${stamp}${seq}`;
 }
 
 /**

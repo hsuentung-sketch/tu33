@@ -1,11 +1,30 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+const isProd = (process.env.NODE_ENV || 'development') === 'production';
+
+// Secrets that MUST be set in production — fall-through defaults here would
+// silently create an exploitable service (known JWT secret = forgeable cookies
+// and PDF download tokens).
+function requireInProd(key: string, fallback?: string): string {
+  const v = process.env[key];
+  if (v && v.length > 0) return v;
+  if (isProd) {
+    throw new Error(
+      `Missing required env var ${key}. Set it via: fly secrets set ${key}=<value>`,
+    );
+  }
+  return fallback ?? '';
+}
+
+const jwtSecret = requireInProd('JWT_SECRET', 'dev-only-secret-change-me');
+const publicBaseUrl = requireInProd('PUBLIC_BASE_URL', 'http://localhost:3000');
+
 export const config = {
   port: parseInt(process.env.PORT || '3000', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
   databaseUrl: process.env.DATABASE_URL || '',
-  publicBaseUrl: process.env.PUBLIC_BASE_URL || 'https://erp-line-bot.onrender.com',
+  publicBaseUrl,
 
   // LINE Bot (default channel, can be overridden per tenant)
   line: {
@@ -14,9 +33,10 @@ export const config = {
     channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN || '',
   },
 
-  // JWT
+  // JWT — used for web-session cookie, PDF download tokens, LIFF id-token exchange.
+  // Rotating this secret invalidates every session + every outstanding PDF link.
   jwt: {
-    secret: process.env.JWT_SECRET || 'change-me-in-production',
+    secret: jwtSecret,
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',
   },
 
@@ -47,8 +67,6 @@ export const config = {
   // Supabase Storage — for product documents (PDS / SDS / DM)
   supabase: {
     url: process.env.SUPABASE_URL || '',
-    // Service role key — required for server-side uploads & signed URLs.
-    // NEVER expose to the browser.
     serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
     productDocsBucket: process.env.SUPABASE_PRODUCT_DOCS_BUCKET || 'product-docs',
   },

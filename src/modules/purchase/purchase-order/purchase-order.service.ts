@@ -3,11 +3,12 @@ import { prisma } from '../../../shared/prisma.js';
 import { NotFoundError, ValidationError } from '../../../shared/errors.js';
 import { eventBus } from '../../../shared/event-bus.js';
 import {
-  generateDocumentNo,
   calculateDueDate,
   calculateTotals,
   getTenantSettings,
 } from '../../../shared/utils.js';
+import { createWithDailyNumber } from '../../../shared/document-no.js';
+import { taipeiNow } from '../../../shared/timezone.js';
 
 export interface PurchaseItemInput {
   productName: string;
@@ -72,20 +73,17 @@ export async function create(tenantId: string, data: PurchaseOrderCreateInput) {
     settings.taxRate,
   );
 
-  const created = await prisma.$transaction(async (tx) => {
-    const now = new Date();
-    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-    const todayCount = await tx.purchaseOrder.count({
-      where: { tenantId, createdAt: { gte: startOfDay, lt: endOfDay } },
-    });
-    const orderNo = generateDocumentNo(now, todayCount + 1);
+  const tp = taipeiNow();
+  const billingYear = tp.year;
+  const billingMonth = tp.month;
+  const dueDate = calculateDueDate(billingYear, billingMonth, supplier.paymentDays);
 
-    const billingYear = now.getFullYear();
-    const billingMonth = now.getMonth() + 1;
-    const dueDate = calculateDueDate(billingYear, billingMonth, supplier.paymentDays);
-
-    const row = await tx.purchaseOrder.create({
+  const created = await createWithDailyNumber({
+    counter: (tx, w) =>
+      tx.purchaseOrder.count({
+        where: { tenantId, createdAt: { gte: w.start, lt: w.end } },
+      }),
+    createFn: (tx, orderNo) => tx.purchaseOrder.create({
       data: {
         tenantId,
         orderNo,
@@ -121,9 +119,7 @@ export async function create(tenantId: string, data: PurchaseOrderCreateInput) {
         },
       },
       include: { items: true, payable: true },
-    });
-
-    return row;
+    }),
   });
 
   await eventBus.emitAsync('purchaseOrder:created', {
