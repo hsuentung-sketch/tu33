@@ -1,6 +1,6 @@
 {
   "name": "erp-line-bot",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "LINE Bot ERP System for SMBs - Multi-tenant modular architecture",
   "main": "dist/index.js",
   "scripts": {
