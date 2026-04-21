@@ -3,6 +3,22 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.0.0] - 2026-04-21 — 正式上線
+
+### Milestone
+第一版正式版本 — 離開測試階段。
+
+### Added
+- PDF 品項表固定 5 列（報價 / 銷貨 / 進貨），不足補空白、超過照實列，三單視覺一致
+- `src/tools/reset-transactions.ts` — 清除交易資料但保留 tenant / 員工 / 主檔的重置工具
+
+### Changed
+- 版本號 1.0.1 → 2.0.0（正式上線里程碑，非破壞性變更）
+
+### Data
+- 清除所有測試交易資料：15 銷貨單 / 4 進貨單 / 12 報價 / 13 AR / 4 AP / 54 審計 / 9 錯誤 / 20 短連結 全部刪除
+- 保留：1 tenant、2 員工、34 產品、6 客戶、2 供應商
+
 ## [1.0.1] - 2026-04-20
 
 ### Fixed — Security / Correctness
