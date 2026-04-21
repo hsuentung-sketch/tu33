@@ -210,7 +210,14 @@ function drawItemTable(
   startY: number,
   columns: Column[],
   rows: string[][],
+  minRows: number = 5,
 ): number {
+  // Pad to a minimum row count so quotation / sales / purchase PDFs share a
+  // consistent visual footprint regardless of item count. Extra rows are empty
+  // (blank cells) — caller always wins when rows.length > minRows.
+  const padded = rows.length >= minRows
+    ? rows
+    : [...rows, ...Array.from({ length: minRows - rows.length }, () => columns.map(() => ''))];
   const headerH = 22;
   const rowH = 20;
   const totalFrac = columns.reduce((s, c) => s + c.width, 0);
@@ -242,7 +249,7 @@ function drawItemTable(
   let y = startY + headerH;
   const bodyTop = y;
   doc.fontSize(9);
-  rows.forEach((row) => {
+  padded.forEach((row) => {
     row.forEach((cell, i) => {
       doc.text(cell, xs[i] + 4, y + 6, {
         width: xs[i + 1] - xs[i] - 8,
