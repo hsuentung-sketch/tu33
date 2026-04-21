@@ -1817,13 +1817,30 @@ async function viewHelp(main) {
   main.append(toolbar, content);
 
   let md;
+  let ver = { version: '?', commit: '?', deployedAt: null };
   try {
-    md = await (await fetch('./manual.md?v=' + Date.now())).text();
+    const [mdRes, verRes] = await Promise.all([
+      fetch('./manual.md?v=' + Date.now()).then((r) => r.text()),
+      fetch('/api/version').then((r) => r.json()).catch(() => ver),
+    ]);
+    md = mdRes;
+    ver = verRes || ver;
   } catch (e) {
     content.innerHTML = '';
     content.append(el('div', { class: 'err' }, '無法載入手冊：' + e.message));
     return;
   }
+
+  // Substitute {{APP_VERSION}} / {{APP_COMMIT}} / {{APP_DEPLOYED_AT}} placeholders
+  // so the manual always reflects the currently-deployed version without requiring
+  // a manual.md edit on every release.
+  const deployedDisplay = ver.deployedAt
+    ? new Date(ver.deployedAt).toLocaleString('zh-TW', { hour12: false })
+    : '—';
+  md = md
+    .replace(/\{\{APP_VERSION\}\}/g, ver.version || '?')
+    .replace(/\{\{APP_COMMIT\}\}/g, ver.commit || '?')
+    .replace(/\{\{APP_DEPLOYED_AT\}\}/g, deployedDisplay);
 
   try {
     const marked = await loadMarked();

@@ -241,6 +241,13 @@ Supabase `.env` 的 `DATABASE_URL` 走 pgbouncer port 6543（不支援 DDL），
 - **Fly 生產**：改 `prisma/schema.prisma` 後，實務作法是去 **Supabase SQL Editor** 手動貼 ALTER TABLE，再 `git push` 觸發 `fly deploy`
 - 程式端加 try/catch P2022 fallback，保護「schema 已改但 DB 還沒 migrate」的短暫不一致期（見 `customer.service.ts` / `media.handler.ts`）
 
+## 版本更新 SOP
+bump `package.json` 的 version 時必須**同步**以下：
+1. `CHANGELOG.md` 加新段落（Keep a Changelog 格式，按 semver 判斷 major/minor/patch）
+2. 若使用者可見行為有變（新功能 / 流程改變 / 介面變動）→ 同步更新 `public/admin/manual.md` 相關段落
+3. `manual.md` 裡的版號顯示用 `{{APP_VERSION}}` / `{{APP_COMMIT}}` / `{{APP_DEPLOYED_AT}}` placeholder，由 `viewHelp()` 載入時 inject 當前 `/api/version` — 不用手改版號字串
+4. commit + `./scripts/fly-deploy.ps1`（或 `fly deploy --build-arg GIT_COMMIT=<sha>`）→ curl `/api/version` 驗證
+
 ## Git 身份
 - Author: `ERP Dev <erp@local>`（用 `git -c user.name=... -c user.email=...` commit，專案沒設 global）
 

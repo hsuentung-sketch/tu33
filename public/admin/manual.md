@@ -1,5 +1,8 @@
 # ERP 系統使用手冊
 
+> **目前版本**：`v{{APP_VERSION}}` · commit `{{APP_COMMIT}}` · 部署於 {{APP_DEPLOYED_AT}}
+> 版本紀錄詳見 [CHANGELOG](https://github.com/hsuentung-sketch/tu33/blob/main/CHANGELOG.md)
+>
 > 本手冊涵蓋 **LINE 前端操作**、**LIFF 報價表單**、以及 **後台管理系統** 所有功能。
 > 依你的角色（ADMIN / SALES / PURCHASING / ACCOUNTING / VIEWER），部分功能可能看不到。
 > 標註 **⚙ 僅 ADMIN** 的項目只有管理員能使用。
@@ -190,8 +193,10 @@
 
 ### 版本資訊
 
-側欄底部顯示：`v1.0.0 · <短 commit> · <部署時間>`
-發生問題回報時請附上此資訊。
+目前版本：**v{{APP_VERSION}}** · commit `{{APP_COMMIT}}` · 部署於 {{APP_DEPLOYED_AT}}
+
+側欄底部會顯示一樣的資訊。發生問題回報時請附上此資訊。
+版號變動的完整內容請看 [CHANGELOG](https://github.com/hsuentung-sketch/tu33/blob/main/CHANGELOG.md)。
 
 ---
 
