@@ -655,6 +655,31 @@ function canEditOrder(order) {
 }
 
 /**
+ * Inline delete (list row). kind ∈ 'quotation' | 'sales' | 'purchase'.
+ * Confirms, calls soft-delete endpoint, then reloads the list.
+ * Server enforces the rule that paid AR/AP blocks deletion; we surface
+ * the resulting error message in the toast.
+ */
+async function deleteOrderInline(kind, order, reload) {
+  const urlBase = kind === 'quotation' ? '/quotations'
+                : kind === 'sales' ? '/sales-orders'
+                : '/purchase-orders';
+  const label = kind === 'quotation' ? '報價單' : kind === 'sales' ? '銷貨單' : '進貨單';
+  const no = order.quotationNo || order.orderNo;
+  const extra = kind === 'sales' ? '連動的應收帳款與庫存會自動沖銷。'
+              : kind === 'purchase' ? '連動的應付帳款與庫存會自動沖銷。'
+              : '';
+  if (!confirmBox(`確定刪除${label} ${no}？${extra}此動作為軟刪除，可由後端查詢。`)) return;
+  try {
+    await api.del(`${urlBase}/${order.id}`);
+    toast('已刪除', 'ok');
+    await reload();
+  } catch (e) {
+    toast(e.message || '刪除失敗', 'err');
+  }
+}
+
+/**
  * Shared order editor modal. kind ∈ 'quotation' | 'sales' | 'purchase'.
  * Fetches full order (with items), shows editable form + items table.
  */
@@ -1014,6 +1039,10 @@ async function viewQuotations(main) {
             canEdit
               ? el('button', { class: 'btn small', onClick: () => openOrderEditor('quotation', q.id, reload) }, '編輯')
               : null,
+            canEdit ? ' ' : null,
+            canEdit
+              ? el('button', { class: 'btn small danger', onClick: () => deleteOrderInline('quotation', q, reload) }, '刪除')
+              : null,
           ),
         ));
       }
@@ -1056,6 +1085,10 @@ async function viewSalesOrders(main) {
             canEdit
               ? el('button', { class: 'btn small', onClick: () => openOrderEditor('sales', o.id, reload) }, '編輯')
               : null,
+            canEdit ? ' ' : null,
+            canEdit
+              ? el('button', { class: 'btn small danger', onClick: () => deleteOrderInline('sales', o, reload) }, '刪除')
+              : null,
           ),
         ));
       }
@@ -1097,6 +1130,10 @@ async function viewPurchaseOrders(main) {
             canEdit ? ' ' : null,
             canEdit
               ? el('button', { class: 'btn small', onClick: () => openOrderEditor('purchase', o.id, reload) }, '編輯')
+              : null,
+            canEdit ? ' ' : null,
+            canEdit
+              ? el('button', { class: 'btn small danger', onClick: () => deleteOrderInline('purchase', o, reload) }, '刪除')
               : null,
           ),
         ));

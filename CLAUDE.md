@@ -248,6 +248,17 @@ bump `package.json` 的 version 時必須**同步**以下：
 3. `manual.md` 裡的版號顯示用 `{{APP_VERSION}}` / `{{APP_COMMIT}}` / `{{APP_DEPLOYED_AT}}` placeholder，由 `viewHelp()` 載入時 inject 當前 `/api/version` — 不用手改版號字串
 4. commit + `./scripts/fly-deploy.ps1`（或 `fly deploy --build-arg GIT_COMMIT=<sha>`）→ curl `/api/version` 驗證
 
+## 多租戶模板紀律（必讀）
+
+本 repo 是 **SaaS 模板**，所有客戶跑**同一個 main branch**。客戶差異只能走 `Tenant.settings` / `Tenant.modules` / `FeatureFlag`。
+
+**禁止**：
+- 在 `src/` 出現客戶公司名、tenantId、channelId 硬編碼
+- 開 `<customer>-only` long-lived branch
+- 因為一家客戶的需求直接改共用邏輯
+
+**決策樹、PR review 檢核清單、紅旗信號**詳見 [`docs/multi-tenant-rules.md`](docs/multi-tenant-rules.md)。每次 PR 合併前對照檢查。
+
 ## Git 身份
 - Author: `ERP Dev <erp@local>`（用 `git -c user.name=... -c user.email=...` commit，專案沒設 global）
 
