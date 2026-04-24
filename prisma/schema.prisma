@@ -60,6 +60,9 @@ model Employee {
   role       Role     @default(VIEWER)
   // bcrypt hash for the admin web console. Null = no web access (LINE-only user).
   passwordHash String?
+  // Timestamp when passwordHash was last set; surfaced in admin UI so ADMIN
+  // can see which employees have a live web login and when it was last rotated.
+  passwordSetAt DateTime?
   isActive   Boolean  @default(true)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt

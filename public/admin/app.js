@@ -540,6 +540,187 @@ async function viewSuppliers(main) {
 }
 
 // Employees + binding-code action
+/**
+ * Employee editor modal with password section.
+ *
+ * We render a custom modal (not openModal) because the password block
+ * has conditional UI: shows the last-set timestamp when one exists,
+ * exposes a "移除密碼" action, and requires two-field confirmation.
+ * For non-ADMIN callers the password section is hidden entirely.
+ */
+function openEmployeeEditor(emp, onSaved) {
+  const isEdit = !!emp;
+  const isAdmin = window.__session?.employee?.role === 'ADMIN';
+  const state = isEdit
+    ? { ...emp }
+    : { role: 'VIEWER' };
+  // pwMode: 'keep' (edit, no change) | 'set' (new or reset) | 'remove' (edit, clear)
+  let pwMode = isEdit ? 'keep' : 'set';
+  let pwValue = '';
+  let pwConfirm = '';
+
+  const errBox = el('div', { class: 'err' });
+
+  function field(label, input, required) {
+    return el('div', { class: 'field' },
+      el('label', {}, label + (required ? ' *' : '')),
+      input,
+    );
+  }
+  function textInput(key, type = 'text', opts = {}) {
+    const input = el('input', Object.assign({ type }, opts));
+    input.value = state[key] ?? '';
+    input.addEventListener('input', () => { state[key] = input.value; });
+    return input;
+  }
+  function selectRole() {
+    const sel = el('select', {});
+    const roles = [
+      ['ADMIN', 'ADMIN（管理員）'],
+      ['SALES', 'SALES（業務）'],
+      ['PURCHASING', 'PURCHASING（採購）'],
+      ['ACCOUNTING', 'ACCOUNTING（會計）'],
+      ['VIEWER', 'VIEWER（檢視）'],
+    ];
+    for (const [v, l] of roles) {
+      const o = el('option', { value: v }, l);
+      if (String(state.role || 'VIEWER') === v) o.selected = true;
+      sel.append(o);
+    }
+    sel.addEventListener('change', () => { state.role = sel.value; });
+    return sel;
+  }
+
+  // --- Password section ---
+  const pwSection = el('div', { style: 'margin-top:8px;padding:12px;border:1px solid var(--border);border-radius:6px;background:#fafafa;' });
+  function renderPwSection() {
+    pwSection.innerHTML = '';
+    const header = el('div', { style: 'font-size:13px;font-weight:600;margin-bottom:6px;' }, '後台登入密碼');
+    pwSection.append(header);
+
+    if (!isAdmin) {
+      pwSection.append(el('div', { style: 'color:var(--muted);font-size:12px;' }, '（僅 ADMIN 可管理密碼）'));
+      return;
+    }
+
+    if (isEdit) {
+      const status = emp.hasPassword
+        ? `🔒 已設定（最後設定：${emp.passwordSetAt ? fmtDate(emp.passwordSetAt) : '—'}）`
+        : '❌ 未設定（該員工目前無後台登入權）';
+      pwSection.append(el('div', { style: 'font-size:12px;color:#555;margin-bottom:8px;' }, status));
+
+      const btnRow = el('div', { style: 'display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;' });
+      btnRow.append(el('button', {
+        type: 'button',
+        class: 'btn small' + (pwMode === 'keep' ? ' primary' : ''),
+        onClick: () => { pwMode = 'keep'; pwValue = ''; pwConfirm = ''; renderPwSection(); },
+      }, '不變更'));
+      btnRow.append(el('button', {
+        type: 'button',
+        class: 'btn small' + (pwMode === 'set' ? ' primary' : ''),
+        onClick: () => { pwMode = 'set'; renderPwSection(); },
+      }, emp.hasPassword ? '重設密碼' : '設定密碼'));
+      if (emp.hasPassword) {
+        btnRow.append(el('button', {
+          type: 'button',
+          class: 'btn small' + (pwMode === 'remove' ? ' danger' : ''),
+          onClick: () => { pwMode = 'remove'; pwValue = ''; pwConfirm = ''; renderPwSection(); },
+        }, '移除密碼'));
+      }
+      pwSection.append(btnRow);
+
+      if (pwMode === 'remove') {
+        pwSection.append(el('div', { style: 'color:#b00;font-size:12px;' }, '⚠ 儲存後此員工將無法登入後台（LINE 綁定不受影響）'));
+      }
+    }
+
+    if (pwMode === 'set' || (!isEdit && isAdmin)) {
+      const newInput = el('input', { type: 'password', placeholder: '至少 8 碼', autocomplete: 'new-password' });
+      newInput.value = pwValue;
+      newInput.addEventListener('input', () => { pwValue = newInput.value; });
+      const confirmInput = el('input', { type: 'password', placeholder: '再次輸入確認', autocomplete: 'new-password' });
+      confirmInput.value = pwConfirm;
+      confirmInput.addEventListener('input', () => { pwConfirm = confirmInput.value; });
+      pwSection.append(
+        field('新密碼', newInput, !isEdit ? false : true),
+        field('確認密碼', confirmInput, !isEdit ? false : true),
+      );
+      if (!isEdit) {
+        pwSection.append(el('div', { style: 'color:var(--muted);font-size:12px;' }, '可留空 — 之後再於此頁設定。'));
+      }
+    }
+  }
+  renderPwSection();
+
+  const body = el('div', { class: 'body' },
+    el('div', { class: 'field row' },
+      field('員工編號', textInput('employeeId', 'text', isEdit ? { disabled: 'disabled' } : {}), !isEdit),
+      field('姓名', textInput('name'), true),
+    ),
+    field('角色', selectRole()),
+    el('div', { class: 'field row' },
+      field('電話', textInput('phone')),
+      field('Email', textInput('email', 'email')),
+    ),
+    field('地址', textInput('address')),
+    pwSection,
+  );
+
+  const backdrop = el('div', { class: 'modal-backdrop' });
+  const modal = el('div', { class: 'modal' },
+    el('h3', {}, isEdit ? '編輯員工' : '新增員工'),
+    body,
+    errBox,
+    el('div', { class: 'actions' },
+      el('button', { class: 'btn', onClick: () => backdrop.remove() }, '取消'),
+      el('button', { class: 'btn primary', onClick: async () => {
+        try {
+          errBox.textContent = '';
+          if (!state.name) throw new Error('姓名必填');
+          if (!isEdit && !state.employeeId) throw new Error('員工編號必填');
+
+          const body = {
+            name: state.name,
+            role: state.role || 'VIEWER',
+            phone: state.phone || undefined,
+            email: state.email || undefined,
+            address: state.address || undefined,
+          };
+          if (!isEdit) body.employeeId = state.employeeId;
+
+          // Password handling
+          if (isAdmin) {
+            if (pwMode === 'set') {
+              if (pwValue || pwConfirm || !isEdit) {
+                if (!pwValue && !isEdit) {
+                  // Create with no password — omit the field entirely.
+                } else {
+                  if (pwValue.length < 8) throw new Error('密碼至少 8 碼');
+                  if (pwValue !== pwConfirm) throw new Error('兩次密碼輸入不一致');
+                  body.password = pwValue;
+                }
+              }
+            } else if (pwMode === 'remove') {
+              body.password = null;
+            }
+          }
+
+          if (isEdit) await api.put('/employees/' + emp.id, body);
+          else await api.post('/employees', body);
+          toast(isEdit ? '已更新' : '已新增', 'ok');
+          backdrop.remove();
+          await onSaved?.();
+        } catch (e) {
+          errBox.textContent = e.message;
+        }
+      } }, '儲存'),
+    ),
+  );
+  backdrop.append(modal);
+  backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
+  document.body.append(backdrop);
+}
+
 async function viewEmployees(main) {
   main.innerHTML = '';
   main.append(el('h2', {}, '員工管理'));
@@ -555,6 +736,7 @@ async function viewEmployees(main) {
       el('th', {}, '電話'),
       el('th', {}, 'Email'),
       el('th', {}, 'LINE'),
+      el('th', {}, '後台登入'),
       el('th', {}, '狀態'),
       el('th', {}, '操作'),
     )),
@@ -564,8 +746,11 @@ async function viewEmployees(main) {
   async function reload() {
     const list = await api.get('/employees' + (includeInactive.checked ? '?includeInactive=true' : ''));
     tbody.innerHTML = '';
-    if (!list.length) tbody.append(el('tr', {}, el('td', { colspan: '8', style: 'text-align:center;color:var(--muted);padding:24px;' }, '無資料')));
+    if (!list.length) tbody.append(el('tr', {}, el('td', { colspan: '9', style: 'text-align:center;color:var(--muted);padding:24px;' }, '無資料')));
     for (const e of list) {
+      const pwdBadge = e.hasPassword
+        ? el('span', { class: 'badge ok', title: e.passwordSetAt ? `最後設定：${fmtDate(e.passwordSetAt)}` : '已設定' }, '已設定')
+        : el('span', { class: 'badge mute' }, '未設定');
       tbody.append(el('tr', {},
         el('td', {}, e.employeeId),
         el('td', {}, e.name),
@@ -575,6 +760,7 @@ async function viewEmployees(main) {
         el('td', {}, e.lineUserId
           ? el('span', { class: 'badge ok' }, '已綁定')
           : el('span', { class: 'badge warn' }, '未綁定')),
+        el('td', {}, pwdBadge),
         el('td', {}, el('span', { class: 'badge ' + (e.isActive === false ? 'mute' : 'ok') }, e.isActive === false ? '停用' : '啟用')),
         el('td', { class: 'actions' },
           el('button', { class: 'btn small', onClick: () => edit(e) }, '編輯'),
@@ -599,37 +785,7 @@ async function viewEmployees(main) {
   }
 
   function edit(emp) {
-    openModal({
-      title: emp ? '編輯員工' : '新增員工',
-      initial: emp ? { ...emp } : { role: 'VIEWER' },
-      fields: [
-        { type: 'row', fields: [
-          { name: 'employeeId', label: '員工編號', required: !emp },
-          { name: 'name', label: '姓名', required: true },
-        ]},
-        { name: 'role', label: '角色', type: 'select', options: [
-          { value: 'ADMIN', label: 'ADMIN（管理員）' },
-          { value: 'SALES', label: 'SALES（業務）' },
-          { value: 'PURCHASING', label: 'PURCHASING（採購）' },
-          { value: 'ACCOUNTING', label: 'ACCOUNTING（會計）' },
-          { value: 'VIEWER', label: 'VIEWER（檢視）' },
-        ]},
-        { type: 'row', fields: [
-          { name: 'phone', label: '電話' },
-          { name: 'email', label: 'Email', type: 'email' },
-        ]},
-        { name: 'address', label: '地址' },
-      ],
-      onSubmit: async (v) => {
-        if (!v.name) throw new Error('姓名必填');
-        if (!emp && !v.employeeId) throw new Error('員工編號必填');
-        const body = cleanObj(v, ['name','role','phone','email','address'].concat(emp ? [] : ['employeeId']));
-        if (emp) await api.put('/employees/' + emp.id, body);
-        else await api.post('/employees', body);
-        toast(emp ? '已更新' : '已新增', 'ok');
-        reload();
-      },
-    });
+    openEmployeeEditor(emp, reload);
   }
 
   includeInactive.addEventListener('change', reload);

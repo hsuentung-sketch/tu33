@@ -54,7 +54,10 @@ async function main() {
 
   const emp = employees[0];
   const hash = await bcrypt.hash(newPassword, 10);
-  await prisma.employee.update({ where: { id: emp.id }, data: { passwordHash: hash } });
+  await prisma.employee.update({
+    where: { id: emp.id },
+    data: { passwordHash: hash, passwordSetAt: new Date() },
+  });
 
   console.log('─'.repeat(48));
   console.log(`已設定密碼`);

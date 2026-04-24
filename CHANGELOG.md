@@ -3,6 +3,27 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.0.2] - 2026-04-24
+
+### Added
+- 後台員工管理：新增「後台登入」欄位顯示密碼狀態（✅ 已設定 / ❌ 未設定 + 最後設定時間 tooltip）
+- 新增 / 編輯員工 modal 加入密碼區塊：ADMIN 可設定、重設、移除密碼（最少 8 碼 + 二次確認）；明文密碼**永不**回傳前端或寫入 log
+
+### Changed
+- `Employee` schema 新增 `passwordSetAt DateTime?` 欄位
+- `POST /api/employees` 接受 optional `password`；`PUT /api/employees/:id` 接受 `password: string` (重設) 或 `password: null` (移除)
+- 密碼欄位僅 ADMIN 可變更（非 ADMIN 傳 password → 403）
+- `src/tools/set-password.ts` 同步寫入 `passwordSetAt`
+
+### Security
+- 員工列表 / 查詢 API 永不回傳 `passwordHash`；改回傳 `hasPassword: boolean` + `passwordSetAt`
+
+### Migration
+需於 Supabase SQL Editor 執行：
+```sql
+ALTER TABLE "Employee" ADD COLUMN "passwordSetAt" TIMESTAMP(3);
+```
+
 ## [2.0.1] - 2026-04-23
 
 ### Added
