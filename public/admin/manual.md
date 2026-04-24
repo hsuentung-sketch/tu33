@@ -142,21 +142,24 @@
 |------|------|----------|
 | 總覽 | 今日銷售 / 應收 / 應付 / 庫存警示 | 所有人 |
 | 客戶 | 客戶 CRUD | SALES+ |
-| 產品 | 產品 CRUD + PDS/SDS/DM 文件上傳 | SALES+ |
-| 供應商 | 供應商 CRUD | PURCHASING+ |
-| 員工 | 員工 CRUD + 綁定碼 + 權限 | ⚙ ADMIN |
+| 管理 ▸ 客戶 | 客戶 CRUD + 名片 OCR | SALES+ |
+| 管理 ▸ 產品 | 產品 CRUD + PDS/SDS/DM 文件上傳 | SALES+ |
+| 管理 ▸ 供應商 | 供應商 CRUD | PURCHASING+ |
+| 管理 ▸ 員工 | 員工 CRUD + 綁定碼 + 權限 | ⚙ ADMIN |
 | 報價單 | 報價單列表 + 檢視 + 編輯 / 刪除 + PDF | SALES+ |
 | 銷貨單 | 銷貨單列表 + 檢視 + 編輯 / 刪除 + PDF | SALES+ |
 | 進貨單 | 進貨單列表 + 檢視 + 編輯 / 刪除 + PDF | PURCHASING+ |
-| 應收帳款 | 列表 / 關單 / 發票號碼 / 月結對帳單 / 開立電子發票 | ACCOUNTING+（開立 ⚙ ADMIN）|
-| 應付帳款 | 同上（供應商） | ACCOUNTING+ |
-| 電子發票 | 列出已開立 / 作廢、下載 XML、作廢 | ACCOUNTING+（作廢 ⚙ ADMIN）|
-| 發票配號 | 維護國稅局核定的字軌與配號區間 | ⚙ ADMIN |
+| 帳款 ▸ 應收 | 列表 / 關單 / 發票號碼 / 月結對帳單 / 開立電子發票 | ACCOUNTING+（開立 ⚙ ADMIN）|
+| 帳款 ▸ 應付 | 同上（供應商） | ACCOUNTING+ |
+| 發票 ▸ 電子發票 | 列出已開立 / 作廢、下載 XML、作廢 | ACCOUNTING+（作廢 ⚙ ADMIN）|
+| 發票 ▸ 配號 | 維護國稅局核定的字軌與配號區間 | ⚙ ADMIN |
 | 庫存 | 現有庫存 + 異動紀錄 | 所有人 |
 | 公司資料 | 公司名稱 / 統編 / 地址 / LINE 設定 | ⚙ ADMIN |
-| 操作紀錄 | AuditLog（誰何時改了什麼） | ⚙ ADMIN |
-| 異常紀錄 | ErrorLog（系統錯誤） | ⚙ ADMIN |
+| 紀錄 ▸ 操作紀錄 | AuditLog（誰何時改了什麼） | ⚙ ADMIN |
+| 紀錄 ▸ 異常紀錄 | ErrorLog（系統錯誤） | ⚙ ADMIN |
 | 使用說明 | 本手冊 | 所有人 |
+
+> **側欄整合**：管理（客戶/產品/供應商/員工）、帳款（應收/應付）、發票（電子發票/配號）、紀錄（操作/異常）四組改用 tab 呈現。舊書籤（如 `#customers`）會自動跳轉到新位置（`#management/customers`），無須重建。
 
 ### 主檔管理（客戶 / 產品 / 供應商 / 員工）
 

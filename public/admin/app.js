@@ -2340,7 +2340,106 @@ async function viewHelp(main) {
   }
 }
 
-const views = {
+// ----- Group views (tab-based consolidation) -----
+//
+// Each group renders a <div class="tabs"> + a <div class="tab-body">; the
+// corresponding sub-view (unchanged, pre-existing) is invoked into the body
+// when its tab is active. Tabs are filtered by role, so non-ADMIN users
+// still see only what they're allowed to (e.g. SALES sees no 員工 tab).
+//
+// Hash format: `#<group>/<tab>`. Bare `#<group>` picks the first visible tab.
+
+function isAdmin() { return window.__session?.employee?.role === 'ADMIN'; }
+
+const GROUPS = {
+  management: {
+    title: '管理',
+    tabs: [
+      { key: 'customers',  label: '客戶',   view: 'customers' },
+      { key: 'products',   label: '產品',   view: 'products' },
+      { key: 'suppliers',  label: '供應商', view: 'suppliers' },
+      { key: 'employees',  label: '員工',   view: 'employees', adminOnly: true },
+    ],
+  },
+  accounts: {
+    title: '帳款',
+    tabs: [
+      { key: 'receivables', label: '應收帳款', view: 'receivables' },
+      { key: 'payables',    label: '應付帳款', view: 'payables' },
+    ],
+  },
+  invoices: {
+    title: '發票',
+    tabs: [
+      { key: 'einvoices',       label: '電子發票', view: 'einvoices' },
+      { key: 'einvoice-pools',  label: '發票配號', view: 'einvoice-pools', adminOnly: true },
+    ],
+  },
+  logs: {
+    title: '紀錄',
+    tabs: [
+      { key: 'audit-logs', label: '操作紀錄', view: 'audit-logs', adminOnly: true },
+      { key: 'error-logs', label: '異常紀錄', view: 'error-logs', adminOnly: true },
+    ],
+  },
+};
+
+// Legacy single hashes → new group/tab hash. Preserves existing bookmarks.
+const LEGACY_REDIRECT = {
+  customers: 'management/customers',
+  products: 'management/products',
+  suppliers: 'management/suppliers',
+  employees: 'management/employees',
+  receivables: 'accounts/receivables',
+  payables: 'accounts/payables',
+  einvoices: 'invoices/einvoices',
+  'einvoice-pools': 'invoices/einvoice-pools',
+  'audit-logs': 'logs/audit-logs',
+  'error-logs': 'logs/error-logs',
+};
+
+function visibleTabs(group) {
+  return group.tabs.filter((t) => !t.adminOnly || isAdmin());
+}
+
+async function renderGroup(main, groupKey, selectedTabKey) {
+  const group = GROUPS[groupKey];
+  const tabs = visibleTabs(group);
+  if (!tabs.length) {
+    main.innerHTML = '';
+    main.append(el('h2', {}, group.title));
+    main.append(el('div', { class: 'empty' }, '此區塊僅 ADMIN 可檢視。'));
+    return;
+  }
+  const active = tabs.find((t) => t.key === selectedTabKey) || tabs[0];
+
+  main.innerHTML = '';
+  const tabBar = el('div', { class: 'tabs' });
+  tabs.forEach((t) => {
+    const btn = el('button', {
+      class: t.key === active.key ? 'active' : '',
+      onClick: () => {
+        location.hash = `#${groupKey}/${t.key}`;
+      },
+    }, t.label);
+    tabBar.append(btn);
+  });
+  const body = el('div', { class: 'tab-body' });
+  main.append(tabBar, body);
+
+  const viewFn = LEAF_VIEWS[active.view];
+  if (!viewFn) {
+    body.append(el('div', { class: 'err' }, `未知檢視：${active.view}`));
+    return;
+  }
+  try { await viewFn(body); }
+  catch (e) { body.innerHTML = ''; body.append(el('div', { class: 'err' }, e.message)); }
+}
+
+// Leaf views keyed by the hash segment they used to own. These are still
+// reachable directly (e.g. legacy LINE message links that linked to
+// `#customers` now redirect here). The functions themselves are untouched.
+const LEAF_VIEWS = {
   dashboard: viewDashboard,
   customers: viewCustomers,
   products: viewProducts,
@@ -2361,13 +2460,29 @@ const views = {
 };
 
 async function route() {
-  const hash = (location.hash || '#dashboard').slice(1);
-  const main = document.getElementById('main');
-  for (const a of document.querySelectorAll('#nav a')) {
-    a.classList.toggle('active', a.dataset.view === hash);
+  let raw = (location.hash || '#dashboard').slice(1);
+  // Legacy redirect (bookmark-safe): old single hash → group/tab hash.
+  if (LEGACY_REDIRECT[raw]) {
+    location.replace('#' + LEGACY_REDIRECT[raw]);
+    return;
   }
-  const fn = views[hash] || viewDashboard;
-  try { await fn(main); } catch (e) { main.innerHTML = ''; main.append(el('div', { class: 'err' }, e.message)); }
+  const [head, sub] = raw.split('/');
+  const main = document.getElementById('main');
+
+  // Sidebar "active" highlighting — works for both group hash and leaf hash.
+  for (const a of document.querySelectorAll('#nav a')) {
+    a.classList.toggle('active', a.dataset.view === head);
+  }
+
+  if (GROUPS[head]) {
+    try { await renderGroup(main, head, sub); }
+    catch (e) { main.innerHTML = ''; main.append(el('div', { class: 'err' }, e.message)); }
+    return;
+  }
+
+  const fn = LEAF_VIEWS[head] || viewDashboard;
+  try { await fn(main); }
+  catch (e) { main.innerHTML = ''; main.append(el('div', { class: 'err' }, e.message)); }
 }
 
 async function boot() {

@@ -3,6 +3,17 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.1.1] - 2026-04-24
+
+### Changed — 後台側欄整合
+側欄 17 項收攏成 11 項，透過 tab 呈現：
+- **管理**（客戶 / 產品 / 供應商 / 員工）— 員工 tab 僅 ADMIN 可見
+- **帳款**（應收 / 應付）
+- **發票**（電子發票 / 發票配號）— 配號 tab 僅 ADMIN 可見
+- **紀錄**（操作紀錄 / 異常紀錄）— 整組僅 ADMIN 可見
+
+新 hash 格式：`#<group>/<tab>`（例：`#management/products`）。舊 hash（`#customers` / `#receivables` / ...）自動 redirect 到新位置，**書籤不會壞**。各子檢視函式完全沒動，內部操作（新增 / 編輯 / 刪除 / modal / 搜尋 / 下載）行為 100% 維持。
+
 ## [2.1.0] - 2026-04-24
 
 ### Added — 電子發票（Turnkey 直連，Phase 1）
