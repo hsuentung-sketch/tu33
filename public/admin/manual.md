@@ -148,8 +148,10 @@
 | 報價單 | 報價單列表 + 檢視 + 編輯 / 刪除 + PDF | SALES+ |
 | 銷貨單 | 銷貨單列表 + 檢視 + 編輯 / 刪除 + PDF | SALES+ |
 | 進貨單 | 進貨單列表 + 檢視 + 編輯 / 刪除 + PDF | PURCHASING+ |
-| 應收帳款 | 列表 / 關單 / 發票號碼 / 月結對帳單 | ACCOUNTING+ |
+| 應收帳款 | 列表 / 關單 / 發票號碼 / 月結對帳單 / 開立電子發票 | ACCOUNTING+（開立 ⚙ ADMIN）|
 | 應付帳款 | 同上（供應商） | ACCOUNTING+ |
+| 電子發票 | 列出已開立 / 作廢、下載 XML、作廢 | ACCOUNTING+（作廢 ⚙ ADMIN）|
+| 發票配號 | 維護國稅局核定的字軌與配號區間 | ⚙ ADMIN |
 | 庫存 | 現有庫存 + 異動紀錄 | 所有人 |
 | 公司資料 | 公司名稱 / 統編 / 地址 / LINE 設定 | ⚙ ADMIN |
 | 操作紀錄 | AuditLog（誰何時改了什麼） | ⚙ ADMIN |
@@ -197,7 +199,46 @@
 - 列表顯示：單號 / 客戶 / 開票日 / 到期日 / 金額 / 狀態 / 發票號碼
 - 到期前 15 天標示黃色，逾期紅色
 - 每列「編輯」：標記已付款 + 填發票號碼 + 付款日
+- 每列「開立發票」（⚙ ADMIN，應收帳款才有）：帶入客戶資料與銷貨品項 → 取號並產生電子發票 XML
 - 底部「📄 產生月結對帳單」→ 選客戶 + 年月 → 自動產生月結 PDF（含未付款月份彙總）
+
+### 電子發票（Phase 1：Turnkey 直連）
+
+整體流程：國稅局核配字軌 → ADMIN 在「發票配號」頁輸入 → 「應收帳款」頁點「開立發票」→ 系統取號並產生 MIG 3.2.1 C0401 XML → 寫入 Turnkey 匯入目錄 → Turnkey 上傳國稅局 → 回執放 outbound → 跑 `sync-einvoice-status` CLI 反寫狀態。
+
+**前置設定（⚙ ADMIN 一次性）**：
+- 向國稅局申請「電子發票專用字軌核定通知書」並拿到配號區間
+- 公司機房 / 伺服器安裝 Turnkey 程式，記下 inbound / outbound 目錄絕對路徑
+- 到「公司資料」頁設定 `settings.einvoice.turnkeyInboundDir` / `turnkeyOutboundDir`（目前需 SQL 直接寫 Tenant.settings）
+
+**發票配號頁（⚙ ADMIN）**：
+- 每兩個月新增一期：期別（如 `11311`）、字軌兩碼（如 `AB`）、起訖號（如 `00000000` 至 `99999999`）
+- 系統依 FIFO 取號；某批配號用完會自動停用
+- 可手動停用（如作廢整批）或重新啟用
+
+**開立**：
+- 到「應收帳款」列表 → 找到要開票的單 → 點「開立發票」
+- modal 會帶入客戶資料與銷貨品項，可微調
+- 買受人型態：B2B（8 碼統編）／ B2C（統編自動填 `0000000000`）
+- 送出後系統取號 → C0401 XML 寫入 Turnkey 匯入目錄 → 狀態 `issued`
+- 該 AR 的「發票號碼」欄位會自動回填
+- 銷貨單 PDF 再次下載時自動顯示發票號碼與開立日
+
+**作廢**（⚙ ADMIN）：
+- 到「電子發票」列表點紅色「作廢」→ 輸入原因 → 產生 C0501 XML → 狀態 `voided`
+- 該 AR 的「發票號碼」快取會自動清空
+- 銷貨單 PDF 會標紅「已作廢」
+- 作廢僅限當期（跨期需走折讓單，Phase 2）
+
+**狀態同步**：
+- `issued` — XML 已寫入 inbound，待 Turnkey 上傳
+- `confirmed` — 國稅局回執 OK（`<invoiceNo>*.xml` 出現在 outbound 且非 REJECT）
+- `rejected` — 回執檔名含 `REJECT`，原因留在 `rejectReason`
+- `voided` — C0501 已送出
+
+執行 `npx tsx src/tools/sync-einvoice-status.ts` 由 cron 或手動定期跑；回執檔處理完會改名為 `*.processed-<epoch>`。
+
+**Phase 2 待做**：載具（手機條碼／自然人憑證）、捐贈碼、折讓單（D0401/D0501）、自動上傳排程、LINE/LIFF 直接開立。
 
 ### 版本資訊
 

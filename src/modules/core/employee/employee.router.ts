@@ -1,14 +1,13 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
-import { ForbiddenError, ValidationError } from '../../../shared/errors.js';
+import { ValidationError } from '../../../shared/errors.js';
+import { requireAdmin as requireAdminBase } from '../auth/require-admin.js';
 import * as employeeService from './employee.service.js';
 
 export const employeeRouter = Router();
 
 function requireAdmin(req: Request) {
-  if (req.employee.role !== 'ADMIN') {
-    throw new ForbiddenError('僅 ADMIN 可操作員工密碼');
-  }
+  requireAdminBase(req, '僅 ADMIN 可操作員工密碼');
 }
 
 const passwordSchema = z.string().min(8, '密碼至少 8 碼');

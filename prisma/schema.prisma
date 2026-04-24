@@ -41,6 +41,8 @@ model Tenant {
   auditLogs      AuditLog[]
   inventories    Inventory[]
   inventoryTxns  InventoryTransaction[]
+  einvoices          Einvoice[]
+  einvoiceNumberPools EinvoiceNumberPool[]
 }
 
 // ============================================================
@@ -292,6 +294,7 @@ model SalesOrder {
 
   items      SalesItem[]
   receivable AccountReceivable?
+  einvoices  Einvoice[]
 
   @@unique([tenantId, orderNo])
   @@index([tenantId])
@@ -395,6 +398,7 @@ model AccountReceivable {
   paidDate     DateTime?
   invoiceNo    String?
   note         String?
+  einvoice     Einvoice?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
@@ -542,4 +546,80 @@ model ErrorLog {
   @@index([tenantId, createdAt])
   @@index([createdAt])
   @@index([level, createdAt])
+}
+
+// ============================================================
+// E-Invoice (Taiwan 財政部電子發票 MIG 3.2.1 via Turnkey)
+// ============================================================
+
+// 電子發票字軌 / 配號區間。每兩個月一批，由 ADMIN 從國稅局核定通知書
+// 複製進來。`nextNumber` 於 `allocateNumber()` 交易內遞增；耗盡時
+// `nextNumber > rangeEnd`，isActive 自動停用由呼叫方處理。
+model EinvoiceNumberPool {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  yearMonth   String   // e.g. "11311" = 民國 113 年 11-12 月期
+  trackAlpha  String   // 字軌兩碼 e.g. "AB"
+  rangeStart  Int      // 00000000 - 99999999
+  rangeEnd    Int
+  nextNumber  Int
+  isActive    Boolean  @default(true)
+  note        String?
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId, isActive])
+}
+
+// 單張電子發票主檔。與 AccountReceivable 1:1、SalesOrder N:1（同一銷貨單
+// 在作廢後可重開一張，故 salesOrderId 不 unique；receivableId unique）。
+model Einvoice {
+  id            String    @id @default(cuid())
+  tenantId      String
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoiceNo     String    // "AB12345678"
+  invoiceDate   DateTime
+  buyerTaxId    String?   // null → XML 輸出時填 "0000000000"
+  buyerName     String
+  buyerAddress  String?
+  salesAmount   Decimal   @db.Decimal(14, 2)
+  taxAmount     Decimal   @db.Decimal(14, 2)
+  totalAmount   Decimal   @db.Decimal(14, 2)
+  taxType       String    @default("1") // 1=應稅 2=零稅率 3=免稅
+  status        String    @default("issued") // issued|uploaded|confirmed|rejected|voided
+  voidedAt      DateTime?
+  voidReason    String?
+  xmlPath       String?   // 寫到 Turnkey inbound 目錄後的檔名（絕對路徑）
+  voidXmlPath   String?
+  uploadedAt    DateTime?
+  confirmedAt   DateTime?
+  rejectReason  String?
+
+  receivableId  String?   @unique
+  receivable    AccountReceivable? @relation(fields: [receivableId], references: [id])
+  salesOrderId  String?
+  salesOrder    SalesOrder? @relation(fields: [salesOrderId], references: [id])
+
+  items         EinvoiceItem[]
+  createdBy     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([tenantId, invoiceNo])
+  @@index([tenantId, status])
+  @@index([tenantId, invoiceDate])
+}
+
+model EinvoiceItem {
+  id          String   @id @default(cuid())
+  invoiceId   String
+  invoice     Einvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  sequence    Int
+  description String
+  quantity    Decimal  @db.Decimal(14, 4)
+  unit        String?
+  unitPrice   Decimal  @db.Decimal(14, 4)
+  amount      Decimal  @db.Decimal(14, 2)
 }

@@ -85,11 +85,36 @@ export function getTenantSettings(settings: unknown): TenantSettings {
     overdueAlertDays: 15,
     companyHeader: '',
     pdfFooter: '',
+    einvoice: { ...einvoiceDefaults },
   };
   if (typeof settings === 'object' && settings !== null) {
-    return { ...defaults, ...(settings as Partial<TenantSettings>) };
+    const raw = settings as Partial<TenantSettings>;
+    return {
+      ...defaults,
+      ...raw,
+      einvoice: { ...einvoiceDefaults, ...(raw.einvoice ?? {}) },
+    };
   }
   return defaults;
+}
+
+const einvoiceDefaults: EinvoiceSettings = {
+  enabled: false,
+  sellerTaxId: '',
+  sellerName: '',
+  turnkeyInboundDir: '',
+  turnkeyOutboundDir: '',
+  defaultTaxType: '1',
+};
+
+export interface EinvoiceSettings {
+  enabled: boolean;
+  sellerTaxId: string;
+  sellerName: string;
+  turnkeyInboundDir: string;
+  turnkeyOutboundDir: string;
+  /** 1=應稅 2=零稅率 3=免稅 */
+  defaultTaxType: string;
 }
 
 export interface TenantSettings {
@@ -102,4 +127,5 @@ export interface TenantSettings {
   overdueAlertDays: number;
   companyHeader: string;
   pdfFooter: string;
+  einvoice: EinvoiceSettings;
 }

@@ -11,6 +11,8 @@ import { salesOrderRouter } from '../modules/sales/sales-order/sales-order.route
 import { purchaseOrderRouter } from '../modules/purchase/purchase-order/purchase-order.router.js';
 import { receivableRouter } from '../modules/accounting/receivable/receivable.router.js';
 import { payableRouter } from '../modules/accounting/payable/payable.router.js';
+import { einvoiceRouter } from '../modules/accounting/einvoice/einvoice.router.js';
+import { einvoicePoolRouter } from '../modules/accounting/einvoice/number-pool.router.js';
 import { inventoryRouter } from '../modules/inventory/inventory.router.js';
 import { statementsRouter } from './statements.router.js';
 import { auditLogRouter } from '../modules/core/audit-log/audit-log.router.js';
@@ -51,6 +53,8 @@ apiRouter.use('/sales-orders', salesOrderRouter);
 apiRouter.use('/purchase-orders', purchaseOrderRouter);
 apiRouter.use('/receivables', receivableRouter);
 apiRouter.use('/payables', payableRouter);
+apiRouter.use('/einvoices', einvoiceRouter);
+apiRouter.use('/einvoice-number-pools', einvoicePoolRouter);
 apiRouter.use('/inventory', inventoryRouter);
 apiRouter.use('/statements', statementsRouter);
 apiRouter.use('/audit-logs', auditLogRouter);

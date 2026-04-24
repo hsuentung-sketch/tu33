@@ -1390,6 +1390,286 @@ async function openMonthlyPayableDialog() {
   });
 }
 
+// ----- E-invoice: issue modal on AR row -----
+
+async function openEinvoiceIssueModal(ar, onSaved) {
+  // Pull sales order so we can pre-fill items & buyer info.
+  let order = null;
+  try {
+    if (ar.salesOrderId) order = await api.get(`/sales-orders/${ar.salesOrderId}`);
+  } catch { /* fall through with blank items */ }
+
+  const customer = ar.customer ?? {};
+  const defaultItems = (order?.items ?? []).map((it) => ({
+    description: it.productName,
+    quantity: Number(it.quantity),
+    unitPrice: Number(it.unitPrice),
+  }));
+
+  const state = {
+    buyerType: customer.taxId ? 'B2B' : 'B2C',
+    buyerName: customer.name || '',
+    buyerTaxId: customer.taxId || '',
+    buyerAddress: customer.address || '',
+    items: defaultItems.length ? defaultItems : [{ description: '', quantity: 1, unitPrice: 0 }],
+  };
+  const errBox = el('div', { class: 'err' });
+
+  function renderItems(host) {
+    host.innerHTML = '';
+    state.items.forEach((it, idx) => {
+      const row = el('div', { class: 'field row', style: 'gap:6px;align-items:flex-end;' },
+        wrapField('品名', el('input', { type: 'text', value: it.description,
+          oninput: (ev) => { state.items[idx].description = ev.target.value; } })),
+        wrapField('數量', el('input', { type: 'number', min: '0', step: '0.01',
+          value: String(it.quantity),
+          oninput: (ev) => { state.items[idx].quantity = Number(ev.target.value) || 0; } }), 80),
+        wrapField('單價', el('input', { type: 'number', min: '0', step: '0.01',
+          value: String(it.unitPrice),
+          oninput: (ev) => { state.items[idx].unitPrice = Number(ev.target.value) || 0; } }), 100),
+        el('button', { class: 'btn small danger', type: 'button',
+          onClick: () => { state.items.splice(idx, 1); renderItems(host); } }, '移除'),
+      );
+      host.append(row);
+    });
+    host.append(el('button', { class: 'btn small', type: 'button',
+      onClick: () => { state.items.push({ description: '', quantity: 1, unitPrice: 0 }); renderItems(host); } },
+      '＋新增品項'));
+  }
+  function wrapField(label, input, width) {
+    return el('div', { class: 'field', style: width ? `max-width:${width}px;` : '' },
+      el('label', {}, label), input);
+  }
+
+  const typeSelect = el('select', {},
+    el('option', { value: 'B2B' }, 'B2B（有統編）'),
+    el('option', { value: 'B2C' }, 'B2C（無統編）'));
+  typeSelect.value = state.buyerType;
+  typeSelect.addEventListener('change', () => {
+    state.buyerType = typeSelect.value;
+    taxIdInput.disabled = state.buyerType === 'B2C';
+    if (state.buyerType === 'B2C') taxIdInput.value = '';
+  });
+  const taxIdInput = el('input', { type: 'text', value: state.buyerTaxId, placeholder: '8 碼數字' });
+  taxIdInput.disabled = state.buyerType === 'B2C';
+  taxIdInput.addEventListener('input', () => { state.buyerTaxId = taxIdInput.value; });
+  const nameInput = el('input', { type: 'text', value: state.buyerName });
+  nameInput.addEventListener('input', () => { state.buyerName = nameInput.value; });
+  const addrInput = el('input', { type: 'text', value: state.buyerAddress });
+  addrInput.addEventListener('input', () => { state.buyerAddress = addrInput.value; });
+
+  const itemsHost = el('div', {});
+  renderItems(itemsHost);
+
+  const backdrop = el('div', { class: 'modal-backdrop' });
+  const modal = el('div', { class: 'modal', style: 'max-width:720px;' },
+    el('h3', {}, `開立電子發票 — ${customer.name || ''}`),
+    el('div', { class: 'body' },
+      wrapField('買受人型態', typeSelect),
+      wrapField('買受人名稱', nameInput),
+      wrapField('統一編號', taxIdInput),
+      wrapField('地址', addrInput),
+      el('hr'),
+      el('div', { style: 'font-size:12px;color:var(--muted);margin-bottom:4px;' },
+        '品項（金額 = 數量 × 單價；稅額依公司稅率自動計算）'),
+      itemsHost,
+    ),
+    errBox,
+    el('div', { class: 'actions' },
+      el('button', { class: 'btn', onClick: () => backdrop.remove() }, '取消'),
+      el('button', { class: 'btn primary', onClick: async () => {
+        try {
+          if (!state.buyerName.trim()) throw new Error('請填寫買受人名稱');
+          if (state.buyerType === 'B2B' && !/^\d{8}$/.test(state.buyerTaxId.trim())) {
+            throw new Error('B2B 統編需為 8 碼數字');
+          }
+          const items = state.items
+            .filter((it) => it.description.trim() && it.quantity > 0 && it.unitPrice >= 0)
+            .map((it, i) => ({
+              sequence: i + 1,
+              description: it.description.trim(),
+              quantity: it.quantity,
+              unitPrice: it.unitPrice,
+            }));
+          if (!items.length) throw new Error('至少一個有效品項');
+          await api.post('/einvoices/issue', {
+            receivableId: ar.id,
+            salesOrderId: ar.salesOrderId,
+            buyerTaxId: state.buyerType === 'B2B' ? state.buyerTaxId.trim() : null,
+            buyerName: state.buyerName.trim(),
+            buyerAddress: state.buyerAddress.trim() || undefined,
+            items,
+          });
+          toast('已開立', 'ok');
+          backdrop.remove();
+          if (onSaved) await onSaved();
+        } catch (e) { errBox.textContent = e.message; }
+      } }, '開立'),
+    ),
+  );
+  backdrop.append(modal);
+  backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
+  document.body.append(backdrop);
+}
+
+// ----- E-invoice list view -----
+
+async function viewEinvoices(main) {
+  main.innerHTML = '';
+  main.append(el('h2', {}, '電子發票'));
+  main.append(el('div', { class: 'page-sub' },
+    '列出已開立 / 作廢的電子發票。作廢需填寫原因，會寫出 C0501 XML 至 Turnkey 目錄。'));
+
+  const tbody = el('tbody');
+  const table = el('table', { class: 'data' },
+    el('thead', {}, el('tr', {},
+      el('th', {}, '發票號碼'),
+      el('th', {}, '日期'),
+      el('th', {}, '買受人'),
+      el('th', {}, '統編'),
+      el('th', { class: 'num' }, '銷售額'),
+      el('th', { class: 'num' }, '稅額'),
+      el('th', { class: 'num' }, '總計'),
+      el('th', {}, '狀態'),
+      el('th', {}, '關聯銷貨單'),
+      el('th', {}, '操作'),
+    )),
+    tbody,
+  );
+
+  async function reload() {
+    const list = await api.get('/einvoices');
+    tbody.innerHTML = '';
+    if (!list.length) {
+      tbody.append(el('tr', {}, el('td', { colspan: '10',
+        style: 'text-align:center;color:var(--muted);padding:24px;' }, '尚無發票')));
+      return;
+    }
+    for (const e of list) {
+      const badge = e.status === 'voided' ? 'bad'
+        : e.status === 'rejected' ? 'bad'
+        : e.status === 'confirmed' ? 'ok'
+        : 'warn';
+      tbody.append(el('tr', {},
+        el('td', {}, e.invoiceNo),
+        el('td', {}, fmtDate(e.invoiceDate)),
+        el('td', {}, e.buyerName),
+        el('td', {}, e.buyerTaxId || '（無）'),
+        el('td', { class: 'num' }, fmtMoney(e.salesAmount)),
+        el('td', { class: 'num' }, fmtMoney(e.taxAmount)),
+        el('td', { class: 'num' }, fmtMoney(e.totalAmount)),
+        el('td', {}, el('span', { class: 'badge ' + badge }, e.status)),
+        el('td', {}, e.salesOrder?.orderNo || ''),
+        el('td', { class: 'actions' },
+          el('a', { class: 'btn small', href: `/api/einvoices/${e.id}/xml`, target: '_blank' }, 'C0401 XML'),
+          e.voidXmlPath ? ' ' : null,
+          e.voidXmlPath ? el('a', { class: 'btn small', href: `/api/einvoices/${e.id}/xml?kind=void`, target: '_blank' }, 'C0501 XML') : null,
+          e.status !== 'voided' && window.__session?.employee?.role === 'ADMIN' ? ' ' : null,
+          e.status !== 'voided' && window.__session?.employee?.role === 'ADMIN'
+            ? el('button', { class: 'btn small danger', onClick: () => voidEinvoice(e, reload) }, '作廢')
+            : null,
+        ),
+      ));
+    }
+  }
+
+  function voidEinvoice(e, after) {
+    const reason = window.prompt(`作廢發票 ${e.invoiceNo}，請輸入原因：`);
+    if (!reason || !reason.trim()) return;
+    api.post(`/einvoices/${e.id}/void`, { reason: reason.trim() })
+      .then(() => { toast('已作廢', 'ok'); return after(); })
+      .catch((err) => toast(err.message, 'err'));
+  }
+
+  main.append(table);
+  reload();
+}
+
+// ----- E-invoice number pools view -----
+
+async function viewEinvoicePools(main) {
+  main.innerHTML = '';
+  main.append(el('h2', {}, '電子發票配號'));
+  main.append(el('div', { class: 'page-sub' },
+    '每兩個月從國稅局取得字軌核定。新增時把「字軌」「起號」「迄號」照抄進來，系統依 FIFO 取號。'));
+
+  const tbody = el('tbody');
+  const table = el('table', { class: 'data' },
+    el('thead', {}, el('tr', {},
+      el('th', {}, '期別'),
+      el('th', {}, '字軌'),
+      el('th', {}, '起號'),
+      el('th', {}, '迄號'),
+      el('th', {}, '下一號'),
+      el('th', { class: 'num' }, '剩餘'),
+      el('th', {}, '狀態'),
+      el('th', {}, '備註'),
+      el('th', {}, '操作'),
+    )),
+    tbody,
+  );
+
+  async function reload() {
+    const list = await api.get('/einvoice-number-pools?includeInactive=true');
+    tbody.innerHTML = '';
+    if (!list.length) {
+      tbody.append(el('tr', {}, el('td', { colspan: '9',
+        style: 'text-align:center;color:var(--muted);padding:24px;' }, '尚未設定配號')));
+      return;
+    }
+    for (const p of list) {
+      const remaining = Math.max(0, p.rangeEnd - p.nextNumber + 1);
+      tbody.append(el('tr', {},
+        el('td', {}, p.yearMonth),
+        el('td', {}, p.trackAlpha),
+        el('td', {}, String(p.rangeStart).padStart(8, '0')),
+        el('td', {}, String(p.rangeEnd).padStart(8, '0')),
+        el('td', {}, String(p.nextNumber).padStart(8, '0')),
+        el('td', { class: 'num' }, String(remaining)),
+        el('td', {}, el('span', { class: 'badge ' + (p.isActive ? 'ok' : 'mute') },
+          p.isActive ? '啟用' : '停用')),
+        el('td', {}, p.note || ''),
+        el('td', { class: 'actions' },
+          el('button', { class: 'btn small',
+            onClick: () => togglePool(p, reload) }, p.isActive ? '停用' : '啟用'),
+        ),
+      ));
+    }
+  }
+
+  function togglePool(p, after) {
+    api.put(`/einvoice-number-pools/${p.id}`, { isActive: !p.isActive })
+      .then(() => { toast('已更新', 'ok'); return after(); })
+      .catch((err) => toast(err.message, 'err'));
+  }
+
+  const addBtn = el('button', { class: 'btn primary', onClick: () => openModal({
+    title: '新增配號區間',
+    initial: { yearMonth: '', trackAlpha: '', rangeStart: 0, rangeEnd: 99999999 },
+    fields: [
+      { name: 'yearMonth', label: '期別（民國年+雙數月，如 11311 = 113 年 11-12 月）', required: true },
+      { name: 'trackAlpha', label: '字軌（兩個大寫英文字母，如 AB）', required: true },
+      { name: 'rangeStart', label: '起號（整數，0–99999999）', type: 'number', required: true },
+      { name: 'rangeEnd', label: '迄號', type: 'number', required: true },
+      { name: 'note', label: '備註' },
+    ],
+    onSubmit: async (v) => {
+      await api.post('/einvoice-number-pools', {
+        yearMonth: String(v.yearMonth || '').trim(),
+        trackAlpha: String(v.trackAlpha || '').trim().toUpperCase(),
+        rangeStart: Number(v.rangeStart),
+        rangeEnd: Number(v.rangeEnd),
+        note: v.note ? String(v.note) : undefined,
+      });
+      toast('已新增', 'ok');
+      reload();
+    },
+  }) }, '＋新增配號');
+
+  main.append(el('div', { class: 'toolbar' }, addBtn), table);
+  reload();
+}
+
 async function viewAccount(main, path, title, partyLabel) {
   main.innerHTML = '';
   main.append(el('h2', {}, title));
@@ -1468,6 +1748,10 @@ async function viewAccount(main, path, title, partyLabel) {
             el('button', { class: 'btn small', onClick: () => editAccount(a) }, '編輯'),
             !a.isPaid ? ' ' : null,
             !a.isPaid ? el('button', { class: 'btn small primary', onClick: () => markPaid(a) }, '標記已付') : null,
+            path === 'receivables' ? ' ' : null,
+            path === 'receivables' && window.__session?.employee?.role === 'ADMIN'
+              ? el('button', { class: 'btn small', onClick: () => openEinvoiceIssueModal(a, reload) }, '開立發票')
+              : null,
           ),
         ));
       }
@@ -2067,6 +2351,8 @@ const views = {
   'purchase-orders': viewPurchaseOrders,
   receivables: viewReceivables,
   payables: viewPayables,
+  einvoices: viewEinvoices,
+  'einvoice-pools': viewEinvoicePools,
   inventory: viewInventory,
   'audit-logs': viewAuditLogs,
   'error-logs': viewErrorLogs,

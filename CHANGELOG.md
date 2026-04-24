@@ -3,6 +3,114 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.1.0] - 2026-04-24
+
+### Added — 電子發票（Turnkey 直連，Phase 1）
+- 後台應收帳款列表新增「開立發票」按鈕（ADMIN only）：帶入客戶統編／地址／銷貨品項 → 取號 → 產生 MIG 3.2.1 C0401 XML 寫入 Turnkey 匯入目錄
+- 新檢視「電子發票」：列出已開立／已上傳／已確認／已作廢，可下載 C0401 / C0501 XML、作廢
+- 新檢視「發票配號」（ADMIN）：維護國稅局核定的字軌與配號區間（期別、起號、迄號、剩餘張數、啟用／停用）
+- 銷貨單 PDF 自動顯示關聯發票號碼與開立日期；作廢時紅字標註
+- 作廢流程：C0501 XML 寫入 Turnkey 目錄，AR 的 `invoiceNo` 快取欄位自動清空
+- 回執輪詢 CLI：`npx tsx src/tools/sync-einvoice-status.ts [tenantId]`，掃 `turnkeyOutboundDir` 反寫 status（confirmed / rejected）
+- B2B 三聯式（有統編）＋ B2C 二聯式（無統編，XML 以 `0000000000` 輸出）；載具／捐贈碼留待 Phase 2
+
+### Added — 新 Prisma model
+- `EinvoiceNumberPool`（tenant scoped，FIFO 取號）
+- `Einvoice` + `EinvoiceItem`（與 AR 1:1、與 SalesOrder N:1）
+
+### Changed
+- `Tenant.settings.einvoice` 新欄位（JSON，無 DDL）：`enabled / sellerTaxId / sellerName / turnkeyInboundDir / turnkeyOutboundDir / defaultTaxType`
+- `requireAdmin` helper 抽到 `src/modules/core/auth/require-admin.ts` 共用
+- 銷貨單 PDF 的 `SalesOrderPdfData` 增加可選 `einvoice` 欄位；pdf.router 會抓最近一張未作廢發票塞進去
+
+### Security
+- 所有 `/api/einvoices/*`、`/api/einvoice-number-pools/*` 寫入路徑 ADMIN only
+- `turnkey-writer` 拒絕相對路徑與不存在的目錄，檔名字串做 alphanumeric 過濾
+- 發票號碼一經分配即視為用掉（符合財政部規範），失敗時不回收
+
+### Migration
+需於 Supabase SQL Editor 執行：
+```sql
+-- EinvoiceNumberPool
+CREATE TABLE "EinvoiceNumberPool" (
+  "id"          TEXT PRIMARY KEY,
+  "tenantId"    TEXT NOT NULL,
+  "yearMonth"   TEXT NOT NULL,
+  "trackAlpha"  TEXT NOT NULL,
+  "rangeStart"  INTEGER NOT NULL,
+  "rangeEnd"    INTEGER NOT NULL,
+  "nextNumber"  INTEGER NOT NULL,
+  "isActive"    BOOLEAN NOT NULL DEFAULT TRUE,
+  "note"        TEXT,
+  "createdBy"   TEXT,
+  "createdAt"   TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt"   TIMESTAMP(3) NOT NULL,
+  CONSTRAINT "EinvoiceNumberPool_tenantId_fkey" FOREIGN KEY ("tenantId")
+    REFERENCES "Tenant"("id") ON DELETE CASCADE
+);
+CREATE INDEX "EinvoiceNumberPool_tenantId_isActive_idx"
+  ON "EinvoiceNumberPool"("tenantId","isActive");
+
+-- Einvoice
+CREATE TABLE "Einvoice" (
+  "id"            TEXT PRIMARY KEY,
+  "tenantId"      TEXT NOT NULL,
+  "invoiceNo"     TEXT NOT NULL,
+  "invoiceDate"   TIMESTAMP(3) NOT NULL,
+  "buyerTaxId"    TEXT,
+  "buyerName"     TEXT NOT NULL,
+  "buyerAddress"  TEXT,
+  "salesAmount"   DECIMAL(14,2) NOT NULL,
+  "taxAmount"     DECIMAL(14,2) NOT NULL,
+  "totalAmount"   DECIMAL(14,2) NOT NULL,
+  "taxType"       TEXT NOT NULL DEFAULT '1',
+  "status"        TEXT NOT NULL DEFAULT 'issued',
+  "voidedAt"      TIMESTAMP(3),
+  "voidReason"    TEXT,
+  "xmlPath"       TEXT,
+  "voidXmlPath"   TEXT,
+  "uploadedAt"    TIMESTAMP(3),
+  "confirmedAt"   TIMESTAMP(3),
+  "rejectReason"  TEXT,
+  "receivableId"  TEXT UNIQUE,
+  "salesOrderId"  TEXT,
+  "createdBy"     TEXT,
+  "createdAt"     TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt"     TIMESTAMP(3) NOT NULL,
+  CONSTRAINT "Einvoice_tenantId_fkey" FOREIGN KEY ("tenantId")
+    REFERENCES "Tenant"("id") ON DELETE CASCADE,
+  CONSTRAINT "Einvoice_receivableId_fkey" FOREIGN KEY ("receivableId")
+    REFERENCES "AccountReceivable"("id"),
+  CONSTRAINT "Einvoice_salesOrderId_fkey" FOREIGN KEY ("salesOrderId")
+    REFERENCES "SalesOrder"("id")
+);
+CREATE UNIQUE INDEX "Einvoice_tenantId_invoiceNo_key"
+  ON "Einvoice"("tenantId","invoiceNo");
+CREATE INDEX "Einvoice_tenantId_status_idx"
+  ON "Einvoice"("tenantId","status");
+CREATE INDEX "Einvoice_tenantId_invoiceDate_idx"
+  ON "Einvoice"("tenantId","invoiceDate");
+
+-- EinvoiceItem
+CREATE TABLE "EinvoiceItem" (
+  "id"          TEXT PRIMARY KEY,
+  "invoiceId"   TEXT NOT NULL,
+  "sequence"    INTEGER NOT NULL,
+  "description" TEXT NOT NULL,
+  "quantity"    DECIMAL(14,4) NOT NULL,
+  "unit"        TEXT,
+  "unitPrice"   DECIMAL(14,4) NOT NULL,
+  "amount"      DECIMAL(14,2) NOT NULL,
+  CONSTRAINT "EinvoiceItem_invoiceId_fkey" FOREIGN KEY ("invoiceId")
+    REFERENCES "Einvoice"("id") ON DELETE CASCADE
+);
+```
+
+### 風險提醒
+- Fly.io 容器 FS 為 ephemeral，本 Phase 1 `turnkey-writer` 先寫本機路徑僅供本機驗證；正式部署請改走 SFTP 或 S3（`turnkey-writer.ts` 的介面保持穩定，換實作不影響 service/router/UI 層）
+- 向國稅局申請的「電子發票專用字軌核定通知書」仍需 ADMIN 每兩個月手動把配號區間輸入到「發票配號」頁
+- 載具（手機條碼／自然人憑證）、捐贈碼、折讓單（D0401/D0501）為 Phase 2
+
 ## [2.0.2] - 2026-04-24
 
 ### Added

@@ -135,10 +135,19 @@ pdfRouter.get('/:kind/:id', async (req: Request, res: Response, next: NextFuncti
     if (kind === 'sales-order') {
       const o = await prisma.salesOrder.findFirst({
         where: { id, tenantId: payload.t },
-        include: { items: { orderBy: { sortOrder: 'asc' } }, customer: true },
+        include: {
+          items: { orderBy: { sortOrder: 'asc' } },
+          customer: true,
+          einvoices: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            where: { status: { not: 'voided' } },
+          },
+        },
       });
       if (!o) return res.status(404).send('Sales order not found');
       const sPhone = o.salesPhone || await fallbackEmployeePhone(o.createdBy);
+      const liveEinvoice = o.einvoices[0] ?? null;
       return streamPdf(res, next, `sales-${o.orderNo}.pdf`, () =>
         generateSalesOrderPdf({
           companyHeader,
@@ -168,6 +177,11 @@ pdfRouter.get('/:kind/:id', async (req: Request, res: Response, next: NextFuncti
           totalAmount: Number(o.totalAmount),
           deliveredBy: o.deliveredBy,
           receivedBy: o.receivedBy,
+          einvoice: liveEinvoice ? {
+            invoiceNo: liveEinvoice.invoiceNo,
+            invoiceDate: liveEinvoice.invoiceDate,
+            voided: liveEinvoice.status === 'voided',
+          } : null,
           pdfFooter: settings.pdfFooter,
         }),
       );

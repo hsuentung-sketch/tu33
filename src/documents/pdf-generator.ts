@@ -60,6 +60,12 @@ interface SalesOrderPdfData {
   totalAmount: number;
   deliveredBy?: string | null;
   receivedBy?: string | null;
+  /** Linked e-invoice summary, rendered under the info grid. */
+  einvoice?: {
+    invoiceNo: string;
+    invoiceDate: Date;
+    voided: boolean;
+  } | null;
   pdfFooter?: string;
 }
 
@@ -388,6 +394,22 @@ export function generateSalesOrderPdf(data: SalesOrderPdfData): InstanceType<typ
     { label: '開單日期', value: formatDate(data.date) },
   ];
   y = drawInfoGrid(doc, y + 8, left, right);
+
+  // E-invoice badge (if linked). Kept as a single line so it doesn't
+  // perturb the fixed 5-row item table rhythm.
+  if (data.einvoice) {
+    y += 6;
+    const e = data.einvoice;
+    if (e.voided) {
+      doc.fontSize(10).fillColor('#C00');
+      doc.text(`發票號碼：${e.invoiceNo}（已作廢）  發票日期：${formatDate(e.invoiceDate)}`, PAGE.left, y);
+      doc.fillColor('#000');
+    } else {
+      doc.fontSize(10).fillColor('#000');
+      doc.text(`發票號碼：${e.invoiceNo}　發票日期：${formatDate(e.invoiceDate)}`, PAGE.left, y);
+    }
+    y += 14;
+  }
 
   const rows = data.items.map((it, i) => [
     String(i + 1),
