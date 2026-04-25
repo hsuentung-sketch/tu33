@@ -13,6 +13,7 @@ import { receivableRouter } from '../modules/accounting/receivable/receivable.ro
 import { payableRouter } from '../modules/accounting/payable/payable.router.js';
 import { einvoiceRouter } from '../modules/accounting/einvoice/einvoice.router.js';
 import { einvoicePoolRouter } from '../modules/accounting/einvoice/number-pool.router.js';
+import { allowanceRouter } from '../modules/accounting/einvoice/allowance.router.js';
 import { inventoryRouter } from '../modules/inventory/inventory.router.js';
 import { statementsRouter } from './statements.router.js';
 import { auditLogRouter } from '../modules/core/audit-log/audit-log.router.js';
@@ -55,6 +56,7 @@ apiRouter.use('/receivables', receivableRouter);
 apiRouter.use('/payables', payableRouter);
 apiRouter.use('/einvoices', einvoiceRouter);
 apiRouter.use('/einvoice-number-pools', einvoicePoolRouter);
+apiRouter.use('/einvoice-allowances', allowanceRouter);
 apiRouter.use('/inventory', inventoryRouter);
 apiRouter.use('/statements', statementsRouter);
 apiRouter.use('/audit-logs', auditLogRouter);

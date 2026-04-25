@@ -102,19 +102,40 @@ const einvoiceDefaults: EinvoiceSettings = {
   enabled: false,
   sellerTaxId: '',
   sellerName: '',
+  sellerAddress: '',
+  taxRegistrationNo: '',
   turnkeyInboundDir: '',
   turnkeyOutboundDir: '',
+  turnkeyOnlineCode: '',
+  qrAesKey: '',
   defaultTaxType: '1',
+  enableCarrier: true,
+  enableDonation: true,
+  defaultPrintFlag: 'Y',
 };
 
 export interface EinvoiceSettings {
   enabled: boolean;
   sellerTaxId: string;
   sellerName: string;
+  /** 證明聯左側欄顯示的賣方地址 */
+  sellerAddress: string;
+  /** 稅籍編號（字軌申請書欄位） */
+  taxRegistrationNo: string;
   turnkeyInboundDir: string;
   turnkeyOutboundDir: string;
+  /** Turnkey 整合服務平台上線通行碼 */
+  turnkeyOnlineCode: string;
+  /** AES-128 金鑰（hex 32 字元），整合平台下載，用於證明聯 QR 加密驗證 */
+  qrAesKey: string;
   /** 1=應稅 2=零稅率 3=免稅 */
   defaultTaxType: string;
+  /** 開立 B2C 時是否允許輸入載具 */
+  enableCarrier: boolean;
+  /** 開立 B2C 時是否允許捐贈碼 */
+  enableDonation: boolean;
+  /** 預設是否列印證明聯：Y=列印 N=不列印（B2C 載具/捐贈時通常 N） */
+  defaultPrintFlag: string;
 }
 
 export interface TenantSettings {

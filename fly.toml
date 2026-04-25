@@ -32,6 +32,10 @@ primary_region = 'nrt'
     method = 'GET'
     path = '/health'
 
+[[mounts]]
+  source = 'einvoice_data'
+  destination = '/data'
+
 [[vm]]
   size = 'shared-cpu-1x'
   memory = '512mb'

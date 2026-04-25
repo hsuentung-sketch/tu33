@@ -43,6 +43,7 @@ model Tenant {
   inventoryTxns  InventoryTransaction[]
   einvoices          Einvoice[]
   einvoiceNumberPools EinvoiceNumberPool[]
+  allowances         EinvoiceAllowance[]
 }
 
 // ============================================================
@@ -603,6 +604,17 @@ model Einvoice {
   salesOrder    SalesOrder? @relation(fields: [salesOrderId], references: [id])
 
   items         EinvoiceItem[]
+  allowances    EinvoiceAllowance[]
+  /** 4 碼隨機碼，B2C 證明聯 QR 驗證會用到 */
+  randomCode    String?
+  /** 載具類別代碼：3J0002=手機條碼 CQ0001=自然人憑證 EJ0113=會員載具（依財政部） */
+  carrierType   String?
+  /** 載具 ID（手機條碼 8 碼 / 憑證 16 碼 / 會員自訂） */
+  carrierId     String?
+  /** 捐贈碼（3-7 碼數字）— NPOBAN */
+  npoban        String?
+  /** 列印註記 Y=列印證明聯 N=不列印（載具或捐贈時 N） */
+  printFlag     String   @default("Y")
   createdBy     String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -622,4 +634,51 @@ model EinvoiceItem {
   unit        String?
   unitPrice   Decimal  @db.Decimal(14, 4)
   amount      Decimal  @db.Decimal(14, 2)
+}
+
+// 折讓單 D0401（賣方開立）/ D0501（賣方作廢折讓）。
+// 一張電子發票可對應多張折讓單（部分折讓）。
+model EinvoiceAllowance {
+  id              String   @id @default(cuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  allowanceNo     String   // 折讓單號（自訂 YYYYMMDD + seq）
+  allowanceDate   DateTime
+  /** seller=賣方開立 buyer=買方開立（本系統目前只做 seller） */
+  type            String   @default("seller")
+  invoiceId       String
+  invoice         Einvoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  salesAmount     Decimal  @db.Decimal(14, 2)
+  taxAmount       Decimal  @db.Decimal(14, 2)
+  totalAmount     Decimal  @db.Decimal(14, 2)
+  reason          String?
+  status          String   @default("issued") // issued|confirmed|voided
+  xmlPath         String?
+  voidXmlPath     String?
+  voidedAt        DateTime?
+  voidReason      String?
+  items           EinvoiceAllowanceItem[]
+  createdBy       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([tenantId, allowanceNo])
+  @@index([tenantId, status])
+  @@index([invoiceId])
+}
+
+model EinvoiceAllowanceItem {
+  id              String   @id @default(cuid())
+  allowanceId     String
+  allowance       EinvoiceAllowance @relation(fields: [allowanceId], references: [id], onDelete: Cascade)
+  sequence        Int
+  /** 對應原發票品項序號 */
+  originalSequence Int?
+  description     String
+  quantity        Decimal  @db.Decimal(14, 4)
+  unit            String?
+  unitPrice       Decimal  @db.Decimal(14, 4)
+  amount          Decimal  @db.Decimal(14, 2)
+  taxType         String   @default("1")
+  taxAmount       Decimal  @db.Decimal(14, 2)
 }

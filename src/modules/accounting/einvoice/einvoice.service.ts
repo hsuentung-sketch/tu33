@@ -23,7 +23,42 @@ export interface IssueInput {
   items: IssueItemInput[];
   taxType?: string;           // default from tenant settings
   invoiceDate?: Date;         // default now
+  /** 載具類別：3J0002=手機條碼 CQ0001=自然人憑證 EJ0113=會員載具 */
+  carrierType?: string;
+  carrierId?: string;
+  /** 捐贈碼 3-7 碼數字 */
+  npoban?: string;
+  /** Y=列印證明聯 N=不列印；預設依 tenant 設定 */
+  printFlag?: string;
   createdBy?: string;
+}
+
+function randomFourDigits(): string {
+  return String(Math.floor(Math.random() * 10000)).padStart(4, '0');
+}
+
+function validateCarrier(type?: string, id?: string): void {
+  if (!type && !id) return;
+  if (!type || !id) throw new ValidationError('載具類別與載具 ID 需同時填寫');
+  const trimmed = id.trim();
+  if (type === '3J0002') {
+    if (!/^\/[0-9A-Z.\-+]{7}$/.test(trimmed)) {
+      throw new ValidationError('手機條碼格式錯誤（需以 / 開頭，共 8 碼）');
+    }
+  } else if (type === 'CQ0001') {
+    if (!/^[A-Z]{2}\d{14}$/.test(trimmed)) {
+      throw new ValidationError('自然人憑證格式錯誤（2 英文 + 14 數字）');
+    }
+  } else if (!/^[A-Z]{2}\d{4}$/.test(type)) {
+    throw new ValidationError('載具類別代碼格式錯誤');
+  }
+}
+
+function validateNpoban(code?: string): void {
+  if (!code) return;
+  if (!/^\d{3,7}$/.test(code.trim())) {
+    throw new ValidationError('捐贈碼需為 3-7 位數字');
+  }
 }
 
 // ----- pool -----
@@ -119,6 +154,16 @@ export async function issue(tenantId: string, input: IssueInput) {
   if (input.buyerTaxId && !/^\d{8}$/.test(input.buyerTaxId.trim())) {
     throw new ValidationError('買受人統一編號應為 8 碼數字（B2C 可留空）');
   }
+  if (input.carrierType || input.carrierId || input.npoban) {
+    if (input.buyerTaxId) {
+      throw new ValidationError('B2B（有統編）不可使用載具或捐贈碼');
+    }
+  }
+  if (input.carrierType && input.npoban) {
+    throw new ValidationError('載具與捐贈碼只能擇一');
+  }
+  validateCarrier(input.carrierType, input.carrierId);
+  validateNpoban(input.npoban);
 
   const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
   if (!tenant) throw new NotFoundError('Tenant', tenantId);
@@ -149,6 +194,9 @@ export async function issue(tenantId: string, input: IssueInput) {
   const invoiceDate = input.invoiceDate ?? now;
   const taxType = input.taxType ?? einvCfg.defaultTaxType ?? '1';
   const taxRate = settings.taxRate;
+  const randomCode = randomFourDigits();
+  const printFlag = input.printFlag
+    ?? ((input.carrierType || input.npoban) ? 'N' : (einvCfg.defaultPrintFlag || 'Y'));
 
   const preparedItems = input.items.map((it, idx) => {
     const amount = it.amount ?? roundMoney(it.quantity * it.unitPrice);
@@ -172,7 +220,7 @@ export async function issue(tenantId: string, input: IssueInput) {
   const xml = buildC0401({
     invoiceNo,
     invoiceDate,
-    seller: { identifier: sellerTaxId, name: sellerName, address: tenant.address ?? undefined },
+    seller: { identifier: sellerTaxId, name: sellerName, address: einvCfg.sellerAddress || tenant.address || undefined },
     buyer: {
       identifier: input.buyerTaxId?.trim() || null,
       name: input.buyerName.trim(),
@@ -184,6 +232,11 @@ export async function issue(tenantId: string, input: IssueInput) {
     totalAmount,
     taxType,
     taxRate,
+    randomCode,
+    carrierType: input.carrierType,
+    carrierId: input.carrierId,
+    npoban: input.npoban,
+    printFlag,
   });
 
   let xmlPath: string | null = null;
@@ -211,6 +264,11 @@ export async function issue(tenantId: string, input: IssueInput) {
       taxType,
       status: 'issued',
       xmlPath,
+      randomCode,
+      carrierType: input.carrierType,
+      carrierId: input.carrierId,
+      npoban: input.npoban,
+      printFlag,
       receivableId: input.receivableId,
       salesOrderId: input.salesOrderId,
       createdBy: input.createdBy,

@@ -1392,6 +1392,80 @@ async function openMonthlyPayableDialog() {
 
 // ----- E-invoice: issue modal on AR row -----
 
+async function openAllowanceModal(inv, onSaved) {
+  const items = (inv.items || []).map((it) => ({
+    originalSequence: it.sequence,
+    description: it.description,
+    quantity: 0,
+    unitPrice: Number(it.unitPrice),
+  }));
+  const errBox = el('div', { class: 'err' });
+  const reasonInput = el('input', { type: 'text', placeholder: '折讓原因（例：瑕疵退貨）' });
+
+  function renderItems(host) {
+    host.innerHTML = '';
+    items.forEach((it, idx) => {
+      const row = el('div', { class: 'field row', style: 'gap:6px;align-items:flex-end;' },
+        el('div', { class: 'field', style: 'flex:1;' },
+          el('label', {}, `原序 ${it.originalSequence}：${it.description}`),
+          el('input', { type: 'text', value: it.description, disabled: true })),
+        el('div', { class: 'field', style: 'max-width:90px;' },
+          el('label', {}, '折讓數量'),
+          el('input', { type: 'number', min: '0', step: '0.01', value: String(it.quantity),
+            oninput: (ev) => { items[idx].quantity = Number(ev.target.value) || 0; } })),
+        el('div', { class: 'field', style: 'max-width:110px;' },
+          el('label', {}, '單價'),
+          el('input', { type: 'number', min: '0', step: '0.01', value: String(it.unitPrice),
+            oninput: (ev) => { items[idx].unitPrice = Number(ev.target.value) || 0; } })),
+      );
+      host.append(row);
+    });
+  }
+  const itemsHost = el('div', {});
+  renderItems(itemsHost);
+
+  const backdrop = el('div', { class: 'modal-backdrop' });
+  const modal = el('div', { class: 'modal', style: 'max-width:720px;' },
+    el('h3', {}, `折讓單 — 原發票 ${inv.invoiceNo}`),
+    el('div', { class: 'body' },
+      el('div', { class: 'field' }, el('label', {}, '折讓原因'), reasonInput),
+      el('hr'),
+      el('div', { style: 'font-size:12px;color:var(--muted);margin-bottom:4px;' },
+        '輸入各品項折讓數量（0 表示不折讓）。送出會產生 D0401 XML 寫入 Turnkey 匯入目錄。'),
+      itemsHost,
+    ),
+    errBox,
+    el('div', { class: 'actions' },
+      el('button', { class: 'btn', onClick: () => backdrop.remove() }, '取消'),
+      el('button', { class: 'btn primary', onClick: async () => {
+        try {
+          const sending = items
+            .filter((it) => it.quantity > 0 && it.unitPrice >= 0)
+            .map((it, i) => ({
+              sequence: i + 1,
+              originalSequence: it.originalSequence,
+              description: it.description,
+              quantity: it.quantity,
+              unitPrice: it.unitPrice,
+            }));
+          if (!sending.length) throw new Error('至少一個品項要有折讓數量');
+          await api.post('/einvoice-allowances/issue', {
+            invoiceId: inv.id,
+            items: sending,
+            reason: reasonInput.value.trim() || undefined,
+          });
+          toast('折讓單已開立', 'ok');
+          backdrop.remove();
+          if (onSaved) await onSaved();
+        } catch (e) { errBox.textContent = e.message; }
+      } }, '開立折讓單'),
+    ),
+  );
+  backdrop.append(modal);
+  backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
+  document.body.append(backdrop);
+}
+
 async function openEinvoiceIssueModal(ar, onSaved) {
   // Pull sales order so we can pre-fill items & buyer info.
   let order = null;
@@ -1441,6 +1515,10 @@ async function openEinvoiceIssueModal(ar, onSaved) {
       el('label', {}, label), input);
   }
 
+  state.carrierType = '';
+  state.carrierId = '';
+  state.npoban = '';
+
   const typeSelect = el('select', {},
     el('option', { value: 'B2B' }, 'B2B（有統編）'),
     el('option', { value: 'B2C' }, 'B2C（無統編）'));
@@ -1449,6 +1527,7 @@ async function openEinvoiceIssueModal(ar, onSaved) {
     state.buyerType = typeSelect.value;
     taxIdInput.disabled = state.buyerType === 'B2C';
     if (state.buyerType === 'B2C') taxIdInput.value = '';
+    b2cBox.style.display = state.buyerType === 'B2C' ? '' : 'none';
   });
   const taxIdInput = el('input', { type: 'text', value: state.buyerTaxId, placeholder: '8 碼數字' });
   taxIdInput.disabled = state.buyerType === 'B2C';
@@ -1457,6 +1536,29 @@ async function openEinvoiceIssueModal(ar, onSaved) {
   nameInput.addEventListener('input', () => { state.buyerName = nameInput.value; });
   const addrInput = el('input', { type: 'text', value: state.buyerAddress });
   addrInput.addEventListener('input', () => { state.buyerAddress = addrInput.value; });
+
+  // B2C 特有欄位：載具 / 捐贈碼（擇一或皆無）
+  const carrierTypeSelect = el('select', {},
+    el('option', { value: '' }, '（不使用載具）'),
+    el('option', { value: '3J0002' }, '手機條碼'),
+    el('option', { value: 'CQ0001' }, '自然人憑證'),
+    el('option', { value: 'EJ0113' }, '會員載具'));
+  carrierTypeSelect.addEventListener('change', () => { state.carrierType = carrierTypeSelect.value; });
+  const carrierIdInput = el('input', { type: 'text', placeholder: '手機條碼 /ABCDEFG / 憑證 AB0123...' });
+  carrierIdInput.addEventListener('input', () => { state.carrierId = carrierIdInput.value.trim(); });
+  const npobanInput = el('input', { type: 'text', placeholder: '3-7 碼愛心碼' });
+  npobanInput.addEventListener('input', () => { state.npoban = npobanInput.value.trim(); });
+  const b2cBox = el('div', { style: state.buyerType === 'B2C' ? '' : 'display:none;' },
+    el('hr'),
+    el('div', { style: 'font-size:12px;color:var(--muted);margin-bottom:4px;' }, 'B2C 載具 / 捐贈（擇一）'),
+    el('div', { class: 'field row', style: 'gap:6px;' },
+      wrapField('載具類別', carrierTypeSelect, 140),
+      wrapField('載具 ID', carrierIdInput, 200),
+    ),
+    el('div', { class: 'field row', style: 'gap:6px;' },
+      wrapField('或 捐贈碼（愛心碼）', npobanInput, 160),
+    ),
+  );
 
   const itemsHost = el('div', {});
   renderItems(itemsHost);
@@ -1469,6 +1571,7 @@ async function openEinvoiceIssueModal(ar, onSaved) {
       wrapField('買受人名稱', nameInput),
       wrapField('統一編號', taxIdInput),
       wrapField('地址', addrInput),
+      b2cBox,
       el('hr'),
       el('div', { style: 'font-size:12px;color:var(--muted);margin-bottom:4px;' },
         '品項（金額 = 數量 × 單價；稅額依公司稅率自動計算）'),
@@ -1492,14 +1595,23 @@ async function openEinvoiceIssueModal(ar, onSaved) {
               unitPrice: it.unitPrice,
             }));
           if (!items.length) throw new Error('至少一個有效品項');
-          await api.post('/einvoices/issue', {
+          const payload = {
             receivableId: ar.id,
             salesOrderId: ar.salesOrderId,
             buyerTaxId: state.buyerType === 'B2B' ? state.buyerTaxId.trim() : null,
             buyerName: state.buyerName.trim(),
             buyerAddress: state.buyerAddress.trim() || undefined,
             items,
-          });
+          };
+          if (state.buyerType === 'B2C') {
+            if (state.carrierType && state.carrierId) {
+              payload.carrierType = state.carrierType;
+              payload.carrierId = state.carrierId;
+            } else if (state.npoban) {
+              payload.npoban = state.npoban;
+            }
+          }
+          await api.post('/einvoices/issue', payload);
           toast('已開立', 'ok');
           backdrop.remove();
           if (onSaved) await onSaved();
@@ -1561,9 +1673,15 @@ async function viewEinvoices(main) {
         el('td', {}, el('span', { class: 'badge ' + badge }, e.status)),
         el('td', {}, e.salesOrder?.orderNo || ''),
         el('td', { class: 'actions' },
+          el('a', { class: 'btn small', href: `/api/einvoices/${e.id}/proof.pdf`, target: '_blank' }, 'PDF'),
+          ' ',
           el('a', { class: 'btn small', href: `/api/einvoices/${e.id}/xml`, target: '_blank' }, 'C0401 XML'),
           e.voidXmlPath ? ' ' : null,
           e.voidXmlPath ? el('a', { class: 'btn small', href: `/api/einvoices/${e.id}/xml?kind=void`, target: '_blank' }, 'C0501 XML') : null,
+          ' ',
+          window.__session?.employee?.role === 'ADMIN'
+            ? el('button', { class: 'btn small', onClick: () => openAllowanceModal(e, reload) }, '折讓')
+            : null,
           e.status !== 'voided' && window.__session?.employee?.role === 'ADMIN' ? ' ' : null,
           e.status !== 'voided' && window.__session?.employee?.role === 'ADMIN'
             ? el('button', { class: 'btn small danger', onClick: () => voidEinvoice(e, reload) }, '作廢')
@@ -1902,6 +2020,99 @@ async function viewCompany(main) {
     } finally {
       saveBtn.disabled = false;
     }
+  });
+
+  // ---- 電子發票設定 ----
+  const einvTitle = el('h3', { style: 'margin-top:24px;' }, '電子發票設定');
+  const einvSub = el('div', { class: 'page-sub' },
+    '影響所有開立 / 作廢 / 折讓 / 證明聯 PDF 行為。金鑰欄位留空＝保留原值。');
+  const einvForm = el('form', { class: 'card', style: 'padding:16px;max-width:640px;' });
+  const einvErr = el('div', { class: 'err', style: 'margin-top:8px;' });
+
+  function einvField(name, label, opts = {}) {
+    const input = opts.type === 'checkbox'
+      ? el('input', { type: 'checkbox', name })
+      : el('input', { name, type: opts.type || 'text', placeholder: opts.placeholder || '', style: 'width:100%;' });
+    const row = el('div', { style: 'margin-bottom:12px;' },
+      el('label', { style: 'display:block;font-size:12px;color:#666;margin-bottom:4px;' }, label),
+      input);
+    einvForm.append(row);
+    return input;
+  }
+  const eEnabled = einvField('enabled', '啟用電子發票模組', { type: 'checkbox' });
+  const eSellerTaxId = einvField('sellerTaxId', '賣方統一編號（8 碼）');
+  const eSellerName = einvField('sellerName', '賣方名稱（顯示於證明聯）');
+  const eSellerAddress = einvField('sellerAddress', '賣方地址（顯示於證明聯）');
+  const eTaxRegNo = einvField('taxRegistrationNo', '稅籍編號（字軌申請書用）');
+  const eInboundDir = einvField('turnkeyInboundDir', 'Turnkey 匯入目錄（絕對路徑）',
+    { placeholder: '/data/einvoice/inbound' });
+  const eOutboundDir = einvField('turnkeyOutboundDir', 'Turnkey 回執目錄（絕對路徑）',
+    { placeholder: '/data/einvoice/outbound' });
+  const eOnlineCode = einvField('turnkeyOnlineCode', 'Turnkey 上線通行碼（整合平台提供）');
+  const eQrKey = einvField('qrAesKey', '證明聯 QR 加密金鑰（32 字元 hex；空＝保留原值）',
+    { placeholder: '0123456789abcdef0123456789abcdef' });
+  const eTaxType = el('select', { name: 'defaultTaxType' },
+    el('option', { value: '1' }, '應稅 (1)'),
+    el('option', { value: '2' }, '零稅率 (2)'),
+    el('option', { value: '3' }, '免稅 (3)'));
+  einvForm.append(el('div', { style: 'margin-bottom:12px;' },
+    el('label', { style: 'display:block;font-size:12px;color:#666;margin-bottom:4px;' }, '預設稅別'),
+    eTaxType));
+  const eEnableCarrier = einvField('enableCarrier', '開立 B2C 時允許載具', { type: 'checkbox' });
+  const eEnableDonation = einvField('enableDonation', '開立 B2C 時允許捐贈碼', { type: 'checkbox' });
+  const ePrintFlag = el('select', { name: 'defaultPrintFlag' },
+    el('option', { value: 'Y' }, 'Y 列印證明聯'),
+    el('option', { value: 'N' }, 'N 不列印（載具/捐贈預設 N）'));
+  einvForm.append(el('div', { style: 'margin-bottom:12px;' },
+    el('label', { style: 'display:block;font-size:12px;color:#666;margin-bottom:4px;' }, '預設列印註記'),
+    ePrintFlag));
+
+  const einvSave = el('button', { type: 'submit', class: 'btn primary' }, '儲存發票設定');
+  einvForm.append(einvSave, einvErr);
+  main.append(einvTitle, einvSub, einvForm);
+
+  try {
+    const cfg = await api.get('/tenant/me/einvoice-settings');
+    eEnabled.checked = !!cfg.enabled;
+    eSellerTaxId.value = cfg.sellerTaxId || '';
+    eSellerName.value = cfg.sellerName || '';
+    eSellerAddress.value = cfg.sellerAddress || '';
+    eTaxRegNo.value = cfg.taxRegistrationNo || '';
+    eInboundDir.value = cfg.turnkeyInboundDir || '';
+    eOutboundDir.value = cfg.turnkeyOutboundDir || '';
+    eOnlineCode.value = cfg.turnkeyOnlineCode || '';
+    eQrKey.placeholder = cfg.qrAesKeySet ? '（已設定，空白＝保留）' : '0123456789abcdef0123456789abcdef';
+    eTaxType.value = cfg.defaultTaxType || '1';
+    eEnableCarrier.checked = cfg.enableCarrier !== false;
+    eEnableDonation.checked = cfg.enableDonation !== false;
+    ePrintFlag.value = cfg.defaultPrintFlag || 'Y';
+  } catch (e) { einvErr.textContent = '讀取發票設定失敗：' + e.message; }
+
+  einvForm.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    einvErr.textContent = '';
+    einvSave.disabled = true;
+    try {
+      const body = {
+        enabled: eEnabled.checked,
+        sellerTaxId: eSellerTaxId.value.trim(),
+        sellerName: eSellerName.value.trim(),
+        sellerAddress: eSellerAddress.value.trim(),
+        taxRegistrationNo: eTaxRegNo.value.trim(),
+        turnkeyInboundDir: eInboundDir.value.trim(),
+        turnkeyOutboundDir: eOutboundDir.value.trim(),
+        turnkeyOnlineCode: eOnlineCode.value.trim(),
+        defaultTaxType: eTaxType.value,
+        enableCarrier: eEnableCarrier.checked,
+        enableDonation: eEnableDonation.checked,
+        defaultPrintFlag: ePrintFlag.value,
+      };
+      if (eQrKey.value.trim()) body.qrAesKey = eQrKey.value.trim();
+      await api.put('/tenant/me/einvoice-settings', body);
+      toast('發票設定已儲存', 'ok');
+      eQrKey.value = '';
+    } catch (e) { einvErr.textContent = e.message; }
+    finally { einvSave.disabled = false; }
   });
 }
 

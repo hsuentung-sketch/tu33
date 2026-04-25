@@ -3,6 +3,71 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.2.0] - 2026-04-25
+
+### Added — 電子發票 Phase 2（載具／捐贈／折讓／證明聯 PDF）
+
+**C0401 擴充（開立）**
+- 載具欄位：手機條碼 `3J0002`（`/XXXXXXX` 8 碼）/ 自然人憑證 `CQ0001`（2 英文 + 14 數字）/ 會員載具 `EJ0113`
+- 捐贈碼 NPOBAN（3-7 碼愛心碼），與載具擇一
+- 隨機碼自動產生（4 碼），寫入 `Einvoice.randomCode`
+- 列印註記 `printFlag`：載具／捐贈時預設 `N`，否則取 tenant 預設
+- B2B（有統編）禁止載具／捐贈；載具與捐贈碼不可同時存在（全部 service 層驗證）
+
+**D0401 / D0501 折讓單**
+- 新 Prisma model `EinvoiceAllowance` + `EinvoiceAllowanceItem`
+- 新 service `allowance.service.ts`：`issueAllowance` / `voidAllowance` / `listAllowances` / `getAllowance` / `readAllowanceXml`
+- 新 router `/api/einvoice-allowances`：GET / / GET /:id / GET /:id/xml / POST /issue / POST /:id/void（寫入動作 ADMIN only）
+- 後台電子發票列表新增「折讓」按鈕 → modal 輸入各品項折讓數量 → 自動寫 D0401 XML 至 Turnkey inbound
+
+**C0701 空白字軌月報**
+- 新工具 `src/tools/report-blank-numbers.ts`：掃所有 pool，把 `nextNumber .. rangeEnd` 產生 C0701 XML 寫入 Turnkey inbound
+- 用途：期末 10 日內向平台回報未使用字軌（補充說明第 2 項）
+
+**電子發票證明聯 PDF**
+- 新模組 `proof-barcodes.ts`：Code 39 一維條碼（`期別+號碼+隨機碼`）＋左右 QR 2D 碼
+- AES-128-CBC 加密驗證碼（24 碼 Base64）：正式金鑰由整合平台下發；未設定時 fallback 用 `sha256('stub:'+sellerTaxId)` 前 16 bytes 做 dev 金鑰
+- 新產生器 `einvoice-proof-pdf.ts`：80mm 熱感紙寬度（227pt）layout，含期別／隨機碼／金額／兩組 QR／一維條碼
+- 後台發票列表新增「PDF」按鈕：`GET /api/einvoices/:id/proof.pdf`
+- 作廢發票 PDF 紅字「已作廢」；`printFlag=N`（載具／捐贈）顯示「本聯僅供存查」
+
+**後台公司資料頁新增「電子發票設定」區塊**
+- 啟用／賣方資料／稅籍編號／Turnkey 目錄／Turnkey 上線通行碼／QR AES 金鑰（空白保留原值）／預設稅別／載具開關／捐贈開關／預設列印註記
+- 金鑰 GET 時不回傳明文，只回 `qrAesKeySet: boolean`
+
+### Added — schema 欄位
+- `Einvoice`: `randomCode` / `carrierType` / `carrierId` / `npoban` / `printFlag`（default `Y`）
+- `Tenant.einvoices` 反向關聯現已加入 `allowances`
+
+### Changed
+- `Tenant.settings.einvoice` 擴充：`sellerAddress` / `taxRegistrationNo` / `turnkeyOnlineCode` / `qrAesKey` / `enableCarrier` / `enableDonation` / `defaultPrintFlag`
+- `xml-builder.ts`：`buildC0401` 帶 `InvoiceType` / `DonateMark` / `PrintMark` / `RandomNumber` / `CarrierType` / `CarrierId1,2` / `NPOBAN`
+- 新增 `buildD0401` / `buildD0501` / `buildC0701` 三種 XML 產生器
+- 開立 service 注入 `randomCode` / `printFlag` 並持久化到 Einvoice
+
+### Security
+- AES 金鑰 DB 內儲存；GET `/tenant/me/einvoice-settings` 不回傳明文
+- 證明聯 PDF 路由無 token（已在 authMiddleware 後），只回當前 tenant 的發票
+
+### 重要注意事項（正式上線前必做）
+- 向整合平台申請正式 AES 金鑰並從「公司資料 → 電子發票設定」填入；否則 QR 上傳平台驗證會失敗
+- Turnkey 上線通行碼目前僅存設定，未做實際連線檢測（手動 Turnkey 桌面程式仍以 inbound 資料夾為介面）
+- 數位簽章（`<Signature>`）未實作；若 Turnkey 不補簽，需加 XMLDSig
+
+### Migration (SQL, 已透過 `prisma db push` 套用)
+```sql
+ALTER TABLE "Einvoice"
+  ADD COLUMN "randomCode"  TEXT,
+  ADD COLUMN "carrierType" TEXT,
+  ADD COLUMN "carrierId"   TEXT,
+  ADD COLUMN "npoban"      TEXT,
+  ADD COLUMN "printFlag"   TEXT NOT NULL DEFAULT 'Y';
+
+CREATE TABLE "EinvoiceAllowance" (...);
+CREATE TABLE "EinvoiceAllowanceItem" (...);
+-- 指標／FK 細節見 Prisma migration diff
+```
+
 ## [2.1.1] - 2026-04-24
 
 ### Changed — 後台側欄整合

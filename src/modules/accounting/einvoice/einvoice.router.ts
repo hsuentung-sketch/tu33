@@ -2,6 +2,10 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import { z } from 'zod';
 import { ValidationError } from '../../../shared/errors.js';
 import { requireAdmin } from '../../core/auth/require-admin.js';
+import { prisma } from '../../../shared/prisma.js';
+import { getTenantSettings } from '../../../shared/utils.js';
+import { generateProofPdf } from '../../../documents/einvoice-proof-pdf.js';
+import { logger } from '../../../shared/logger.js';
 import * as einvoiceService from './einvoice.service.js';
 
 export const einvoiceRouter = Router();
@@ -24,6 +28,10 @@ const issueSchema = z.object({
   items: z.array(itemSchema).min(1, '至少一個品項'),
   taxType: z.enum(['1', '2', '3']).optional(),
   invoiceDate: z.coerce.date().optional(),
+  carrierType: z.string().optional(),
+  carrierId: z.string().optional(),
+  npoban: z.string().optional(),
+  printFlag: z.enum(['Y', 'N']).optional(),
 });
 
 const voidSchema = z.object({
@@ -54,6 +62,54 @@ einvoiceRouter.get('/:id/xml', async (req: Request, res: Response, next: NextFun
       return;
     }
     res.type('application/xml').send(xml);
+  } catch (err) { next(err); }
+});
+
+einvoiceRouter.get('/:id/proof.pdf', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = String(req.params.id);
+    const inv = await prisma.einvoice.findFirst({
+      where: { id, tenantId: req.tenantId },
+      include: { items: { orderBy: { sequence: 'asc' } } },
+    });
+    if (!inv) { res.status(404).send('Not found'); return; }
+    const tenant = await prisma.tenant.findUnique({ where: { id: req.tenantId } });
+    if (!tenant) { res.status(404).send('Tenant not found'); return; }
+    const settings = getTenantSettings(tenant.settings);
+    const cfg = settings.einvoice;
+
+    const doc = await generateProofPdf({
+      invoiceNo: inv.invoiceNo,
+      invoiceDate: inv.invoiceDate,
+      randomCode: inv.randomCode || '0000',
+      salesAmount: Number(inv.salesAmount),
+      taxAmount: Number(inv.taxAmount),
+      totalAmount: Number(inv.totalAmount),
+      buyerTaxId: inv.buyerTaxId,
+      buyerName: inv.buyerName,
+      sellerTaxId: cfg.sellerTaxId || tenant.taxId || '',
+      sellerName: cfg.sellerName || tenant.companyName,
+      sellerAddress: cfg.sellerAddress || tenant.address || undefined,
+      aesKeyHex: cfg.qrAesKey || '',
+      voided: inv.status === 'voided',
+      printFlag: inv.printFlag,
+      items: inv.items.map((it) => ({
+        description: it.description,
+        quantity: Number(it.quantity),
+        unitPrice: Number(it.unitPrice),
+        amount: Number(it.amount),
+      })),
+    });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="einvoice-${inv.invoiceNo}.pdf"`);
+    doc.on('error', (err: Error) => {
+      logger.error('einvoice proof pdf error', { error: err.message });
+      if (!res.headersSent) res.status(500).send('PDF generation failed');
+      else { try { res.end(); } catch { /* ignore */ } }
+    });
+    doc.pipe(res);
+    doc.end();
   } catch (err) { next(err); }
 });
 

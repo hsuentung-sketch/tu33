@@ -5,9 +5,12 @@
  *  - C0401 (一般稅額 / 開立): B2B 三聯式 or B2C 二聯式
  *  - C0501 (作廢): 當期內作廢
  *
- * This implementation stays minimal — it produces the documents the
- * 國稅局 Turnkey accepts for common應稅開立 / 作廢 scenarios. It does
- * NOT cover 折讓 (D0401/D0501), 載具, or 捐贈碼 — those are Phase 2.
+ * 涵蓋：
+ *  - C0401 開立（含載具 / 捐贈碼 / 列印註記 / 隨機碼，B2B + B2C）
+ *  - C0501 作廢
+ *  - D0401 折讓（賣方開立）
+ *  - D0501 折讓作廢
+ *  - C0701 空白未使用字軌回報
  *
  * Reference: 電子發票資料交換標準 MIG 3.2.1
  *            https://www.einvoice.nat.gov.tw/
@@ -45,6 +48,15 @@ export interface XmlInvoiceInput {
   totalAmount: number;
   taxType: string;         // "1" | "2" | "3"
   taxRate?: number;        // default 0.05
+  /** 4 碼隨機碼，B2C 證明聯 QR 驗證用；缺省時 builder 會產生 */
+  randomCode?: string;
+  /** 載具類別：3J0002=手機條碼 CQ0001=自然人憑證 EJ0113=會員載具等 */
+  carrierType?: string;
+  carrierId?: string;
+  /** 捐贈碼（NPOBAN 3-7 位數字） */
+  npoban?: string;
+  /** Y=列印 N=不列印 */
+  printFlag?: string;
 }
 
 export interface XmlVoidInput {
@@ -109,6 +121,8 @@ export function buildC0401(input: XmlInvoiceInput): string {
   const buyerId = input.buyer.identifier && input.buyer.identifier.trim()
     ? input.buyer.identifier.trim()
     : '0000000000';
+  const randomCode = input.randomCode ?? '0000';
+  const printFlag = input.printFlag ?? 'Y';
 
   const itemsXml = input.items.map((it) => `
     <ProductItem>
@@ -119,6 +133,19 @@ export function buildC0401(input: XmlInvoiceInput): string {
       <Amount>${amt(it.amount, 0)}</Amount>
       <SequenceNumber>${it.sequence}</SequenceNumber>
     </ProductItem>`).join('');
+
+  // 載具 / 捐贈碼 區塊（擇一或皆無）
+  let carrierBlock = '';
+  if (input.carrierType && input.carrierId) {
+    carrierBlock = `
+    <CarrierType>${esc(input.carrierType)}</CarrierType>
+    <CarrierId1>${esc(input.carrierId)}</CarrierId1>
+    <CarrierId2>${esc(input.carrierId)}</CarrierId2>`;
+  }
+  const donationBlock = input.npoban
+    ? `
+    <NPOBAN>${esc(input.npoban)}</NPOBAN>`
+    : '';
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Invoice xmlns="urn:GEINV:eInvoiceMessage:C0401:3.2">
@@ -136,6 +163,10 @@ export function buildC0401(input: XmlInvoiceInput): string {
       <Name>${esc(input.buyer.name)}</Name>
       ${input.buyer.address ? `<Address>${esc(input.buyer.address)}</Address>` : ''}
     </Buyer>
+    <InvoiceType>07</InvoiceType>
+    <DonateMark>${input.npoban ? '1' : '0'}</DonateMark>
+    <PrintMark>${esc(printFlag)}</PrintMark>
+    <RandomNumber>${esc(randomCode)}</RandomNumber>${carrierBlock}${donationBlock}
   </Main>
   <Details>${itemsXml}
   </Details>
@@ -147,6 +178,138 @@ export function buildC0401(input: XmlInvoiceInput): string {
     <TotalAmount>${amt(input.totalAmount, 0)}</TotalAmount>
   </Amount>
 </Invoice>
+`;
+}
+
+// ---------- D0401 / D0501 折讓單 ----------
+
+export interface XmlAllowanceItem {
+  sequence: number;
+  originalSequence?: number;
+  description: string;
+  quantity: number;
+  unit?: string;
+  unitPrice: number;
+  amount: number;
+  taxType: string;
+  taxAmount: number;
+}
+
+export interface XmlAllowanceInput {
+  allowanceNo: string;
+  allowanceDate: Date;
+  seller: XmlSeller;
+  buyer: XmlBuyer;
+  originalInvoiceNo: string;
+  originalInvoiceDate: Date;
+  items: XmlAllowanceItem[];
+  salesAmount: number;
+  taxAmount: number;
+  totalAmount: number;
+}
+
+export function buildD0401(input: XmlAllowanceInput): string {
+  const buyerId = input.buyer.identifier && input.buyer.identifier.trim()
+    ? input.buyer.identifier.trim()
+    : '0000000000';
+
+  const itemsXml = input.items.map((it) => `
+    <ProductItem>
+      <OriginalSequenceNumber>${it.originalSequence ?? it.sequence}</OriginalSequenceNumber>
+      <OriginalInvoiceNumber>${esc(input.originalInvoiceNo)}</OriginalInvoiceNumber>
+      <OriginalInvoiceDate>${ymd(input.originalInvoiceDate)}</OriginalInvoiceDate>
+      <OriginalDescription>${esc(it.description)}</OriginalDescription>
+      <Quantity>${amt(it.quantity, 4)}</Quantity>
+      ${it.unit ? `<Unit>${esc(it.unit)}</Unit>` : ''}
+      <UnitPrice>${amt(it.unitPrice, 4)}</UnitPrice>
+      <Amount>${amt(it.amount, 0)}</Amount>
+      <TaxType>${esc(it.taxType)}</TaxType>
+      <Tax>${amt(it.taxAmount, 0)}</Tax>
+      <SequenceNumber>${it.sequence}</SequenceNumber>
+    </ProductItem>`).join('');
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<Allowance xmlns="urn:GEINV:eInvoiceMessage:D0401:3.2">
+  <Main>
+    <AllowanceNumber>${esc(input.allowanceNo)}</AllowanceNumber>
+    <AllowanceDate>${ymd(input.allowanceDate)}</AllowanceDate>
+    <AllowanceType>1</AllowanceType>
+    <Seller>
+      <Identifier>${esc(input.seller.identifier)}</Identifier>
+      <Name>${esc(input.seller.name)}</Name>
+    </Seller>
+    <Buyer>
+      <Identifier>${esc(buyerId)}</Identifier>
+      <Name>${esc(input.buyer.name)}</Name>
+    </Buyer>
+  </Main>
+  <Details>${itemsXml}
+  </Details>
+  <Amount>
+    <TaxAmount>${amt(input.taxAmount, 0)}</TaxAmount>
+    <TotalAmount>${amt(input.totalAmount, 0)}</TotalAmount>
+  </Amount>
+</Allowance>
+`;
+}
+
+export interface XmlAllowanceVoidInput {
+  allowanceNo: string;
+  allowanceDate: Date;
+  voidDate: Date;
+  voidReason: string;
+  seller: XmlSeller;
+  buyer: XmlBuyer;
+}
+
+export function buildD0501(input: XmlAllowanceVoidInput): string {
+  const buyerId = input.buyer.identifier && input.buyer.identifier.trim()
+    ? input.buyer.identifier.trim()
+    : '0000000000';
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<CancelAllowance xmlns="urn:GEINV:eInvoiceMessage:D0501:3.2">
+  <Main>
+    <CancelAllowanceNumber>${esc(input.allowanceNo)}</CancelAllowanceNumber>
+    <AllowanceDate>${ymd(input.allowanceDate)}</AllowanceDate>
+    <CancelDate>${ymd(input.voidDate)}</CancelDate>
+    <CancelReason>${esc(input.voidReason)}</CancelReason>
+    <Seller>
+      <Identifier>${esc(input.seller.identifier)}</Identifier>
+    </Seller>
+    <Buyer>
+      <Identifier>${esc(buyerId)}</Identifier>
+    </Buyer>
+  </Main>
+</CancelAllowance>
+`;
+}
+
+// ---------- C0701 空白字軌回報 ----------
+
+export interface XmlBlankRangeInput {
+  seller: XmlSeller;
+  yearMonth: string;   // "11311"
+  trackAlpha: string;  // "AB"
+  startNumber: string; // "12345678"
+  endNumber: string;   // "12349999"
+  reason: '1' | '2' | '3'; // 1=跳開 2=未使用 3=其他
+}
+
+export function buildC0701(input: XmlBlankRangeInput): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<BlankInvoiceNumber xmlns="urn:GEINV:eInvoiceMessage:C0701:3.2">
+  <Main>
+    <Seller>
+      <Identifier>${esc(input.seller.identifier)}</Identifier>
+      <Name>${esc(input.seller.name)}</Name>
+    </Seller>
+    <InvoiceTrack>${esc(input.trackAlpha)}</InvoiceTrack>
+    <InvoiceBeginNo>${esc(input.startNumber)}</InvoiceBeginNo>
+    <InvoiceEndNo>${esc(input.endNumber)}</InvoiceEndNo>
+    <InvoiceYearMonth>${esc(input.yearMonth)}</InvoiceYearMonth>
+    <BlankReason>${esc(input.reason)}</BlankReason>
+  </Main>
+</BlankInvoiceNumber>
 `;
 }
 
