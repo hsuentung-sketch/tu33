@@ -1672,7 +1672,7 @@ async function viewEinvoices(main) {
         el('td', { class: 'num' }, fmtMoney(e.totalAmount)),
         el('td', {}, el('span', { class: 'badge ' + badge }, e.status)),
         el('td', {}, e.salesOrder?.orderNo || ''),
-        el('td', { class: 'actions' },
+        el('td', { class: 'actions wrap' },
           el('a', { class: 'btn small', href: `/api/einvoices/${e.id}/proof.pdf`, target: '_blank' }, 'PDF'),
           ' ',
           el('a', { class: 'btn small', href: `/api/einvoices/${e.id}/xml`, target: '_blank' }, 'C0401 XML'),
