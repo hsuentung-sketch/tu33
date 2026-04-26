@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.3.2] - 2026-04-26
+
+### Changed — 後台 SALES 角色再收緊
+- 應收帳款：SALES 唯讀。`POST /:id/pay`、`PUT /:id`、`POST /:id/einvoice` 全擋（403）；UI 隱藏「編輯」「標記已付」按鈕（保留查看 + 不變的開立發票按鈕對 SALES 本來就因 ADMIN-only 隱藏）
+- 應付帳款：SALES 完全擋。`payable.router` 全擋（403）；UI 帳款 tab 對 SALES 隱藏「應付帳款」
+- 產品清單：SALES 看不到進貨成本。`product.router` GET 對 SALES 過濾掉 `costPrice` 欄位後才回（list / search / by-id 都做）；UI 不渲染進價欄位
+
 ## [2.3.1] - 2026-04-26
 
 ### Changed — LINE chat 業務權限調整

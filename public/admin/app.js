@@ -257,6 +257,7 @@ async function viewProducts(main) {
 
   const search = el('input', { type: 'text', placeholder: '搜尋編號/名稱…' });
   const includeInactive = el('input', { type: 'checkbox' });
+  const showCost = !isSales();
   const tbody = el('tbody');
   const table = el('table', { class: 'data' },
     el('thead', {}, el('tr', {},
@@ -264,26 +265,27 @@ async function viewProducts(main) {
       el('th', {}, '名稱'),
       el('th', {}, '類別'),
       el('th', { class: 'num' }, '售價'),
-      el('th', { class: 'num' }, '進價'),
+      showCost ? el('th', { class: 'num' }, '進價') : null,
       el('th', {}, '狀態'),
       el('th', {}, '操作'),
     )),
     tbody,
   );
+  const colspan = showCost ? 7 : 6;
 
   async function reload() {
     const q = search.value.trim();
     const url = q ? `/products?q=${encodeURIComponent(q)}` : `/products${includeInactive.checked ? '?includeInactive=true' : ''}`;
     const list = await api.get(url);
     tbody.innerHTML = '';
-    if (!list.length) tbody.append(el('tr', {}, el('td', { colspan: '7', style: 'text-align:center;color:var(--muted);padding:24px;' }, '無資料')));
+    if (!list.length) tbody.append(el('tr', {}, el('td', { colspan: String(colspan), style: 'text-align:center;color:var(--muted);padding:24px;' }, '無資料')));
     for (const p of list) {
       tbody.append(el('tr', {},
         el('td', {}, p.code),
         el('td', {}, p.name),
         el('td', {}, p.category || ''),
         el('td', { class: 'num' }, fmtMoney(p.salePrice)),
-        el('td', { class: 'num' }, fmtMoney(p.costPrice)),
+        showCost ? el('td', { class: 'num' }, fmtMoney(p.costPrice)) : null,
         el('td', {}, el('span', { class: 'badge ' + (p.isActive === false ? 'mute' : 'ok') }, p.isActive === false ? '停用' : '啟用')),
         el('td', { class: 'actions' },
           canEdit ? el('button', { class: 'btn small', onClick: () => edit(p) }, '編輯') : null,
@@ -1865,9 +1867,9 @@ async function viewAccount(main, path, title, partyLabel) {
           el('td', {}, a.invoiceNo || ''),
           el('td', {}, fmtDate(a.paidDate)),
           el('td', { class: 'actions' },
-            el('button', { class: 'btn small', onClick: () => editAccount(a) }, '編輯'),
-            !a.isPaid ? ' ' : null,
-            !a.isPaid ? el('button', { class: 'btn small primary', onClick: () => markPaid(a) }, '標記已付') : null,
+            !isSales() ? el('button', { class: 'btn small', onClick: () => editAccount(a) }, '編輯') : null,
+            !isSales() && !a.isPaid ? ' ' : null,
+            !isSales() && !a.isPaid ? el('button', { class: 'btn small primary', onClick: () => markPaid(a) }, '標記已付') : null,
             path === 'receivables' ? ' ' : null,
             path === 'receivables' && window.__session?.employee?.role === 'ADMIN'
               ? el('button', { class: 'btn small', onClick: () => openEinvoiceIssueModal(a, reload) }, '開立發票')
@@ -2579,7 +2581,7 @@ const GROUPS = {
     title: '帳款',
     tabs: [
       { key: 'receivables', label: '應收帳款', view: 'receivables' },
-      { key: 'payables',    label: '應付帳款', view: 'payables' },
+      { key: 'payables',    label: '應付帳款', view: 'payables', denySales: true },
     ],
   },
   invoices: {

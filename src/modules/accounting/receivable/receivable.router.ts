@@ -1,9 +1,15 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
-import { ValidationError } from '../../../shared/errors.js';
+import { ForbiddenError, ValidationError } from '../../../shared/errors.js';
 import * as receivableService from './receivable.service.js';
 
 export const receivableRouter = Router();
+
+// SALES 應收帳款唯讀；任何寫入動作回 403。
+function blockSalesWrite(req: Request, _res: Response, next: NextFunction) {
+  if (req.employee?.role === 'SALES') return next(new ForbiddenError('沒權限：業務僅能查看應收帳款'));
+  next();
+}
 
 const paySchema = z.object({
   paidDate: z.coerce.date().optional(),
@@ -48,7 +54,7 @@ receivableRouter.get('/:id', async (req: Request, res: Response, next: NextFunct
   }
 });
 
-receivableRouter.post('/:id/pay', async (req: Request, res: Response, next: NextFunction) => {
+receivableRouter.post('/:id/pay', blockSalesWrite, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const parsed = paySchema.safeParse(req.body);
     if (!parsed.success) {
@@ -62,7 +68,7 @@ receivableRouter.post('/:id/pay', async (req: Request, res: Response, next: Next
 });
 
 // Partial update — edit invoiceNo / paidDate / isPaid / note at any time.
-receivableRouter.put('/:id', async (req: Request, res: Response, next: NextFunction) => {
+receivableRouter.put('/:id', blockSalesWrite, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const parsed = updateSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -76,7 +82,7 @@ receivableRouter.put('/:id', async (req: Request, res: Response, next: NextFunct
 });
 
 // Electronic invoice issuance — stub for future provider integration.
-receivableRouter.post('/:id/einvoice', async (req: Request, res: Response, next: NextFunction) => {
+receivableRouter.post('/:id/einvoice', blockSalesWrite, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const result = await receivableService.issueEinvoice(req.tenantId, String(req.params.id));
     const code = result.ok ? 200 : 501;

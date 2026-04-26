@@ -1,9 +1,15 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
-import { ValidationError } from '../../../shared/errors.js';
+import { ForbiddenError, ValidationError } from '../../../shared/errors.js';
 import * as payableService from './payable.service.js';
 
 export const payableRouter = Router();
+
+// SALES 完全沒應付帳款權限。
+payableRouter.use((req: Request, _res: Response, next: NextFunction) => {
+  if (req.employee?.role === 'SALES') return next(new ForbiddenError('沒權限：業務無應付帳款存取權'));
+  next();
+});
 
 const paySchema = z.object({
   paidDate: z.coerce.date().optional(),

@@ -11,6 +11,25 @@ function blockSales(req: Request, _res: Response, next: NextFunction) {
   next();
 }
 
+/** Drop costPrice for SALES so it never reaches the wire. */
+function stripCostForSales<T extends { costPrice?: unknown } | unknown[]>(req: Request, payload: T): T {
+  if (req.employee?.role !== 'SALES') return payload;
+  if (Array.isArray(payload)) {
+    return payload.map((p) => {
+      if (p && typeof p === 'object' && 'costPrice' in p) {
+        const { costPrice: _omit, ...rest } = p as Record<string, unknown>;
+        return rest;
+      }
+      return p;
+    }) as T;
+  }
+  if (payload && typeof payload === 'object' && 'costPrice' in (payload as Record<string, unknown>)) {
+    const { costPrice: _omit, ...rest } = payload as Record<string, unknown>;
+    return rest as T;
+  }
+  return payload;
+}
+
 export const productRouter = Router();
 
 // In-memory buffer, capped at 10 MB. Product docs are small PDFs/images.
@@ -43,12 +62,12 @@ productRouter.get('/', async (req: Request, res: Response, next: NextFunction) =
     const { q, includeInactive } = req.query;
     if (typeof q === 'string' && q.length > 0) {
       const products = await productService.findByNameOrCode(req.tenantId, q);
-      return res.json(products);
+      return res.json(stripCostForSales(req, products));
     }
     const products = await productService.list(req.tenantId, {
       includeInactive: includeInactive === 'true',
     });
-    res.json(products);
+    res.json(stripCostForSales(req, products));
   } catch (err) {
     next(err);
   }
@@ -57,7 +76,7 @@ productRouter.get('/', async (req: Request, res: Response, next: NextFunction) =
 productRouter.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const product = await productService.getById(req.tenantId, String(req.params.id));
-    res.json(product);
+    res.json(stripCostForSales(req, product));
   } catch (err) {
     next(err);
   }
