@@ -29,7 +29,7 @@ export interface SalesOrderCreateInput {
 
 export async function list(
   tenantId: string,
-  filters: { status?: SalesStatus; customerId?: string; includeDeleted?: boolean } = {},
+  filters: { status?: SalesStatus; customerId?: string; includeDeleted?: boolean; createdBy?: string } = {},
 ) {
   return prisma.salesOrder.findMany({
     where: {
@@ -37,6 +37,7 @@ export async function list(
       ...(filters.includeDeleted ? {} : { isDeleted: false }),
       ...(filters.status ? { status: filters.status } : {}),
       ...(filters.customerId ? { customerId: filters.customerId } : {}),
+      ...(filters.createdBy ? { createdBy: filters.createdBy } : {}),
     },
     include: { items: true, customer: true },
     orderBy: { createdAt: 'desc' },

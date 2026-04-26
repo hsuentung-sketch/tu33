@@ -1,6 +1,6 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
-import { ValidationError } from '../../../shared/errors.js';
+import { ForbiddenError, ValidationError } from '../../../shared/errors.js';
 import { prisma } from '../../../shared/prisma.js';
 import * as salesOrderService from './sales-order.service.js';
 
@@ -54,7 +54,8 @@ salesOrderRouter.get('/', async (req: Request, res: Response, next: NextFunction
   try {
     const status = req.query.status as 'PENDING' | 'DELIVERED' | 'COMPLETED' | undefined;
     const customerId = req.query.customerId as string | undefined;
-    const result = await salesOrderService.list(req.tenantId, { status, customerId });
+    const createdBy = req.employee?.role === 'SALES' ? req.employee.id : undefined;
+    const result = await salesOrderService.list(req.tenantId, { status, customerId, createdBy });
     res.json(result);
   } catch (err) {
     next(err);
@@ -64,6 +65,9 @@ salesOrderRouter.get('/', async (req: Request, res: Response, next: NextFunction
 salesOrderRouter.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const result = await salesOrderService.getById(req.tenantId, String(req.params.id));
+    if (req.employee?.role === 'SALES' && result.createdBy !== req.employee.id) {
+      throw new ForbiddenError('沒權限：只能查看自己建立的銷貨單');
+    }
     res.json(result);
   } catch (err) {
     next(err);
@@ -102,6 +106,9 @@ salesOrderRouter.put('/:id', async (req: Request, res: Response, next: NextFunct
 
 salesOrderRouter.delete('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    if (req.employee?.role === 'SALES') {
+      throw new ForbiddenError('沒權限：業務不能刪除銷貨單');
+    }
     await assertCanEdit(req.tenantId, String(req.params.id), req.employee);
     const parsed = deleteSchema.safeParse(req.body || {});
     if (!parsed.success) {

@@ -135,6 +135,15 @@ async function handlePostback(event: PostbackEvent, tenant: HandlerTenant): Prom
   } else if (action.startsWith('sales:')) {
     await handleSalesCommand(action, ctx);
   } else if (action.startsWith('purchase:')) {
+    if ((employee as { role?: string }).role === 'SALES') {
+      if (event.replyToken) {
+        await client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: '⛔ 業務無進貨權限。' }],
+        });
+      }
+      return;
+    }
     await handlePurchaseCommand(action, ctx);
   } else if (action.startsWith('accounting:')) {
     await handleAccountingCommand(action, ctx);
@@ -150,7 +159,7 @@ async function handlePostback(event: PostbackEvent, tenant: HandlerTenant): Prom
 interface TextCommandContext {
   event: MessageEvent;
   client: ReturnType<typeof getLineClient>;
-  employee: { id: string; name: string; tenantId: string; lineUserId: string | null };
+  employee: { id: string; name: string; tenantId: string; lineUserId: string | null; role?: string };
   tenantId: string;
 }
 
@@ -241,6 +250,15 @@ async function routeTextCommand(text: string, ctx: TextCommandContext): Promise<
     return handleSalesCommand('sales:menu', { ...ctx, event: pseudoEvent, params: new URLSearchParams() });
   }
   if (text.startsWith('進貨')) {
+    if ((ctx.employee as { role?: string }).role === 'SALES') {
+      if (event.replyToken) {
+        await client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: '⛔ 業務無進貨權限。' }],
+        });
+      }
+      return;
+    }
     return handlePurchaseCommand('purchase:menu', { ...ctx, event: pseudoEvent, params: new URLSearchParams() });
   }
   if (text.startsWith('帳務')) {

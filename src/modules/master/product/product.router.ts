@@ -1,9 +1,15 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
-import { ValidationError } from '../../../shared/errors.js';
+import { ForbiddenError, ValidationError } from '../../../shared/errors.js';
 import * as productService from './product.service.js';
 import * as productDocService from './product-document.service.js';
+
+/** Block SALES from product writes; all other roles keep existing behavior. */
+function blockSales(req: Request, _res: Response, next: NextFunction) {
+  if (req.employee?.role === 'SALES') return next(new ForbiddenError('沒權限：業務不能修改產品'));
+  next();
+}
 
 export const productRouter = Router();
 
@@ -57,7 +63,7 @@ productRouter.get('/:id', async (req: Request, res: Response, next: NextFunction
   }
 });
 
-productRouter.post('/', async (req: Request, res: Response, next: NextFunction) => {
+productRouter.post('/', blockSales, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const parsed = createSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -70,7 +76,7 @@ productRouter.post('/', async (req: Request, res: Response, next: NextFunction) 
   }
 });
 
-productRouter.put('/:id', async (req: Request, res: Response, next: NextFunction) => {
+productRouter.put('/:id', blockSales, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const parsed = updateSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -83,7 +89,7 @@ productRouter.put('/:id', async (req: Request, res: Response, next: NextFunction
   }
 });
 
-productRouter.delete('/:id', async (req: Request, res: Response, next: NextFunction) => {
+productRouter.delete('/:id', blockSales, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const product = await productService.deactivate(req.tenantId, String(req.params.id));
     res.json(product);

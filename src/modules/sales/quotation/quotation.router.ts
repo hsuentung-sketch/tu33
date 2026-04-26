@@ -1,6 +1,6 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
-import { ValidationError } from '../../../shared/errors.js';
+import { ForbiddenError, ValidationError } from '../../../shared/errors.js';
 import * as quotationService from './quotation.service.js';
 import { buildPdfShortUrl } from '../../../documents/pdf-shortlink.js';
 import { prisma } from '../../../shared/prisma.js';
@@ -80,7 +80,8 @@ quotationRouter.get('/', async (req: Request, res: Response, next: NextFunction)
       | 'CANCELLED'
       | undefined;
     const customerId = req.query.customerId as string | undefined;
-    const result = await quotationService.list(req.tenantId, { status, customerId });
+    const createdBy = req.employee?.role === 'SALES' ? req.employee.id : undefined;
+    const result = await quotationService.list(req.tenantId, { status, customerId, createdBy });
     res.json(result);
   } catch (err) {
     next(err);
@@ -90,6 +91,9 @@ quotationRouter.get('/', async (req: Request, res: Response, next: NextFunction)
 quotationRouter.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const result = await quotationService.getById(req.tenantId, String(req.params.id));
+    if (req.employee?.role === 'SALES' && result.createdBy !== req.employee.id) {
+      throw new ForbiddenError('沒權限：只能查看自己建立的報價單');
+    }
     res.json(result);
   } catch (err) {
     next(err);

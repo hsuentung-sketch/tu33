@@ -251,7 +251,9 @@ async function viewCustomers(main) {
 async function viewProducts(main) {
   main.innerHTML = '';
   main.append(el('h2', {}, '產品管理'));
-  main.append(el('div', { class: 'page-sub' }, '管理產品主檔：售價、進價。'));
+  main.append(el('div', { class: 'page-sub' },
+    isSales() ? '產品主檔（業務帳號為唯讀）。' : '管理產品主檔：售價、進價。'));
+  const canEdit = !isSales();
 
   const search = el('input', { type: 'text', placeholder: '搜尋編號/名稱…' });
   const includeInactive = el('input', { type: 'checkbox' });
@@ -284,11 +286,11 @@ async function viewProducts(main) {
         el('td', { class: 'num' }, fmtMoney(p.costPrice)),
         el('td', {}, el('span', { class: 'badge ' + (p.isActive === false ? 'mute' : 'ok') }, p.isActive === false ? '停用' : '啟用')),
         el('td', { class: 'actions' },
-          el('button', { class: 'btn small', onClick: () => edit(p) }, '編輯'),
-          ' ',
+          canEdit ? el('button', { class: 'btn small', onClick: () => edit(p) }, '編輯') : null,
+          canEdit ? ' ' : null,
           el('button', { class: 'btn small', onClick: () => openProductDocs(p) }, '文件'),
-          ' ',
-          p.isActive !== false ? el('button', { class: 'btn small danger', onClick: async () => {
+          canEdit && p.isActive !== false ? ' ' : null,
+          canEdit && p.isActive !== false ? el('button', { class: 'btn small danger', onClick: async () => {
             if (!confirmBox(`停用產品「${p.name}」？`)) return;
             try { await api.del('/products/' + p.id); toast('已停用', 'ok'); reload(); } catch (e) { toast(e.message, 'err'); }
           } }, '停用') : null,
@@ -329,7 +331,7 @@ async function viewProducts(main) {
     el('button', { class: 'btn', onClick: reload }, '搜尋'),
     el('label', { style: 'font-size:12px;color:var(--muted);' }, includeInactive, ' 含停用'),
     el('div', { style: 'flex:1;' }),
-    el('button', { class: 'btn primary', onClick: () => edit(null) }, '+ 新增產品'),
+    canEdit ? el('button', { class: 'btn primary', onClick: () => edit(null) }, '+ 新增產品') : null,
   ), table);
   reload();
 }
@@ -1241,8 +1243,8 @@ async function viewSalesOrders(main) {
             canEdit
               ? el('button', { class: 'btn small', onClick: () => openOrderEditor('sales', o.id, reload) }, '編輯')
               : null,
-            canEdit ? ' ' : null,
-            canEdit
+            canEdit && !isSales() ? ' ' : null,
+            canEdit && !isSales()
               ? el('button', { class: 'btn small danger', onClick: () => deleteOrderInline('sales', o, reload) }, '刪除')
               : null,
           ),
@@ -2561,6 +2563,7 @@ async function viewHelp(main) {
 // Hash format: `#<group>/<tab>`. Bare `#<group>` picks the first visible tab.
 
 function isAdmin() { return window.__session?.employee?.role === 'ADMIN'; }
+function isSales() { return window.__session?.employee?.role === 'SALES'; }
 
 const GROUPS = {
   management: {
@@ -2568,7 +2571,7 @@ const GROUPS = {
     tabs: [
       { key: 'customers',  label: '客戶',   view: 'customers' },
       { key: 'products',   label: '產品',   view: 'products' },
-      { key: 'suppliers',  label: '供應商', view: 'suppliers' },
+      { key: 'suppliers',  label: '供應商', view: 'suppliers', denySales: true },
       { key: 'employees',  label: '員工',   view: 'employees', adminOnly: true },
     ],
   },
@@ -2610,7 +2613,11 @@ const LEGACY_REDIRECT = {
 };
 
 function visibleTabs(group) {
-  return group.tabs.filter((t) => !t.adminOnly || isAdmin());
+  return group.tabs.filter((t) => {
+    if (t.adminOnly && !isAdmin()) return false;
+    if (t.denySales && isSales()) return false;
+    return true;
+  });
 }
 
 async function renderGroup(main, groupKey, selectedTabKey) {
@@ -2714,6 +2721,12 @@ async function boot() {
   // Hide ADMIN-only nav links from non-admins.
   if (session.employee?.role !== 'ADMIN') {
     for (const a of document.querySelectorAll('#nav a[data-admin-only]')) {
+      a.style.display = 'none';
+    }
+  }
+  // Hide entries SALES has no access to (server enforces; UI hides for cleanliness).
+  if (session.employee?.role === 'SALES') {
+    for (const a of document.querySelectorAll('#nav a[data-deny-sales]')) {
       a.style.display = 'none';
     }
   }

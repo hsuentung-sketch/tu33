@@ -1,9 +1,15 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
-import { ValidationError } from '../../../shared/errors.js';
+import { ForbiddenError, ValidationError } from '../../../shared/errors.js';
 import * as supplierService from './supplier.service.js';
 
 export const supplierRouter = Router();
+
+// SALES 完全沒供應商權限（讀寫都擋）。
+supplierRouter.use((req: Request, _res: Response, next: NextFunction) => {
+  if (req.employee?.role === 'SALES') return next(new ForbiddenError('沒權限：業務無供應商存取權'));
+  next();
+});
 
 const createSchema = z.object({
   name: z.string().min(1),

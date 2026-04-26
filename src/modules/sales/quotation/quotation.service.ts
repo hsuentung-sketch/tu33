@@ -33,7 +33,7 @@ export interface QuotationCreateInput {
 
 export async function list(
   tenantId: string,
-  filters: { status?: QuotationStatus; customerId?: string; includeDeleted?: boolean } = {},
+  filters: { status?: QuotationStatus; customerId?: string; includeDeleted?: boolean; createdBy?: string } = {},
 ) {
   return prisma.quotation.findMany({
     where: {
@@ -41,6 +41,7 @@ export async function list(
       ...(filters.includeDeleted ? {} : { isDeleted: false }),
       ...(filters.status ? { status: filters.status } : {}),
       ...(filters.customerId ? { customerId: filters.customerId } : {}),
+      ...(filters.createdBy ? { createdBy: filters.createdBy } : {}),
     },
     include: { items: true, customer: true },
     orderBy: { createdAt: 'desc' },

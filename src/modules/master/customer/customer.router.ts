@@ -1,6 +1,6 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
-import { ValidationError } from '../../../shared/errors.js';
+import { ForbiddenError, ValidationError } from '../../../shared/errors.js';
 import * as customerService from './customer.service.js';
 
 export const customerRouter = Router();
@@ -58,6 +58,16 @@ customerRouter.get('/:id', async (req: Request, res: Response, next: NextFunctio
   }
 });
 
+/** SALES guard: edit / delete only allowed if customer.createdBy is self or null. */
+async function ensureSalesCanEdit(req: Request) {
+  const me = req.employee;
+  if (!me || me.role !== 'SALES') return;
+  const c = await customerService.getById(req.tenantId, String(req.params.id));
+  if (!customerService.canSalesAccessCustomer(c, me.id)) {
+    throw new ForbiddenError('沒權限：只能修改自己建立的客戶');
+  }
+}
+
 customerRouter.get('/:id/payment-days', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const result = await customerService.getPaymentDays(String(req.params.id));
@@ -73,7 +83,10 @@ customerRouter.post('/', async (req: Request, res: Response, next: NextFunction)
     if (!parsed.success) {
       throw new ValidationError(parsed.error.issues.map((i) => i.message).join(', '));
     }
-    const customer = await customerService.create(req.tenantId, parsed.data);
+    const customer = await customerService.create(req.tenantId, {
+      ...parsed.data,
+      createdBy: req.employee?.id,
+    });
     res.status(201).json(customer);
   } catch (err) {
     next(err);
@@ -82,6 +95,7 @@ customerRouter.post('/', async (req: Request, res: Response, next: NextFunction)
 
 customerRouter.put('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    await ensureSalesCanEdit(req);
     const parsed = updateSchema.safeParse(req.body);
     if (!parsed.success) {
       throw new ValidationError(parsed.error.issues.map((i) => i.message).join(', '));
@@ -95,6 +109,7 @@ customerRouter.put('/:id', async (req: Request, res: Response, next: NextFunctio
 
 customerRouter.delete('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    await ensureSalesCanEdit(req);
     const customer = await customerService.deactivate(req.tenantId, String(req.params.id));
     res.json(customer);
   } catch (err) {

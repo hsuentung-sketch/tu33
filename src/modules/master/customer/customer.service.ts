@@ -43,6 +43,17 @@ export async function getById(tenantId: string, id: string) {
   return customer;
 }
 
+/**
+ * SALES 規則：自己建的（createdBy === me.id）或 createdBy 為 null（歷史資料公開）
+ * ADMIN / 其他角色不檢查。
+ */
+export function canSalesAccessCustomer(
+  customer: { createdBy: string | null },
+  meId: string,
+): boolean {
+  return customer.createdBy === null || customer.createdBy === meId;
+}
+
 export async function create(
   tenantId: string,
   data: {

@@ -1,10 +1,16 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
-import { ValidationError } from '../../../shared/errors.js';
+import { ForbiddenError, ValidationError } from '../../../shared/errors.js';
 import { prisma } from '../../../shared/prisma.js';
 import * as purchaseOrderService from './purchase-order.service.js';
 
 export const purchaseOrderRouter = Router();
+
+// SALES 完全沒進貨單權限。
+purchaseOrderRouter.use((req: Request, _res: Response, next: NextFunction) => {
+  if (req.employee?.role === 'SALES') return next(new ForbiddenError('沒權限：業務無進貨單存取權'));
+  next();
+});
 
 const itemSchema = z.object({
   productName: z.string().min(1),

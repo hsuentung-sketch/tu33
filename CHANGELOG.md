@@ -3,6 +3,34 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.3.0] - 2026-04-25
+
+### Changed — SALES 角色權限收緊
+
+| 區塊 | SALES 之前 | SALES 之後 |
+|---|---|---|
+| 客戶 | 看全部、改全部 | 看全部；改／刪只限 `createdBy === 自己` 或 `createdBy IS NULL`，違反回 403「沒權限」 |
+| 產品 | 任何人都能寫 | 唯讀：POST/PUT/DELETE 回 403 |
+| 供應商 | 開放 | 整個 router 全擋（403），側欄管理 ▸ 供應商 tab 隱藏 |
+| 報價單 | 看全部、改自己 | 列表只回自己建的（`createdBy` filter），單筆 GET 對非自己回 403 |
+| 銷貨單 | 看全部、改自己、刪自己 | 列表只回自己建的；GET 對非自己回 403；DELETE 全擋（403） |
+| 進貨單 | 開放 | router 全擋（403）；側欄「進貨單」隱藏 |
+| LINE chat 進貨 | 開放 | postback `purchase:*` 與文字「進貨」回「⛔ 業務無進貨權限」 |
+| LINE chat 銷貨／報價／帳務／管理 | 維持 | 維持 |
+
+### Frontend
+- 側欄 `data-deny-sales` 屬性新增於「進貨單」，SALES 載入時自動隱藏
+- GROUPS tab 新增 `denySales: true` flag（供應商 tab）；`visibleTabs()` 同時過濾 `adminOnly` 與 `denySales`
+- 產品頁標題副字依角色變動；SALES 隱藏「+ 新增產品」、每列「編輯」「停用」按鈕（保留「文件」）
+- 銷貨單列「刪除」按鈕對 SALES 隱藏（編輯仍可，僅自己建的）
+- 後端強制檢查為主，UI 隱藏只是清爽顯示
+
+### Implementation Notes
+- `customer.service.ts` 加 `canSalesAccessCustomer()` helper（自己或 createdBy null）
+- 各 router 採局部 middleware：產品 `blockSales`、供應商／進貨單 router-level `if SALES → 403`、銷貨單 DELETE 加 inline 檢查
+- `quotation.service.ts` / `sales-order.service.ts` `list()` 接受 `createdBy` filter
+- LINE handler 在 postback dispatcher 與文字命令分支點都加 SALES 檢查；TextCommandContext 員工型別加上 `role`
+
 ## [2.2.0] - 2026-04-25
 
 ### Added — 電子發票 Phase 2（載具／捐贈／折讓／證明聯 PDF）
