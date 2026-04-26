@@ -246,7 +246,7 @@ export async function handleManagementCommand(action: string, ctx: any): Promise
     case 'management:menu':
       await client.replyMessage({
         replyToken: event.replyToken,
-        messages: [{ type: 'flex', altText: '管理選單', contents: rootMenu() }],
+        messages: [{ type: 'flex', altText: '管理選單', contents: rootMenu(employee) }],
       });
       return;
 
@@ -297,6 +297,13 @@ export async function handleManagementCommand(action: string, ctx: any): Promise
 
     // ---------- Supplier ----------
     case 'management:supplier':
+      if (employee.role === 'SALES') {
+        await client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: '⛔ 業務無供應商存取權。' }],
+        });
+        return;
+      }
       await client.replyMessage({
         replyToken: event.replyToken,
         messages: [{ type: 'flex', altText: '供應商管理', contents: supplierMenu() }],
@@ -304,6 +311,13 @@ export async function handleManagementCommand(action: string, ctx: any): Promise
       return;
 
     case 'management:supplier:list':
+      if (employee.role === 'SALES') {
+        await client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: '⛔ 業務無供應商存取權。' }],
+        });
+        return;
+      }
       return listSuppliers(client, event, tenantId);
 
     case 'management:supplier:add': {
@@ -512,18 +526,22 @@ function btn(label: string, data: string, color: string) {
   };
 }
 
-function rootMenu() {
+function rootMenu(employee?: { role?: string }) {
+  const isSalesRole = employee?.role === 'SALES';
+  const items: any[] = [
+    { type: 'text', text: '管理選單', weight: 'bold', size: 'lg' },
+    { type: 'separator' },
+    btn('員工資料與權限', 'action=management:employee', '#1565C0'),
+  ];
+  if (!isSalesRole) {
+    items.push(btn('供應商管理', 'action=management:supplier', '#6A1B9A'));
+  }
+  items.push(btn('客戶管理', 'action=management:customer', '#2E7D32'));
   return {
     type: 'bubble' as const,
     body: {
       type: 'box' as const, layout: 'vertical' as const, spacing: 'md',
-      contents: [
-        { type: 'text', text: '管理選單', weight: 'bold', size: 'lg' },
-        { type: 'separator' },
-        btn('員工資料與權限', 'action=management:employee', '#1565C0'),
-        btn('供應商管理',     'action=management:supplier', '#6A1B9A'),
-        btn('客戶管理',       'action=management:customer', '#2E7D32'),
-      ],
+      contents: items,
     },
   };
 }

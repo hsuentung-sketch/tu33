@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.3.1] - 2026-04-26
+
+### Changed — LINE chat 業務權限調整
+- 管理選單：SALES 不再看到「供應商管理」按鈕；點 `management:supplier*` 任何子動作都回「⛔ 業務無供應商存取權」
+- `查詢 xxx` 綜合搜尋：SALES 不再回供應商區塊（仍可查客戶／產品）
+- 帳務選單：SALES 只看到「應收 - 未收款 / 應收 - 逾期」兩顆；應付按鈕全隱藏，直接 postback `accounting:ap-*` 也回「⛔」
+- 報價選單：移除「追蹤中」按鈕；`quotation:tracking` action 廢止（合併到 `quotation:list`）
+- 報價最近列表：take 由 5 → 10，標題顯示「📋 最近 10 筆報價」；SALES 只列自己建的
+- 對非 SALES 角色：完全沒有行為改變
+
 ## [2.3.0] - 2026-04-25
 
 ### Changed — SALES 角色權限收緊

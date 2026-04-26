@@ -45,7 +45,7 @@ export async function handleMasterText(text: string, ctx: any): Promise<boolean>
   if (mode === 'ar') return replySearchAr(client, event, tenantId, q, isAll);
 
   // No mode set (legacy empty-q path) — fall through to combined search.
-  await replyCombined(client, event, tenantId, q);
+  await replyCombined(client, event, tenantId, q, employee);
   return true;
 }
 
@@ -389,7 +389,7 @@ async function replySearchAr(
 }
 
 // Legacy combined search (when text "查詢 xxx" comes in directly).
-async function replyCombined(client: any, event: any, tenantId: string, query: string): Promise<void> {
+async function replyCombined(client: any, event: any, tenantId: string, query: string, employee?: { role?: string }): Promise<void> {
   if (!query) {
     await client.replyMessage({
       replyToken: event.replyToken,
@@ -397,9 +397,10 @@ async function replyCombined(client: any, event: any, tenantId: string, query: s
     });
     return;
   }
+  const isSalesRole = employee?.role === 'SALES';
   const [customers, suppliers, products] = await Promise.all([
     customerService.findByName(tenantId, query),
-    supplierService.findByName(tenantId, query),
+    isSalesRole ? Promise.resolve([] as Array<{ name: string; contactName?: string | null; phone?: string | null }>) : supplierService.findByName(tenantId, query),
     productService.findByNameOrCode(tenantId, query),
   ]);
   if (!customers.length && !suppliers.length && !products.length) {
@@ -589,7 +590,7 @@ export async function handleMasterCommand(action: string, ctx: any): Promise<voi
         return;
       }
       // "查詢 xxx" text path — combined search across all types.
-      await replyCombined(client, event, tenantId, query);
+      await replyCombined(client, event, tenantId, query, employee);
       return;
     }
 

@@ -12,8 +12,18 @@ export async function handleAccountingCommand(action: string, ctx: any): Promise
   const { client, event, tenantId, params, employee } = ctx;
   const lineUserId = employee.lineUserId;
 
+  const isSalesRole = employee?.role === 'SALES';
+
   switch (action) {
-    case 'accounting:menu':
+    case 'accounting:menu': {
+      const actions: any[] = [
+        { type: 'postback', label: '應收 - 未收款', data: 'action=accounting:ar-unpaid' },
+        { type: 'postback', label: '應收 - 逾期', data: 'action=accounting:ar-overdue' },
+      ];
+      if (!isSalesRole) {
+        actions.splice(1, 0, { type: 'postback', label: '應付 - 未付款', data: 'action=accounting:ap-unpaid' });
+        actions.push({ type: 'postback', label: '應付 - 逾期', data: 'action=accounting:ap-overdue' });
+      }
       await client.replyMessage({
         replyToken: event.replyToken,
         messages: [{
@@ -23,16 +33,12 @@ export async function handleAccountingCommand(action: string, ctx: any): Promise
             type: 'buttons',
             title: '帳務管理',
             text: '請選擇查詢類型',
-            actions: [
-              { type: 'postback', label: '應收 - 未收款', data: 'action=accounting:ar-unpaid' },
-              { type: 'postback', label: '應付 - 未付款', data: 'action=accounting:ap-unpaid' },
-              { type: 'postback', label: '應收 - 逾期', data: 'action=accounting:ar-overdue' },
-              { type: 'postback', label: '應付 - 逾期', data: 'action=accounting:ap-overdue' },
-            ],
+            actions,
           },
         }],
       });
       return;
+    }
 
     case 'accounting:ar-unpaid':
     case 'accounting:ar-overdue': {
@@ -79,6 +85,13 @@ export async function handleAccountingCommand(action: string, ctx: any): Promise
 
     case 'accounting:ap-unpaid':
     case 'accounting:ap-overdue': {
+      if (isSalesRole) {
+        await client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: '⛔ 業務無應付帳款查詢權限。' }],
+        });
+        return;
+      }
       const overdue = action === 'accounting:ap-overdue';
       const where: any = { tenantId, isPaid: false };
       if (overdue) where.dueDate = { lt: new Date() };
@@ -122,6 +135,13 @@ export async function handleAccountingCommand(action: string, ctx: any): Promise
 
     case 'accounting:ar-pay':
     case 'accounting:ap-pay': {
+      if (action === 'accounting:ap-pay' && isSalesRole) {
+        await client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: '⛔ 業務無應付帳款入帳權限。' }],
+        });
+        return;
+      }
       const id = params.get('id');
       if (!id) return;
       const isAR = action === 'accounting:ar-pay';

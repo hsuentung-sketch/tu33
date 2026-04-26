@@ -84,24 +84,20 @@ export async function handleQuotationCommand(action: string, ctx: any): Promise<
             actions: [
               { type: 'uri', label: '新增（LIFF）', uri: 'https://liff.line.me/2009797959-uDVN0eGQ' },
               { type: 'postback', label: '最近報價', data: 'action=quotation:list' },
-              { type: 'postback', label: '追蹤中', data: 'action=quotation:tracking' },
             ],
           },
         }],
       });
       return;
 
-    case 'quotation:list':
-    case 'quotation:tracking': {
+    case 'quotation:list': {
       const where: any = { tenantId };
-      if (action === 'quotation:tracking') {
-        where.status = { in: ['SENT', 'TRACKING'] };
-      }
+      if (employee?.role === 'SALES') where.createdBy = employee.id;
       const rows = await prisma.quotation.findMany({
         where,
         include: { customer: { select: { name: true } } },
         orderBy: { createdAt: 'desc' },
-        take: 5,
+        take: 10,
       });
       if (rows.length === 0) {
         await client.replyMessage({
@@ -121,7 +117,7 @@ export async function handleQuotationCommand(action: string, ctx: any): Promise<
           label: `轉銷貨 ${r.quotationNo}`.slice(0, 20),
           data: `action=quotation:convert&id=${r.id}`,
         }));
-      const messages: any[] = [{ type: 'text', text: `📋 最近 5 筆報價：\n${text}` }];
+      const messages: any[] = [{ type: 'text', text: `📋 最近 10 筆報價：\n${text}` }];
       if (actions.length > 0) {
         messages.push({
           type: 'template',
