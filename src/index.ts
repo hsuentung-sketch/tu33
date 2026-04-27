@@ -42,6 +42,11 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Root → admin console. Bookmark targets without /admin/ should land somewhere useful.
+app.get('/', (_req, res) => {
+  res.redirect(302, '/admin/');
+});
+
 // Public PDF download routes (token-authed via JWT, not LIFF id-token)
 app.use('/pdf', pdfRouter);
 

@@ -3,6 +3,11 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.3.3] - 2026-04-26
+
+### Fixed
+- 根網址 `/` 改為 302 redirect 到 `/admin/`，書籤連到 fly.dev 不再出現「Cannot GET /」
+
 ## [2.3.2] - 2026-04-26
 
 ### Changed — 後台 SALES 角色再收緊
