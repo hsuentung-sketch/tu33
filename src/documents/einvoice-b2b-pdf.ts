@@ -126,10 +126,10 @@ export function chineseUpperAmount(n: number): string {
 export async function generateB2BEinvoicePdf(
   data: B2BEinvoicePdfData,
 ): Promise<InstanceType<typeof PDFDocument>> {
-  // A5 直式 = 420 × 595pt
-  const W = 420, H = 595;
+  // 半張 A4（A4 對折）= A5 直式 = 419.53 × 595.28pt（PDFKit 'A5' 標準）
+  const doc = new PDFDocument({ size: 'A5', margin: 18 });
+  const W = 419.53, H = 595.28;
   const M = 18;
-  const doc = new PDFDocument({ size: [W, H], margin: M });
   doc.registerFont('cjk', CJK_FONT);
   doc.font('cjk');
 
@@ -255,17 +255,27 @@ export async function generateB2BEinvoicePdf(
   doc.fillColor('#000').fontSize(11).text(chineseUpperAmount(data.totalAmount), left + 140, y + 5, { width: contentW - 146 });
   y += cnRowH + 6;
 
+  // 備註區（自動帶出貨單號 + 固定提醒文字）
+  const remarkH = 38;
+  doc.rect(left, y, contentW, remarkH).stroke();
+  doc.fontSize(9).fillColor('#222').text('備註', left + 6, y + 6, { width: 40 });
+  doc.fillColor('#000').fontSize(9);
+  const remarkLines: string[] = [];
+  if (data.salesOrderNo) remarkLines.push(`出貨單號：${data.salesOrderNo}${data.acCode ? `    AC：${data.acCode}` : ''}`);
+  remarkLines.push('發票內容若有誤，請於當月更正，隔月恕不受理。');
+  doc.text(remarkLines.join('\n'), left + 50, y + 6, { width: contentW - 56 });
+  y += remarkH + 6;
+
   // 賣方框 + 蓋章區
-  const sellerBoxH = 80;
+  const sellerBoxH = 60;
   const stampW = 90;
   const sellerInfoW = contentW - stampW;
   doc.rect(left, y, sellerInfoW, sellerBoxH).stroke();
   doc.rect(left + sellerInfoW, y, stampW, sellerBoxH).stroke();
   doc.fontSize(10).fillColor('#222');
-  doc.text(`出貨單號：${data.salesOrderNo ?? ''}${data.acCode ? `   AC：${data.acCode}` : ''}`, left + 6, y + 4, { width: sellerInfoW - 12 });
-  doc.text(`賣方：${data.sellerName}`, left + 6, y + 22, { width: sellerInfoW - 12 });
-  doc.text(`統一編號：${data.sellerTaxId}`, left + 6, y + 38, { width: sellerInfoW - 12 });
-  doc.text(`地址：${data.sellerAddress ?? ''}`, left + 6, y + 54, { width: sellerInfoW - 12 });
+  doc.text(`賣方：${data.sellerName}`, left + 6, y + 6, { width: sellerInfoW - 12 });
+  doc.text(`統一編號：${data.sellerTaxId}`, left + 6, y + 22, { width: sellerInfoW - 12 });
+  doc.text(`地址：${data.sellerAddress ?? ''}`, left + 6, y + 38, { width: sellerInfoW - 12 });
   // 蓋章區標題
   doc.fillColor('#666').fontSize(8).text('營業人蓋統一發票專用章', left + sellerInfoW + 4, y + 4, { width: stampW - 8, align: 'center' });
 
@@ -276,7 +286,7 @@ export async function generateB2BEinvoicePdf(
       try {
         doc.save();
         doc.opacity(data.stampOpacity ?? 0.85);
-        doc.image(path, left + sellerInfoW + 6, y + 14, { fit: [stampW - 12, sellerBoxH - 20], align: 'center', valign: 'center' });
+        doc.image(path, left + sellerInfoW + 4, y + 12, { fit: [stampW - 8, sellerBoxH - 16], align: 'center', valign: 'center' });
         doc.restore();
         doc.opacity(1);
       } catch { /* ignore */ }

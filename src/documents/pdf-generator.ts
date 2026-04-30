@@ -18,8 +18,8 @@ function stampPathFor(tenantId: string): string {
 
 // ---------- 字體尺寸（除標題抬頭外，body 統一 12pt） ----------
 const FS = {
-  title: 18,
-  company: 16,
+  title: 20,
+  company: 18,
   body: 12,
   totalsBig: 13,
   footer: 9,
@@ -174,13 +174,13 @@ function drawTitleBand(
   company: string,
 ): number {
   const y = PAGE.margin;
-  const h = 36;
+  const h = 40;
   doc.save();
   doc.rect(PAGE.left, y, PAGE.contentWidth, h).fillAndStroke('#E8EEF7', '#2F5496');
   doc.restore();
   doc.fillColor('#000');
-  doc.fontSize(18).text(title, PAGE.left + 10, y + 9, { width: 220 });
-  doc.fontSize(16).text(company, PAGE.left + 240, y + 10, { width: 265, align: 'right' });
+  doc.fontSize(FS.title).text(title, PAGE.left + 10, y + 10, { width: 220 });
+  doc.fontSize(FS.company).text(company, PAGE.left + 240, y + 11, { width: 265, align: 'right' });
   return y + h;
 }
 
@@ -200,7 +200,7 @@ function drawInfoGrid(
   const rowH = 24;
   const rows = Math.max(left.length, right.length);
   const colW = PAGE.contentWidth / 2;
-  const labelW = 70;
+  const labelW = 54;
 
   doc.lineWidth(0.9).strokeColor('#333');
   doc.rect(PAGE.left, startY, PAGE.contentWidth, rowH * rows).stroke();
@@ -217,11 +217,11 @@ function drawInfoGrid(
     const r = right[i];
     if (l) {
       doc.fillColor('#222').text(l.label, PAGE.left + 6, y + 7, { width: labelW });
-      doc.fillColor('#000').text(l.value, PAGE.left + 6 + labelW, y + 7, { width: colW - labelW - 10 });
+      doc.fillColor('#000').text(l.value, PAGE.left + 4 + labelW, y + 7, { width: colW - labelW - 8 });
     }
     if (r) {
       doc.fillColor('#222').text(r.label, PAGE.left + colW + 6, y + 7, { width: labelW });
-      doc.fillColor('#000').text(r.value, PAGE.left + colW + 6 + labelW, y + 7, { width: colW - labelW - 10 });
+      doc.fillColor('#000').text(r.value, PAGE.left + colW + 4 + labelW, y + 7, { width: colW - labelW - 8 });
     }
   }
   doc.fillColor('#000');
@@ -263,10 +263,11 @@ function drawItemTable(
   doc.rect(PAGE.left, startY, PAGE.contentWidth, headerH).fillAndStroke('#DCE3EE', '#333');
   doc.restore();
   doc.fillColor('#000').fontSize(FS.body);
+  // 表頭強制置中（不論 column body 是 left/right），第一列視覺一致
   columns.forEach((c, i) => {
     doc.text(c.header, xs[i] + 4, startY + 7, {
       width: xs[i + 1] - xs[i] - 8,
-      align: c.align ?? 'left',
+      align: 'center',
     });
   });
   // header column dividers
@@ -393,7 +394,7 @@ export function generateQuotationPdf(data: QuotationPdfData): InstanceType<typeo
     it.note ?? '',
   ]);
   y = drawItemTable(doc, y + 8, [
-    { header: '編號', width: 6, align: 'center' },
+    { header: '編號', width: 8, align: 'center' },
     { header: '品項', width: 36 },
     { header: '數量', width: 8, align: 'right' },
     { header: '單價', width: 14, align: 'right' },
@@ -478,7 +479,7 @@ export function generateSalesOrderPdf(data: SalesOrderPdfData): InstanceType<typ
     it.note ?? '',
   ]);
   y = drawItemTable(doc, y + 8, [
-    { header: '編號', width: 6, align: 'center' },
+    { header: '編號', width: 8, align: 'center' },
     { header: '品項', width: 36 },
     { header: '數量', width: 8, align: 'right' },
     { header: '單價', width: 14, align: 'right' },
@@ -533,7 +534,7 @@ export function generatePurchaseOrderPdf(data: PurchaseOrderPdfData): InstanceTy
     it.note ?? '',
   ]);
   y = drawItemTable(doc, y + 8, [
-    { header: '編號', width: 6, align: 'center' },
+    { header: '編號', width: 8, align: 'center' },
     { header: '品項', width: 36 },
     { header: '數量', width: 8, align: 'right' },
     { header: '單價', width: 14, align: 'right' },
@@ -622,7 +623,7 @@ export function generateMonthlyInvoicePdf(data: MonthlyInvoicePdfData): Instance
     formatCurrency(toNumber(it.amount)),
   ]);
   y = drawItemTable(doc, y + 8, [
-    { header: '編號', width: 6, align: 'center' },
+    { header: '編號', width: 8, align: 'center' },
     { header: '銷貨單號', width: 18 },
     { header: '日期', width: 16 },
     { header: '品項', width: 32 },
@@ -769,7 +770,7 @@ export function generateMonthlyPayablePdf(data: MonthlyPayablePdfData): Instance
     formatCurrency(toNumber(it.amount)),
   ]);
   y = drawItemTable(doc, y + 8, [
-    { header: '編號', width: 6, align: 'center' },
+    { header: '編號', width: 8, align: 'center' },
     { header: '進貨單號', width: 18 },
     { header: '日期', width: 16 },
     { header: '品項', width: 32 },

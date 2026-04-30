@@ -89,9 +89,12 @@ einvoiceRouter.get('/:id/proof.pdf', async (req: Request, res: Response, next: N
           invoiceDate: inv.invoiceDate,
           randomCode: inv.randomCode || '0000',
           invoiceFormat: '25',
-          sellerName: cfg.sellerName || tenant.companyName,
-          sellerTaxId: cfg.sellerTaxId || tenant.taxId || '',
-          sellerAddress: cfg.sellerAddress || tenant.address || undefined,
+          // B2B 證明聯：賣方資訊一律以「公司資料」為準（tenant.companyName /
+          // tenant.taxId / tenant.address），不被 einvoice.sellerName 等覆蓋。
+          // 上方頁眉的公司名同樣抓 tenant.companyName，確保一致。
+          sellerName: tenant.companyName,
+          sellerTaxId: tenant.taxId || cfg.sellerTaxId || '',
+          sellerAddress: tenant.address || cfg.sellerAddress || undefined,
           buyerName: inv.buyerName || '',
           buyerTaxId: inv.buyerTaxId,
           buyerAddress: inv.buyerAddress || undefined,

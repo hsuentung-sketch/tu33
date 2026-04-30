@@ -3,6 +3,17 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.4.1] - 2026-04-30
+
+### Changed — 排版微調 + B2B 證明聯改善
+- 報價／銷貨／進貨抬頭 18→**20pt**、公司名 16→**18pt**
+- 報價單品項表「編號」欄位加寬 6→**8 份**（不再被擠成兩行）
+- info grid label 寬 70→**54pt**（公司／聯絡人／地址 與資料間距縮短）
+- 表頭（編號／品項／數量／單價／金額／備註）強制**置中**對齊（不再依 column body 對齊跑掉）
+- B2B 證明聯紙張改為 PDFKit 標準 **A5**（419.53×595.28pt，半張 A4）
+- B2B 證明聯**賣方資訊以 `tenant.companyName / tenant.taxId / tenant.address` 為主**，不再被 `einvoice.sellerName` 等覆蓋（避免測試殘留資料汙染證明聯）
+- B2B 證明聯新增**備註框**：自動帶入「出貨單號：xxx」+ 固定文字「發票內容若有誤，請於當月更正，隔月恕不受理。」（從賣方框移除出貨單號欄）
+
 ## [2.4.0] - 2026-04-30
 
 ### Added — 發票章 + B2B 電子發票格式
