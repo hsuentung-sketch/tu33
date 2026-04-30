@@ -2118,6 +2118,86 @@ async function viewCompany(main) {
     } catch (e) { einvErr.textContent = e.message; }
     finally { einvSave.disabled = false; }
   });
+
+  // ---- 發票章 ----
+  const stampTitle = el('h3', { style: 'margin-top:24px;' }, '發票章');
+  const stampSub = el('div', { class: 'page-sub' },
+    '上傳後會蓋在報價單 PDF 右下、B2B 電子發票證明聯的「營業人蓋統一發票專用章」位置。建議透明背景 PNG，方形比例。');
+  const stampCard = el('div', { class: 'card', style: 'padding:16px;max-width:640px;display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap;' });
+  const stampPreviewBox = el('div', { style: 'width:160px;height:160px;border:1px dashed #999;display:flex;align-items:center;justify-content:center;background:#fafafa;' });
+  const stampPreview = el('img', { style: 'max-width:100%;max-height:100%;display:none;' });
+  const stampNoneText = el('div', { style: 'color:#888;font-size:12px;' }, '尚未上傳');
+  stampPreviewBox.append(stampPreview, stampNoneText);
+  const stampControls = el('div', { style: 'flex:1;min-width:240px;' });
+  const stampInfo = el('div', { style: 'font-size:12px;color:#666;margin-bottom:8px;' });
+  const stampFile = el('input', { type: 'file', accept: 'image/png' });
+  const stampOpacity = el('input', { type: 'number', min: '0.1', max: '1', step: '0.05', value: '0.85', style: 'width:80px;' });
+  const stampUploadBtn = el('button', { type: 'button', class: 'btn primary' }, '上傳');
+  const stampDeleteBtn = el('button', { type: 'button', class: 'btn' }, '移除');
+  const stampErr = el('div', { class: 'err', style: 'margin-top:8px;' });
+  stampControls.append(
+    stampInfo,
+    el('div', { style: 'margin-bottom:8px;' },
+      el('label', { style: 'display:block;font-size:12px;color:#666;margin-bottom:4px;' }, 'PNG 圖檔（≤ 2MB）'),
+      stampFile),
+    el('div', { style: 'margin-bottom:8px;' },
+      el('label', { style: 'display:block;font-size:12px;color:#666;margin-bottom:4px;' }, '透明度（0.1–1）'),
+      stampOpacity),
+    el('div', { style: 'display:flex;gap:8px;' }, stampUploadBtn, stampDeleteBtn),
+    stampErr,
+  );
+  stampCard.append(stampPreviewBox, stampControls);
+  main.append(stampTitle, stampSub, stampCard);
+
+  async function loadStamp() {
+    try {
+      const cfg = await api.get('/tenant/me/invoice-stamp');
+      stampOpacity.value = cfg.opacity ?? 0.85;
+      if (cfg.hasStamp) {
+        stampPreview.src = `/api/tenant/me/invoice-stamp/image?t=${encodeURIComponent(cfg.uploadedAt || Date.now())}`;
+        stampPreview.style.display = 'block';
+        stampNoneText.style.display = 'none';
+        stampInfo.textContent = `已上傳：${cfg.uploadedAt ? new Date(cfg.uploadedAt).toLocaleString() : ''}`;
+      } else {
+        stampPreview.style.display = 'none';
+        stampNoneText.style.display = 'block';
+        stampInfo.textContent = '尚未上傳發票章。';
+      }
+    } catch (e) { stampErr.textContent = '讀取發票章狀態失敗：' + e.message; }
+  }
+  loadStamp();
+
+  stampUploadBtn.addEventListener('click', async () => {
+    stampErr.textContent = '';
+    const file = stampFile.files?.[0];
+    if (!file) { stampErr.textContent = '請選擇 PNG 檔'; return; }
+    if (file.size > 2 * 1024 * 1024) { stampErr.textContent = '檔案需 ≤ 2MB'; return; }
+    stampUploadBtn.disabled = true;
+    try {
+      const fd = new FormData();
+      fd.append('stamp', file);
+      fd.append('opacity', String(stampOpacity.value || '0.85'));
+      const r = await fetch('/api/tenant/me/invoice-stamp', { method: 'POST', body: fd, credentials: 'include' });
+      if (!r.ok) throw new Error((await r.text()) || `HTTP ${r.status}`);
+      toast('發票章已上傳', 'ok');
+      stampFile.value = '';
+      await loadStamp();
+    } catch (e) { stampErr.textContent = e.message; }
+    finally { stampUploadBtn.disabled = false; }
+  });
+
+  stampDeleteBtn.addEventListener('click', async () => {
+    if (!confirm('確定移除已上傳的發票章？')) return;
+    stampErr.textContent = '';
+    stampDeleteBtn.disabled = true;
+    try {
+      const r = await fetch('/api/tenant/me/invoice-stamp', { method: 'DELETE', credentials: 'include' });
+      if (!r.ok) throw new Error((await r.text()) || `HTTP ${r.status}`);
+      toast('已移除', 'ok');
+      await loadStamp();
+    } catch (e) { stampErr.textContent = e.message; }
+    finally { stampDeleteBtn.disabled = false; }
+  });
 }
 
 // ----- Audit log (ADMIN only) -----

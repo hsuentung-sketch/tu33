@@ -5,6 +5,26 @@ import { resolve } from 'node:path';
 
 type Decimal = Prisma.Decimal;
 
+/**
+ * 蓋章圖檔目錄（與 tenant.router.ts stampPathFor 對齊）。
+ * 不能 import 因為會循環依賴，所以複製常數。
+ */
+const STAMP_DIR = process.env.STAMP_DIR
+  || (existsSync('/data') ? '/data/stamps' : resolve(process.cwd(), 'data/stamps'));
+
+function stampPathFor(tenantId: string): string {
+  return resolve(STAMP_DIR, `${tenantId}.png`);
+}
+
+// ---------- 字體尺寸（除標題抬頭外，body 統一 12pt） ----------
+const FS = {
+  title: 18,
+  company: 16,
+  body: 12,
+  totalsBig: 13,
+  footer: 9,
+} as const;
+
 interface DocumentItem {
   productName: string;
   quantity: number;
@@ -16,6 +36,10 @@ interface DocumentItem {
 interface QuotationPdfData {
   companyHeader: string;
   companyTaxId?: string | null;
+  /** 用來載入 /data/stamps/<tenantId>.png 在底部蓋發票章；無則略過。 */
+  tenantId?: string;
+  /** 0–1，預設 0.85 */
+  stampOpacity?: number;
   quotationNo: string;
   date: Date;
   customer: {
@@ -173,17 +197,17 @@ function drawInfoGrid(
   left: InfoRow[],
   right: InfoRow[],
 ): number {
-  const rowH = 20;
+  const rowH = 24;
   const rows = Math.max(left.length, right.length);
   const colW = PAGE.contentWidth / 2;
-  const labelW = 58;
+  const labelW = 70;
 
   doc.lineWidth(0.9).strokeColor('#333');
   doc.rect(PAGE.left, startY, PAGE.contentWidth, rowH * rows).stroke();
   // vertical split between left/right columns
   doc.moveTo(PAGE.left + colW, startY).lineTo(PAGE.left + colW, startY + rowH * rows).stroke();
 
-  doc.fontSize(9);
+  doc.fontSize(FS.body);
   for (let i = 0; i < rows; i++) {
     const y = startY + i * rowH;
     if (i > 0) {
@@ -192,12 +216,12 @@ function drawInfoGrid(
     const l = left[i];
     const r = right[i];
     if (l) {
-      doc.fillColor('#222').text(l.label, PAGE.left + 6, y + 6, { width: labelW });
-      doc.fillColor('#000').text(l.value, PAGE.left + 6 + labelW, y + 6, { width: colW - labelW - 10 });
+      doc.fillColor('#222').text(l.label, PAGE.left + 6, y + 7, { width: labelW });
+      doc.fillColor('#000').text(l.value, PAGE.left + 6 + labelW, y + 7, { width: colW - labelW - 10 });
     }
     if (r) {
-      doc.fillColor('#222').text(r.label, PAGE.left + colW + 6, y + 6, { width: labelW });
-      doc.fillColor('#000').text(r.value, PAGE.left + colW + 6 + labelW, y + 6, { width: colW - labelW - 10 });
+      doc.fillColor('#222').text(r.label, PAGE.left + colW + 6, y + 7, { width: labelW });
+      doc.fillColor('#000').text(r.value, PAGE.left + colW + 6 + labelW, y + 7, { width: colW - labelW - 10 });
     }
   }
   doc.fillColor('#000');
@@ -224,8 +248,8 @@ function drawItemTable(
   const padded = rows.length >= minRows
     ? rows
     : [...rows, ...Array.from({ length: minRows - rows.length }, () => columns.map(() => ''))];
-  const headerH = 22;
-  const rowH = 20;
+  const headerH = 26;
+  const rowH = 24;
   const totalFrac = columns.reduce((s, c) => s + c.width, 0);
   const xs: number[] = [PAGE.left];
   let accum = PAGE.left;
@@ -238,9 +262,9 @@ function drawItemTable(
   doc.save();
   doc.rect(PAGE.left, startY, PAGE.contentWidth, headerH).fillAndStroke('#DCE3EE', '#333');
   doc.restore();
-  doc.fillColor('#000').fontSize(10);
+  doc.fillColor('#000').fontSize(FS.body);
   columns.forEach((c, i) => {
-    doc.text(c.header, xs[i] + 4, startY + 6, {
+    doc.text(c.header, xs[i] + 4, startY + 7, {
       width: xs[i + 1] - xs[i] - 8,
       align: c.align ?? 'left',
     });
@@ -254,10 +278,10 @@ function drawItemTable(
   // body rows
   let y = startY + headerH;
   const bodyTop = y;
-  doc.fontSize(9);
+  doc.fontSize(FS.body);
   padded.forEach((row) => {
     row.forEach((cell, i) => {
-      doc.text(cell, xs[i] + 4, y + 6, {
+      doc.text(cell, xs[i] + 4, y + 7, {
         width: xs[i + 1] - xs[i] - 8,
         align: columns[i].align ?? 'left',
         height: rowH - 4,
@@ -281,10 +305,10 @@ function drawTotals(
   tax: number,
   total: number,
 ): number {
-  const rowH = 20;
-  const blockW = 240;
+  const rowH = 24;
+  const blockW = 260;
   const x = PAGE.right - blockW;
-  const labelW = 120;
+  const labelW = 130;
 
   doc.lineWidth(0.9).strokeColor('#333');
   doc.rect(x, startY, blockW, rowH * 3).stroke();
@@ -292,19 +316,43 @@ function drawTotals(
   doc.moveTo(x, startY + rowH * 2).lineTo(x + blockW, startY + rowH * 2).stroke();
   doc.moveTo(x + labelW, startY).lineTo(x + labelW, startY + rowH * 3).stroke();
 
-  doc.fillColor('#222').fontSize(10);
-  doc.text('小計', x + 6, startY + 6, { width: labelW - 12 });
-  doc.text('營業稅 (5%)', x + 6, startY + rowH + 6, { width: labelW - 12 });
-  doc.fillColor('#000').fontSize(11);
+  doc.fillColor('#222').fontSize(FS.body);
+  doc.text('小計', x + 6, startY + 7, { width: labelW - 12 });
+  doc.text('營業稅 (5%)', x + 6, startY + rowH + 7, { width: labelW - 12 });
+  doc.fillColor('#000').fontSize(FS.totalsBig);
   doc.text('總計', x + 6, startY + rowH * 2 + 6, { width: labelW - 12 });
 
-  doc.fillColor('#000').fontSize(10);
-  doc.text(formatCurrency(subtotal), x + labelW + 6, startY + 6, { width: blockW - labelW - 12, align: 'right' });
-  doc.text(formatCurrency(tax), x + labelW + 6, startY + rowH + 6, { width: blockW - labelW - 12, align: 'right' });
-  doc.fontSize(11);
+  doc.fillColor('#000').fontSize(FS.body);
+  doc.text(formatCurrency(subtotal), x + labelW + 6, startY + 7, { width: blockW - labelW - 12, align: 'right' });
+  doc.text(formatCurrency(tax), x + labelW + 6, startY + rowH + 7, { width: blockW - labelW - 12, align: 'right' });
+  doc.fontSize(FS.totalsBig);
   doc.text(formatCurrency(total), x + labelW + 6, startY + rowH * 2 + 6, { width: blockW - labelW - 12, align: 'right' });
 
   return startY + rowH * 3;
+}
+
+/**
+ * 在指定位置蓋發票章。tenantId 為 null 或無圖檔時直接 return startY。
+ * 圖檔讀 /data/stamps/<tenantId>.png（PNG，建議透明背景）。
+ */
+function drawSellerStamp(
+  doc: InstanceType<typeof PDFDocument>,
+  tenantId: string | undefined,
+  x: number,
+  y: number,
+  size: number = 90,
+  opacity: number = 0.85,
+): void {
+  if (!tenantId) return;
+  const path = stampPathFor(tenantId);
+  if (!existsSync(path)) return;
+  try {
+    doc.save();
+    doc.opacity(opacity);
+    doc.image(path, x, y, { fit: [size, size], align: 'center', valign: 'center' });
+    doc.restore();
+    doc.opacity(1);
+  } catch { /* ignore */ }
 }
 
 // ---------- Generators ----------
@@ -356,17 +404,27 @@ export function generateQuotationPdf(data: QuotationPdfData): InstanceType<typeo
   y = drawTotals(doc, y + 8, data.subtotal, data.taxAmount, data.totalAmount);
 
   // Terms block
-  doc.fontSize(9).fillColor('#000');
-  y += 16;
+  doc.fontSize(FS.body).fillColor('#000');
+  y += 18;
   const terms: string[] = [];
   if (data.supplyTime) terms.push(`可供貨時間：${data.supplyTime}`);
   if (data.paymentTerms) terms.push(`付款期限：${data.paymentTerms}`);
   if (data.validUntil) terms.push(`報價單有效日期：${data.validUntil}`);
   if (data.note) terms.push(`備註：${data.note}`);
-  terms.forEach((t) => { doc.text(t, PAGE.left, y); y += 14; });
+  terms.forEach((t) => { doc.text(t, PAGE.left, y); y += 18; });
+
+  // 發票章（蓋在右下角總計表下方，terms 區的右側）
+  drawSellerStamp(
+    doc,
+    data.tenantId,
+    PAGE.right - 100,
+    y + 6,
+    90,
+    data.stampOpacity ?? 0.85,
+  );
 
   if (data.pdfFooter) {
-    doc.fontSize(8).fillColor('#555').text(data.pdfFooter, PAGE.left, 800, { width: PAGE.contentWidth, align: 'center' });
+    doc.fontSize(FS.footer).fillColor('#555').text(data.pdfFooter, PAGE.left, 800, { width: PAGE.contentWidth, align: 'center' });
   }
   return doc;
 }
@@ -401,14 +459,14 @@ export function generateSalesOrderPdf(data: SalesOrderPdfData): InstanceType<typ
     y += 6;
     const e = data.einvoice;
     if (e.voided) {
-      doc.fontSize(10).fillColor('#C00');
+      doc.fontSize(FS.body).fillColor('#C00');
       doc.text(`發票號碼：${e.invoiceNo}（已作廢）  發票日期：${formatDate(e.invoiceDate)}`, PAGE.left, y);
       doc.fillColor('#000');
     } else {
-      doc.fontSize(10).fillColor('#000');
+      doc.fontSize(FS.body).fillColor('#000');
       doc.text(`發票號碼：${e.invoiceNo}　發票日期：${formatDate(e.invoiceDate)}`, PAGE.left, y);
     }
-    y += 14;
+    y += 18;
   }
 
   const rows = data.items.map((it, i) => [
@@ -431,13 +489,13 @@ export function generateSalesOrderPdf(data: SalesOrderPdfData): InstanceType<typ
   y = drawTotals(doc, y + 8, data.subtotal, data.taxAmount, data.totalAmount);
 
   // Signatures
-  y += 28;
-  doc.fontSize(10).fillColor('#000');
+  y += 32;
+  doc.fontSize(FS.body).fillColor('#000');
   doc.text(`出貨人：${data.deliveredBy ?? ''}`, PAGE.left, y);
   doc.text(`收貨人：${data.receivedBy ?? ''}`, PAGE.left + PAGE.contentWidth / 2, y);
 
   if (data.pdfFooter) {
-    doc.fontSize(8).fillColor('#555').text(data.pdfFooter, PAGE.left, 800, { width: PAGE.contentWidth, align: 'center' });
+    doc.fontSize(FS.footer).fillColor('#555').text(data.pdfFooter, PAGE.left, 800, { width: PAGE.contentWidth, align: 'center' });
   }
   return doc;
 }
@@ -486,7 +544,7 @@ export function generatePurchaseOrderPdf(data: PurchaseOrderPdfData): InstanceTy
   y = drawTotals(doc, y + 8, data.subtotal, data.taxAmount, data.totalAmount);
 
   if (data.pdfFooter) {
-    doc.fontSize(8).fillColor('#555').text(data.pdfFooter, PAGE.left, 800, { width: PAGE.contentWidth, align: 'center' });
+    doc.fontSize(FS.footer).fillColor('#555').text(data.pdfFooter, PAGE.left, 800, { width: PAGE.contentWidth, align: 'center' });
   }
   return doc;
 }
@@ -574,10 +632,10 @@ export function generateMonthlyInvoicePdf(data: MonthlyInvoicePdfData): Instance
   ], rows);
 
   // Custom totals block: subtotal / tax / total / paid / unpaid.
-  const rowH = 20;
-  const blockW = 240;
+  const rowH = 24;
+  const blockW = 260;
   const x = PAGE.right - blockW;
-  const labelW = 120;
+  const labelW = 130;
   const startY = y + 8;
   const unpaid = data.totalAmount - data.paidAmount;
 
@@ -588,15 +646,14 @@ export function generateMonthlyInvoicePdf(data: MonthlyInvoicePdfData): Instance
   }
   doc.moveTo(x + labelW, startY).lineTo(x + labelW, startY + rowH * 5).stroke();
 
-  doc.fillColor('#222').fontSize(10);
   const labels = ['小計', '營業稅 (5%)', '總計', '已收', '本期應付'];
   const values = [data.subtotal, data.taxAmount, data.totalAmount, data.paidAmount, unpaid];
   labels.forEach((label, i) => {
     const big = i === 2 || i === 4;
-    doc.fillColor('#222').fontSize(big ? 11 : 10);
-    doc.text(label, x + 6, startY + rowH * i + 6, { width: labelW - 12 });
-    doc.fillColor('#000').fontSize(big ? 11 : 10);
-    doc.text(formatCurrency(values[i]), x + labelW + 6, startY + rowH * i + 6, {
+    doc.fillColor('#222').fontSize(big ? FS.totalsBig : FS.body);
+    doc.text(label, x + 6, startY + rowH * i + 7, { width: labelW - 12 });
+    doc.fillColor('#000').fontSize(big ? FS.totalsBig : FS.body);
+    doc.text(formatCurrency(values[i]), x + labelW + 6, startY + rowH * i + 7, {
       width: blockW - labelW - 12, align: 'right',
     });
   });
@@ -604,13 +661,13 @@ export function generateMonthlyInvoicePdf(data: MonthlyInvoicePdfData): Instance
   // --- 未付款月份清單（該客戶全部未結案月份，含本期） ---
   const unpaidPeriods = data.unpaidPeriods ?? [];
   if (unpaidPeriods.length > 0) {
-    const lineH = 16;
-    const titleY = startY + rowH * 5 + 14;
-    doc.fillColor('#000').fontSize(11).text('未付款月份', PAGE.left, titleY);
-    let ry = titleY + lineH;
-    const unpaidBoxW = 240;
+    const lineH = 20;
+    const titleY = startY + rowH * 5 + 16;
+    doc.fillColor('#000').fontSize(FS.totalsBig).text('未付款月份', PAGE.left, titleY);
+    const ry = titleY + lineH;
+    const unpaidBoxW = 260;
     const ux = PAGE.right - unpaidBoxW;
-    const ulabelW = 120;
+    const ulabelW = 130;
 
     const rows = unpaidPeriods.length + 1; // +1 for 合計
     const topY = ry;
@@ -622,8 +679,8 @@ export function generateMonthlyInvoicePdf(data: MonthlyInvoicePdfData): Instance
     unpaidPeriods.forEach((p, i) => {
       const lineY = topY + lineH * i;
       if (i > 0) doc.moveTo(ux, lineY).lineTo(ux + unpaidBoxW, lineY).stroke();
-      doc.fillColor('#222').fontSize(9).text(p.period, ux + 6, lineY + 4, { width: ulabelW - 12 });
-      doc.fillColor('#000').fontSize(9).text(formatCurrency(p.amount), ux + ulabelW + 6, lineY + 4, {
+      doc.fillColor('#222').fontSize(FS.body).text(p.period, ux + 6, lineY + 5, { width: ulabelW - 12 });
+      doc.fillColor('#000').fontSize(FS.body).text(formatCurrency(p.amount), ux + ulabelW + 6, lineY + 5, {
         width: unpaidBoxW - ulabelW - 12, align: 'right',
       });
       unpaidTotal += p.amount;
@@ -631,14 +688,14 @@ export function generateMonthlyInvoicePdf(data: MonthlyInvoicePdfData): Instance
     // 合計列
     const totalY = topY + lineH * unpaidPeriods.length;
     doc.moveTo(ux, totalY).lineTo(ux + unpaidBoxW, totalY).stroke();
-    doc.fillColor('#222').fontSize(10).text('未付款合計', ux + 6, totalY + 3, { width: ulabelW - 12 });
-    doc.fillColor('#000').fontSize(10).text(formatCurrency(unpaidTotal), ux + ulabelW + 6, totalY + 3, {
+    doc.fillColor('#222').fontSize(FS.body).text('未付款合計', ux + 6, totalY + 5, { width: ulabelW - 12 });
+    doc.fillColor('#000').fontSize(FS.body).text(formatCurrency(unpaidTotal), ux + ulabelW + 6, totalY + 5, {
       width: unpaidBoxW - ulabelW - 12, align: 'right',
     });
   }
 
   if (data.pdfFooter) {
-    doc.fontSize(8).fillColor('#555').text(data.pdfFooter, PAGE.left, 800, { width: PAGE.contentWidth, align: 'center' });
+    doc.fontSize(FS.footer).fillColor('#555').text(data.pdfFooter, PAGE.left, 800, { width: PAGE.contentWidth, align: 'center' });
   }
   return doc;
 }
@@ -722,10 +779,10 @@ export function generateMonthlyPayablePdf(data: MonthlyPayablePdfData): Instance
   ], itemRows);
 
   // Totals: 小計/稅/總計/已付/本期應付
-  const rowH = 20;
-  const blockW = 240;
+  const rowH = 24;
+  const blockW = 260;
   const x = PAGE.right - blockW;
-  const labelW = 120;
+  const labelW = 130;
   const startY = y + 8;
   const unpaid = data.totalAmount - data.paidAmount;
 
@@ -740,10 +797,10 @@ export function generateMonthlyPayablePdf(data: MonthlyPayablePdfData): Instance
   const values = [data.subtotal, data.taxAmount, data.totalAmount, data.paidAmount, unpaid];
   labels.forEach((label, i) => {
     const big = i === 2 || i === 4;
-    doc.fillColor('#222').fontSize(big ? 11 : 10);
-    doc.text(label, x + 6, startY + rowH * i + 6, { width: labelW - 12 });
-    doc.fillColor('#000').fontSize(big ? 11 : 10);
-    doc.text(formatCurrency(values[i]), x + labelW + 6, startY + rowH * i + 6, {
+    doc.fillColor('#222').fontSize(big ? FS.totalsBig : FS.body);
+    doc.text(label, x + 6, startY + rowH * i + 7, { width: labelW - 12 });
+    doc.fillColor('#000').fontSize(big ? FS.totalsBig : FS.body);
+    doc.text(formatCurrency(values[i]), x + labelW + 6, startY + rowH * i + 7, {
       width: blockW - labelW - 12, align: 'right',
     });
   });
@@ -751,12 +808,12 @@ export function generateMonthlyPayablePdf(data: MonthlyPayablePdfData): Instance
   // Unpaid periods (all 未結案 months for this supplier)
   const unpaidPeriods = data.unpaidPeriods ?? [];
   if (unpaidPeriods.length > 0) {
-    const lineH = 16;
-    const titleY = startY + rowH * 5 + 14;
-    doc.fillColor('#000').fontSize(11).text('未付款月份', PAGE.left, titleY);
-    const unpaidBoxW = 240;
+    const lineH = 20;
+    const titleY = startY + rowH * 5 + 16;
+    doc.fillColor('#000').fontSize(FS.totalsBig).text('未付款月份', PAGE.left, titleY);
+    const unpaidBoxW = 260;
     const ux = PAGE.right - unpaidBoxW;
-    const ulabelW = 120;
+    const ulabelW = 130;
     const numRows = unpaidPeriods.length + 1;
     const topY = titleY + lineH;
 
@@ -768,22 +825,22 @@ export function generateMonthlyPayablePdf(data: MonthlyPayablePdfData): Instance
     unpaidPeriods.forEach((p, i) => {
       const lineY = topY + lineH * i;
       if (i > 0) doc.moveTo(ux, lineY).lineTo(ux + unpaidBoxW, lineY).stroke();
-      doc.fillColor('#222').fontSize(9).text(p.period, ux + 6, lineY + 4, { width: ulabelW - 12 });
-      doc.fillColor('#000').fontSize(9).text(formatCurrency(p.amount), ux + ulabelW + 6, lineY + 4, {
+      doc.fillColor('#222').fontSize(FS.body).text(p.period, ux + 6, lineY + 5, { width: ulabelW - 12 });
+      doc.fillColor('#000').fontSize(FS.body).text(formatCurrency(p.amount), ux + ulabelW + 6, lineY + 5, {
         width: unpaidBoxW - ulabelW - 12, align: 'right',
       });
       unpaidTotal += p.amount;
     });
     const totalY = topY + lineH * unpaidPeriods.length;
     doc.moveTo(ux, totalY).lineTo(ux + unpaidBoxW, totalY).stroke();
-    doc.fillColor('#222').fontSize(10).text('未付款合計', ux + 6, totalY + 3, { width: ulabelW - 12 });
-    doc.fillColor('#000').fontSize(10).text(formatCurrency(unpaidTotal), ux + ulabelW + 6, totalY + 3, {
+    doc.fillColor('#222').fontSize(FS.body).text('未付款合計', ux + 6, totalY + 5, { width: ulabelW - 12 });
+    doc.fillColor('#000').fontSize(FS.body).text(formatCurrency(unpaidTotal), ux + ulabelW + 6, totalY + 5, {
       width: unpaidBoxW - ulabelW - 12, align: 'right',
     });
   }
 
   if (data.pdfFooter) {
-    doc.fontSize(8).fillColor('#555').text(data.pdfFooter, PAGE.left, 800, { width: PAGE.contentWidth, align: 'center' });
+    doc.fontSize(FS.footer).fillColor('#555').text(data.pdfFooter, PAGE.left, 800, { width: PAGE.contentWidth, align: 'center' });
   }
   return doc;
 }

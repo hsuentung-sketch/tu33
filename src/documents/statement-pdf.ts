@@ -81,7 +81,7 @@ function drawStatementBody(
   doc.moveDown();
 
   // Party info
-  doc.fontSize(10);
+  doc.fontSize(12);
   doc.text(`${data.partyLabel}: ${data.party.name}`);
   if (data.party.taxId) doc.text(`統一編號: ${data.party.taxId}`);
   if (data.party.phone) doc.text(`電話: ${data.party.phone}`);
@@ -93,43 +93,43 @@ function drawStatementBody(
 
   // Table header
   const tableTop = doc.y;
-  doc.fontSize(9);
+  doc.fontSize(12);
   doc.text('銷貨單號', 50, tableTop, { width: 130 });
   doc.text('開單日期', 185, tableTop, { width: 80 });
   doc.text('金額', 270, tableTop, { width: 90, align: 'right' });
   doc.text('到期日', 365, tableTop, { width: 80 });
   doc.text('狀態', 450, tableTop, { width: 105 });
-  doc.moveTo(50, tableTop + 15).lineTo(555, tableTop + 15).stroke();
+  doc.moveTo(50, tableTop + 18).lineTo(555, tableTop + 18).stroke();
 
   // Rows
-  let y = tableTop + 20;
+  let y = tableTop + 24;
   data.rows.forEach((row) => {
     doc.text(row.orderNo, 50, y, { width: 130 });
     doc.text(formatDate(row.orderDate), 185, y, { width: 80 });
     doc.text(formatCurrency(toNumber(row.amount)), 270, y, { width: 90, align: 'right' });
     doc.text(formatDate(row.dueDate), 365, y, { width: 80 });
     doc.text(row.isPaid ? 'paid' : 'unpaid', 450, y, { width: 105 });
-    y += 18;
+    y += 22;
   });
 
   // Totals
-  y += 10;
+  y += 12;
   doc.moveTo(300, y).lineTo(555, y).stroke();
-  y += 5;
+  y += 6;
   const totalLabel = data.partyLabel === '客戶' ? '本期應收合計' : '本期應付合計';
   doc.text(totalLabel, 300, y, { width: 150, align: 'right' });
   doc.text(formatCurrency(data.totalAmount), 455, y, { width: 100, align: 'right' });
-  y += 15;
+  y += 18;
   doc.text('已收合計', 300, y, { width: 150, align: 'right' });
   doc.text(formatCurrency(data.paidAmount), 455, y, { width: 100, align: 'right' });
-  y += 15;
-  doc.fontSize(11);
+  y += 18;
+  doc.fontSize(13);
   doc.text('未收合計', 300, y, { width: 150, align: 'right' });
   doc.text(formatCurrency(data.unpaidAmount), 455, y, { width: 100, align: 'right' });
 
   // Footer
   if (data.pdfFooter) {
-    doc.fontSize(8).text(data.pdfFooter, 50, 750, { align: 'center' });
+    doc.fontSize(9).text(data.pdfFooter, 50, 750, { align: 'center' });
   }
 }
 

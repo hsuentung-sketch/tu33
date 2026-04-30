@@ -3,6 +3,20 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.4.0] - 2026-04-30
+
+### Added — 發票章 + B2B 電子發票格式
+- 公司基本資料新增「發票章」上傳區（PNG，≤ 2MB，存 Fly volume `/data/stamps/<tenantId>.png`）
+- 報價單 PDF 右下角自動蓋發票章（半透明，預設 0.85；可在後台調整）
+- 電子發票證明聯依買方統編自動分派：
+  - **B2C**（無統編 / 載具 / 捐贈）：保留 80mm 熱感紙樣式（barcode + dual QR + AES）
+  - **B2B**（有 8 碼統編）：A5 直式新格式，含買方框 / 應稅·零稅率·免稅勾選列 / 中文大寫金額 / 賣方框 + 蓋章區
+- API：`POST /api/tenant/me/invoice-stamp`（multipart）、`GET /api/tenant/me/invoice-stamp/image`、`DELETE`、`GET /me/invoice-stamp`（settings）
+
+### Changed — PDF 字體放大
+- 報價單 / 銷貨單 / 進貨單 / 月結請款單 / 月結對帳單 body 統一 12pt（原 9–10pt），表頭抬頭 18pt 與公司名 16pt 不變
+- info grid 行高 20→24、品項表 row 20→24、總計表 20→24，row 高度跟著放大
+
 ## [2.3.3] - 2026-04-26
 
 ### Fixed

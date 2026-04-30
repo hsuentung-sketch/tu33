@@ -102,6 +102,8 @@ pdfRouter.get('/:kind/:id', async (req: Request, res: Response, next: NextFuncti
         generateQuotationPdf({
           companyHeader,
           companyTaxId,
+          tenantId: payload.t,
+          stampOpacity: settings.invoiceStamp?.opacity ?? 0.85,
           quotationNo: q.quotationNo,
           date: q.createdAt,
           customer: {

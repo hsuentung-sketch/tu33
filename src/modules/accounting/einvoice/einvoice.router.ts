@@ -5,6 +5,7 @@ import { requireAdmin } from '../../core/auth/require-admin.js';
 import { prisma } from '../../../shared/prisma.js';
 import { getTenantSettings } from '../../../shared/utils.js';
 import { generateProofPdf } from '../../../documents/einvoice-proof-pdf.js';
+import { generateB2BEinvoicePdf } from '../../../documents/einvoice-b2b-pdf.js';
 import { logger } from '../../../shared/logger.js';
 import * as einvoiceService from './einvoice.service.js';
 
@@ -70,7 +71,7 @@ einvoiceRouter.get('/:id/proof.pdf', async (req: Request, res: Response, next: N
     const id = String(req.params.id);
     const inv = await prisma.einvoice.findFirst({
       where: { id, tenantId: req.tenantId },
-      include: { items: { orderBy: { sequence: 'asc' } } },
+      include: { items: { orderBy: { sequence: 'asc' } }, salesOrder: { select: { orderNo: true } } },
     });
     if (!inv) { res.status(404).send('Not found'); return; }
     const tenant = await prisma.tenant.findUnique({ where: { id: req.tenantId } });
@@ -78,28 +79,59 @@ einvoiceRouter.get('/:id/proof.pdf', async (req: Request, res: Response, next: N
     const settings = getTenantSettings(tenant.settings);
     const cfg = settings.einvoice;
 
-    const doc = await generateProofPdf({
-      invoiceNo: inv.invoiceNo,
-      invoiceDate: inv.invoiceDate,
-      randomCode: inv.randomCode || '0000',
-      salesAmount: Number(inv.salesAmount),
-      taxAmount: Number(inv.taxAmount),
-      totalAmount: Number(inv.totalAmount),
-      buyerTaxId: inv.buyerTaxId,
-      buyerName: inv.buyerName,
-      sellerTaxId: cfg.sellerTaxId || tenant.taxId || '',
-      sellerName: cfg.sellerName || tenant.companyName,
-      sellerAddress: cfg.sellerAddress || tenant.address || undefined,
-      aesKeyHex: cfg.qrAesKey || '',
-      voided: inv.status === 'voided',
-      printFlag: inv.printFlag,
-      items: inv.items.map((it) => ({
-        description: it.description,
-        quantity: Number(it.quantity),
-        unitPrice: Number(it.unitPrice),
-        amount: Number(it.amount),
-      })),
-    });
+    // 依買方統編分派：B2B（有 8 碼統編）走 A5 證明聯（蓋發票章）；
+    // B2C 走 80mm 熱感紙（barcode + dual QR）
+    const isB2B = !!inv.buyerTaxId && /^\d{8}$/.test(inv.buyerTaxId);
+
+    const doc = isB2B
+      ? await generateB2BEinvoicePdf({
+          invoiceNo: inv.invoiceNo,
+          invoiceDate: inv.invoiceDate,
+          randomCode: inv.randomCode || '0000',
+          invoiceFormat: '25',
+          sellerName: cfg.sellerName || tenant.companyName,
+          sellerTaxId: cfg.sellerTaxId || tenant.taxId || '',
+          sellerAddress: cfg.sellerAddress || tenant.address || undefined,
+          buyerName: inv.buyerName || '',
+          buyerTaxId: inv.buyerTaxId,
+          buyerAddress: inv.buyerAddress || undefined,
+          taxType: inv.taxType || '1',
+          salesAmount: Number(inv.salesAmount),
+          taxAmount: Number(inv.taxAmount),
+          totalAmount: Number(inv.totalAmount),
+          items: inv.items.map((it) => ({
+            description: it.description,
+            quantity: Number(it.quantity),
+            unitPrice: Number(it.unitPrice),
+            amount: Number(it.amount),
+          })),
+          salesOrderNo: inv.salesOrder?.orderNo,
+          voided: inv.status === 'voided',
+          tenantId: req.tenantId,
+          stampOpacity: settings.invoiceStamp?.opacity ?? 0.85,
+        })
+      : await generateProofPdf({
+          invoiceNo: inv.invoiceNo,
+          invoiceDate: inv.invoiceDate,
+          randomCode: inv.randomCode || '0000',
+          salesAmount: Number(inv.salesAmount),
+          taxAmount: Number(inv.taxAmount),
+          totalAmount: Number(inv.totalAmount),
+          buyerTaxId: inv.buyerTaxId,
+          buyerName: inv.buyerName,
+          sellerTaxId: cfg.sellerTaxId || tenant.taxId || '',
+          sellerName: cfg.sellerName || tenant.companyName,
+          sellerAddress: cfg.sellerAddress || tenant.address || undefined,
+          aesKeyHex: cfg.qrAesKey || '',
+          voided: inv.status === 'voided',
+          printFlag: inv.printFlag,
+          items: inv.items.map((it) => ({
+            description: it.description,
+            quantity: Number(it.quantity),
+            unitPrice: Number(it.unitPrice),
+            amount: Number(it.amount),
+          })),
+        });
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="einvoice-${inv.invoiceNo}.pdf"`);

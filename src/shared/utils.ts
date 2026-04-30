@@ -86,6 +86,7 @@ export function getTenantSettings(settings: unknown): TenantSettings {
     companyHeader: '',
     pdfFooter: '',
     einvoice: { ...einvoiceDefaults },
+    invoiceStamp: { ...stampDefaults },
   };
   if (typeof settings === 'object' && settings !== null) {
     const raw = settings as Partial<TenantSettings>;
@@ -93,9 +94,25 @@ export function getTenantSettings(settings: unknown): TenantSettings {
       ...defaults,
       ...raw,
       einvoice: { ...einvoiceDefaults, ...(raw.einvoice ?? {}) },
+      invoiceStamp: { ...stampDefaults, ...(raw.invoiceStamp ?? {}) },
     };
   }
   return defaults;
+}
+
+const stampDefaults: InvoiceStampSettings = {
+  hasStamp: false,
+  uploadedAt: '',
+  opacity: 0.85,
+};
+
+export interface InvoiceStampSettings {
+  /** 是否已上傳發票章圖檔（實際 PNG 存於 /data/stamps/<tenantId>.png） */
+  hasStamp: boolean;
+  /** ISO 字串，前端可拿來當 cache buster */
+  uploadedAt: string;
+  /** PDF 上蓋章半透明度，0–1，預設 0.85 */
+  opacity: number;
 }
 
 const einvoiceDefaults: EinvoiceSettings = {
@@ -149,4 +166,5 @@ export interface TenantSettings {
   companyHeader: string;
   pdfFooter: string;
   einvoice: EinvoiceSettings;
+  invoiceStamp: InvoiceStampSettings;
 }
