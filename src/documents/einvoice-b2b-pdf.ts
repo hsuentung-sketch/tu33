@@ -61,11 +61,11 @@ export interface B2BEinvoicePdfData {
   stampOpacity?: number;
 }
 
-function rocDate(d: Date): string {
+function adDate(d: Date): string {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit',
   }).formatToParts(d);
-  const y = Number(parts.find((p) => p.type === 'year')!.value) - 1911;
+  const y = parts.find((p) => p.type === 'year')!.value;
   const m = parts.find((p) => p.type === 'month')!.value;
   const day = parts.find((p) => p.type === 'day')!.value;
   return `${y}-${m}-${day}`;
@@ -75,7 +75,7 @@ function periodStr(d: Date): string {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit',
   }).formatToParts(d);
-  const y = Number(parts.find((p) => p.type === 'year')!.value) - 1911;
+  const y = parts.find((p) => p.type === 'year')!.value;
   let m = Number(parts.find((p) => p.type === 'month')!.value);
   const period2 = m % 2 === 0 ? `${m - 1}-${m}` : `${m}-${m + 1}`;
   return `${y}年${period2}月`;
@@ -126,10 +126,10 @@ export function chineseUpperAmount(n: number): string {
 export async function generateB2BEinvoicePdf(
   data: B2BEinvoicePdfData,
 ): Promise<InstanceType<typeof PDFDocument>> {
-  // 半張 A4（A4 對折）= A5 直式 = 419.53 × 595.28pt（PDFKit 'A5' 標準）
-  const doc = new PDFDocument({ size: 'A5', margin: 18 });
-  const W = 419.53, H = 595.28;
-  const M = 18;
+  // B5 直式 = 498.9 × 708.66pt（PDFKit 'B5' 標準）
+  const doc = new PDFDocument({ size: 'B5', margin: 20 });
+  const W = 498.9, H = 708.66;
+  const M = 20;
   doc.registerFont('cjk', CJK_FONT);
   doc.font('cjk');
 
@@ -137,14 +137,14 @@ export async function generateB2BEinvoicePdf(
   const right = W - M;
   const contentW = right - left;
 
-  // 標題列：公司名 / 「電子發票證明聯」 / 日期 / 格式 / 頁碼
+  // 標題列：公司名（大）/ 「電子發票證明聯」（縮）/ 日期 / 格式 / 頁碼
   let y = M + 4;
-  doc.fontSize(13).fillColor('#000').text(data.sellerName, left, y, { width: contentW, align: 'center' });
+  doc.fontSize(15).fillColor('#000').text(data.sellerName, left, y, { width: contentW, align: 'center' });
+  y += 20;
+  doc.fontSize(11).text('電子發票證明聯', left, y, { width: contentW, align: 'center' });
   y += 18;
-  doc.fontSize(15).text('電子發票證明聯', left, y, { width: contentW, align: 'center' });
-  y += 22;
   doc.fontSize(9).fillColor('#222');
-  doc.text(rocDate(data.invoiceDate), left, y, { width: contentW, align: 'center' });
+  doc.text(adDate(data.invoiceDate), left, y, { width: contentW, align: 'center' });
   y += 12;
   doc.text(`格式：${data.invoiceFormat ?? '25'}`, left, y, { width: contentW / 2, align: 'left' });
   doc.text('第1頁/共1頁', left + contentW / 2, y, { width: contentW / 2, align: 'right' });
@@ -234,10 +234,10 @@ export async function generateB2BEinvoicePdf(
   doc.rect(left, taxY, sumLabelW, sumRowH).stroke();
   doc.rect(left + sumLabelW, taxY, sumValueW, sumRowH).stroke();
   doc.fillColor('#222').text('營業稅', left + 6, taxY + 5);
-  // 三選一勾選 + 稅額
+  // 三選一勾選 + 稅額；非選中的只顯示標籤、不顯示 X 框
   const taxType = data.taxType ?? '1';
-  const checkbox = (label: string, on: boolean) => `${on ? '☑' : '☐'} ${label}`;
-  const choices = `${checkbox('應稅', taxType === '1')}   ${checkbox('零稅率', taxType === '2')}   ${checkbox('免稅', taxType === '3')}`;
+  const mark = (label: string, on: boolean) => on ? `✓ ${label}` : `   ${label}`;
+  const choices = `${mark('應稅', taxType === '1')}    ${mark('零稅率', taxType === '2')}    ${mark('免稅', taxType === '3')}`;
   doc.fillColor('#000').fontSize(9).text(choices, left + sumLabelW + 6, taxY + 6, { width: sumValueW - 80, align: 'left' });
   doc.fontSize(10).text(Math.round(data.taxAmount).toLocaleString('zh-TW'), left + sumLabelW + sumValueW - 80, taxY + 5, { width: 74, align: 'right' });
   // 總計
@@ -255,44 +255,48 @@ export async function generateB2BEinvoicePdf(
   doc.fillColor('#000').fontSize(11).text(chineseUpperAmount(data.totalAmount), left + 140, y + 5, { width: contentW - 146 });
   y += cnRowH + 6;
 
-  // 備註區（自動帶出貨單號 + 固定提醒文字）
-  const remarkH = 38;
-  doc.rect(left, y, contentW, remarkH).stroke();
+  // 三欄並排：備註 / 賣方資訊 / 發票章
+  const bottomH = 80;
+  const stampW = 90;
+  const remarkW = Math.round(contentW * 0.50);
+  const sellerW = contentW - stampW - remarkW;
+
+  doc.rect(left, y, remarkW, bottomH).stroke();
+  doc.rect(left + remarkW, y, sellerW, bottomH).stroke();
+  doc.rect(left + remarkW + sellerW, y, stampW, bottomH).stroke();
+
+  // ----- 備註欄 -----
   doc.fontSize(9).fillColor('#222').text('備註', left + 6, y + 6, { width: 40 });
   doc.fillColor('#000').fontSize(9);
   const remarkLines: string[] = [];
   if (data.salesOrderNo) remarkLines.push(`出貨單號：${data.salesOrderNo}${data.acCode ? `    AC：${data.acCode}` : ''}`);
-  remarkLines.push('發票內容若有誤，請於當月更正，隔月恕不受理。');
-  doc.text(remarkLines.join('\n'), left + 50, y + 6, { width: contentW - 56 });
-  y += remarkH + 6;
+  remarkLines.push('發票內容若有誤，請於當月更正，');
+  remarkLines.push('隔月恕不受理。');
+  doc.text(remarkLines.join('\n'), left + 6, y + 22, { width: remarkW - 12, lineGap: 2 });
 
-  // 賣方框 + 蓋章區
-  const sellerBoxH = 60;
-  const stampW = 90;
-  const sellerInfoW = contentW - stampW;
-  doc.rect(left, y, sellerInfoW, sellerBoxH).stroke();
-  doc.rect(left + sellerInfoW, y, stampW, sellerBoxH).stroke();
+  // ----- 賣方欄 -----
+  const sellerX = left + remarkW;
   doc.fontSize(10).fillColor('#222');
-  doc.text(`賣方：${data.sellerName}`, left + 6, y + 6, { width: sellerInfoW - 12 });
-  doc.text(`統一編號：${data.sellerTaxId}`, left + 6, y + 22, { width: sellerInfoW - 12 });
-  doc.text(`地址：${data.sellerAddress ?? ''}`, left + 6, y + 38, { width: sellerInfoW - 12 });
-  // 蓋章區標題
-  doc.fillColor('#666').fontSize(8).text('營業人蓋統一發票專用章', left + sellerInfoW + 4, y + 4, { width: stampW - 8, align: 'center' });
+  doc.text(`賣方：${data.sellerName}`, sellerX + 6, y + 8, { width: sellerW - 12 });
+  doc.text(`統一編號：${data.sellerTaxId}`, sellerX + 6, y + 32, { width: sellerW - 12 });
+  doc.text(`地址：${data.sellerAddress ?? ''}`, sellerX + 6, y + 52, { width: sellerW - 12 });
 
-  // 蓋章圖
+  // ----- 蓋章欄 -----
+  const stampX = left + remarkW + sellerW;
+  doc.fillColor('#666').fontSize(8).text('營業人蓋統一發票專用章', stampX + 4, y + 4, { width: stampW - 8, align: 'center' });
   if (data.tenantId) {
     const path = stampPathFor(data.tenantId);
     if (existsSync(path)) {
       try {
         doc.save();
         doc.opacity(data.stampOpacity ?? 0.85);
-        doc.image(path, left + sellerInfoW + 4, y + 12, { fit: [stampW - 8, sellerBoxH - 16], align: 'center', valign: 'center' });
+        doc.image(path, stampX + 4, y + 16, { fit: [stampW - 8, bottomH - 22], align: 'center', valign: 'center' });
         doc.restore();
         doc.opacity(1);
       } catch { /* ignore */ }
     }
   }
-  y += sellerBoxH + 4;
+  y += bottomH + 4;
 
   // 隨機碼 / 期別
   doc.fillColor('#444').fontSize(8);
