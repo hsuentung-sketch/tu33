@@ -87,6 +87,7 @@ export function getTenantSettings(settings: unknown): TenantSettings {
     pdfFooter: '',
     einvoice: { ...einvoiceDefaults },
     invoiceStamp: { ...stampDefaults },
+    accounting: { ...accountingDefaults },
   };
   if (typeof settings === 'object' && settings !== null) {
     const raw = settings as Partial<TenantSettings>;
@@ -95,9 +96,31 @@ export function getTenantSettings(settings: unknown): TenantSettings {
       ...raw,
       einvoice: { ...einvoiceDefaults, ...(raw.einvoice ?? {}) },
       invoiceStamp: { ...stampDefaults, ...(raw.invoiceStamp ?? {}) },
+      accounting: { ...accountingDefaults, ...(raw.accounting ?? {}) },
     };
   }
   return defaults;
+}
+
+const accountingDefaults: AccountingSettings = {
+  enabled: false,
+  fiscalYearStartMonth: 1,
+  currentYear: new Date().getFullYear(),
+  autoJournalEnabled: true,
+  openingBalanceDone: false,
+};
+
+export interface AccountingSettings {
+  /** 會計模組總開關。false 時自動分錄全部 skip，後台會計頁顯示「未啟用」。 */
+  enabled: boolean;
+  /** 會計年度起始月份（1-12），預設 1（Calendar Year） */
+  fiscalYearStartMonth: number;
+  /** 當前會計年度，啟用時建立 12 個 FiscalPeriod */
+  currentYear: number;
+  /** 自動分錄是否啟用；關閉只允許手動傳票 */
+  autoJournalEnabled: boolean;
+  /** 期初餘額是否已建立 */
+  openingBalanceDone: boolean;
 }
 
 const stampDefaults: InvoiceStampSettings = {
@@ -167,4 +190,5 @@ export interface TenantSettings {
   pdfFooter: string;
   einvoice: EinvoiceSettings;
   invoiceStamp: InvoiceStampSettings;
+  accounting: AccountingSettings;
 }

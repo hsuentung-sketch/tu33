@@ -44,6 +44,9 @@ model Tenant {
   einvoices          Einvoice[]
   einvoiceNumberPools EinvoiceNumberPool[]
   allowances         EinvoiceAllowance[]
+  chartOfAccounts    ChartOfAccount[]
+  fiscalPeriods      FiscalPeriod[]
+  journalEntries     JournalEntry[]
 }
 
 // ============================================================
@@ -681,4 +684,120 @@ model EinvoiceAllowanceItem {
   amount          Decimal  @db.Decimal(14, 2)
   taxType         String   @default("1")
   taxAmount       Decimal  @db.Decimal(14, 2)
+}
+
+// ============================================================
+// Accounting (Phase A 最小可用會計)
+// ============================================================
+//
+// 啟用前由 Tenant.settings.accounting.enabled = false 把整個模組關掉，
+// 此時自動分錄 hooks 會 skip。ADMIN 在後台「會計」頁按「啟用」會：
+//   1. flip enabled = true
+//   2. 種子預設 30 個科目
+//   3. 建立會計年度的 12 期間
+//   4. 引導填期初餘額（單筆開帳分錄）
+// 啟用後新發生的交易才會產自動分錄；歷史交易不補。
+
+model ChartOfAccount {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /** 科目編號（4 位數，如 1101 現金） */
+  code         String
+  name         String
+  /** 階層 1-4，預設範本最深到 2 */
+  level        Int      @default(1)
+  parentId     String?
+  parent       ChartOfAccount?  @relation("AccountTree", fields: [parentId], references: [id])
+  children     ChartOfAccount[] @relation("AccountTree")
+  /** asset|liability|equity|income|cost|expense */
+  type         String
+  /** debit|credit — 該科目正常餘額方向，反向時餘額為負 */
+  normalSide   String
+  /** 系統預設科目（不可刪除，名稱可改） */
+  isSystem     Boolean  @default(false)
+  isActive     Boolean  @default(true)
+  description  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  journalLines JournalLine[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, type])
+  @@index([tenantId, parentId])
+}
+
+model FiscalPeriod {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  year      Int
+  /** 1-12，月份 */
+  period    Int
+  startDate DateTime
+  endDate   DateTime
+  /** open|closed — closed 後不可再過帳新分錄到此期間 */
+  status    String   @default("open")
+  closedAt  DateTime?
+  closedBy  String?
+  createdAt DateTime @default(now())
+
+  journalEntries JournalEntry[]
+
+  @@unique([tenantId, year, period])
+  @@index([tenantId, status])
+}
+
+model JournalEntry {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /** 傳票編號 JE-YYYYMMDD-NNN */
+  entryNo     String
+  entryDate   DateTime
+  periodId    String
+  period      FiscalPeriod @relation(fields: [periodId], references: [id])
+  description String
+  /** manual|sales|purchase|receipt|payment|einvoice|opening|reversal */
+  source      String   @default("manual")
+  /** 對應原始單據 id（sales-order id / receivable id 等） */
+  sourceId    String?
+  /** pending|posted|reversed */
+  status      String   @default("pending")
+  postedAt    DateTime?
+  postedBy    String?
+  reversedAt  DateTime?
+  reversedBy  String?
+  /** 反沖傳票 id（status=reversed 時指向新建的紅字傳票） */
+  reversedById String?
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  lines JournalLine[]
+
+  @@unique([tenantId, entryNo])
+  @@index([tenantId, status])
+  @@index([tenantId, entryDate])
+  @@index([tenantId, source, sourceId])
+}
+
+model JournalLine {
+  id          String   @id @default(cuid())
+  entryId     String
+  entry       JournalEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  sequence    Int
+  accountId   String
+  account     ChartOfAccount @relation(fields: [accountId], references: [id])
+  /** 借方金額；非借方時 0 */
+  debit       Decimal  @default(0) @db.Decimal(14, 2)
+  /** 貸方金額；非貸方時 0 */
+  credit      Decimal  @default(0) @db.Decimal(14, 2)
+  description String?
+  /** 部門 / 成本中心，Phase A 為 nullable，未來可加 Department 表 */
+  departmentId String?
+
+  @@index([entryId])
+  @@index([accountId])
 }

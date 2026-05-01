@@ -3,6 +3,27 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.5.0] - 2026-04-30
+
+### Added — 會計模組 Phase A 基礎建設（預設關閉）
+- 新 4 個 model：`ChartOfAccount` / `FiscalPeriod` / `JournalEntry` / `JournalLine`（已 push 至 Supabase）
+- 新增 30+ 預設科目範本（台灣中小企業常用，含資產/負債/權益/收入/成本/費用六大類）
+- 啟用流程：ADMIN 在「會計 → 總覽」按「啟用會計模組」即觸發：
+  1. 種子預設科目
+  2. 建立會計年度 12 期間
+  3. flip `Tenant.settings.accounting.enabled`
+- 啟用後可建立期初餘額（單筆開帳分錄，預設範本：現金 500,000 / 業主資本 500,000）
+- 後台側欄新增「會計」分頁，含 7 個子頁：總覽 / 科目表 / 會計期間 / 傳票 / 試算表 / 損益表 / 資產負債表
+- 傳票生命週期：pending → posted → reversed；借貸平衡檢核
+- 期間 close / reopen（ADMIN）；關閉的期間不可再過帳
+- 三大基本報表：試算表（含借貸平衡檢核）、損益表（毛利、淨利）、資產負債表（含本期累計淨利）
+- API：`/api/accounting/{status,activate,opening-balance,coa,periods,journal,reports/*}`，需 ACCOUNTING+ 角色
+
+### Note
+- 自動分錄 hook（從銷貨/進貨/收付款/發票觸發產 JE）尚未掛上，**啟用後不會自動產生任何分錄**
+- 啟用前 Tenant.settings.accounting.enabled = false，所有功能擋在「未啟用」提示頁
+- 待用戶通知正式啟用，再加自動分錄 hook（Phase A2）
+
 ## [2.4.2] - 2026-04-30
 
 ### Changed — B2B 證明聯細節調整

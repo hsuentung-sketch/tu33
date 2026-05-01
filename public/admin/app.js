@@ -2230,6 +2230,441 @@ const AUDIT_ACTION_LABEL = {
   LINE_BIND_SUCCESS: 'LINE 綁定成功',
 };
 
+// ============================================================
+// 會計 (Phase A 最小可用會計)
+// ============================================================
+//
+// 會計模組預設關閉。ADMIN 在「總覽」頁按「啟用會計模組」才會：
+//   1. 種子預設 30+ 個科目
+//   2. 建立當年度 12 期間
+//   3. flip Tenant.settings.accounting.enabled
+// 啟用後再填期初餘額。
+
+const ACCT_TYPE_LABEL = {
+  asset: '資產', liability: '負債', equity: '權益',
+  income: '收入', cost: '成本', expense: '費用',
+};
+
+async function loadAcctStatus() {
+  return await api.get('/accounting/status');
+}
+
+function fmtMoney(n) {
+  if (n == null) return '';
+  const v = Number(n);
+  return v.toLocaleString('zh-TW', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
+async function viewAcctOverview(main) {
+  main.innerHTML = '';
+  main.append(el('h2', {}, '會計總覽'));
+  const status = await loadAcctStatus();
+
+  if (!status.enabled) {
+    if (!isAdmin()) {
+      main.append(el('div', { class: 'empty' }, '會計模組尚未啟用，請通知 ADMIN 啟用。'));
+      return;
+    }
+    main.append(el('div', { class: 'page-sub' },
+      '會計模組目前未啟用。啟用後系統會自動：(1) 種子 30+ 個常用科目 (2) 建立當年度 12 期間 (3) 開啟自動分錄產生器（會計可審核）'));
+    const card = el('div', { class: 'card', style: 'padding:16px;max-width:520px;' });
+    const yearInput = el('input', { type: 'number', value: String(new Date().getFullYear()), style: 'width:120px;' });
+    const monthInput = el('input', { type: 'number', min: '1', max: '12', value: '1', style: 'width:80px;' });
+    const btn = el('button', { class: 'btn primary' }, '啟用會計模組');
+    const errBox = el('div', { class: 'err', style: 'margin-top:8px;' });
+    card.append(
+      el('div', { style: 'margin-bottom:12px;' },
+        el('label', { style: 'display:block;font-size:12px;color:#666;margin-bottom:4px;' }, '會計年度'),
+        yearInput),
+      el('div', { style: 'margin-bottom:12px;' },
+        el('label', { style: 'display:block;font-size:12px;color:#666;margin-bottom:4px;' }, '會計年度起始月份（一般 1 = Calendar Year）'),
+        monthInput),
+      btn, errBox,
+    );
+    main.append(card);
+    btn.addEventListener('click', async () => {
+      errBox.textContent = '';
+      btn.disabled = true;
+      try {
+        const r = await api.post('/accounting/activate', {
+          year: Number(yearInput.value),
+          fiscalYearStartMonth: Number(monthInput.value),
+        });
+        toast(`已啟用：建立 ${r.inserted} 個科目、${r.periodsCreated} 個期間`, 'ok');
+        location.reload();
+      } catch (e) { errBox.textContent = e.message; btn.disabled = false; }
+    });
+    return;
+  }
+
+  // 已啟用 — 顯示啟用資訊與期初餘額狀態
+  const grid = el('div', { class: 'grid', style: 'display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:16px;' });
+  grid.append(
+    el('div', { class: 'card', style: 'padding:14px;' },
+      el('div', { style: 'font-size:12px;color:#666;' }, '當前會計年度'),
+      el('div', { style: 'font-size:22px;font-weight:600;' }, String(status.currentYear))),
+    el('div', { class: 'card', style: 'padding:14px;' },
+      el('div', { style: 'font-size:12px;color:#666;' }, '自動分錄'),
+      el('div', { style: 'font-size:22px;font-weight:600;' }, status.autoJournalEnabled ? '開啟' : '關閉')),
+    el('div', { class: 'card', style: 'padding:14px;' },
+      el('div', { style: 'font-size:12px;color:#666;' }, '期初餘額'),
+      el('div', { style: 'font-size:22px;font-weight:600;color:' + (status.openingBalanceDone ? '#0a0' : '#d80') + ';' },
+        status.openingBalanceDone ? '已建立' : '尚未建立')),
+  );
+  main.append(grid);
+
+  // 期初餘額表單（沒建過才顯示）
+  if (!status.openingBalanceDone && isAdmin()) {
+    main.append(el('h3', { style: 'margin-top:24px;' }, '期初餘額'));
+    main.append(el('div', { class: 'page-sub' },
+      '建立一筆開帳分錄，例：現金 500,000 / 業主資本 500,000。借貸需平衡。'));
+    const form = el('div', { class: 'card', style: 'padding:16px;max-width:680px;' });
+    const dateInput = el('input', { type: 'date', value: new Date().toISOString().slice(0, 10), style: 'width:160px;' });
+    const linesBox = el('div');
+
+    function makeLine(defaults = {}) {
+      const codeInput = el('input', { type: 'text', placeholder: '科目編號(4 位)', value: defaults.code || '', style: 'width:130px;' });
+      const debitInput = el('input', { type: 'number', placeholder: '借', step: '0.01', value: defaults.debit ?? '', style: 'width:130px;' });
+      const creditInput = el('input', { type: 'number', placeholder: '貸', step: '0.01', value: defaults.credit ?? '', style: 'width:130px;' });
+      const removeBtn = el('button', { class: 'btn', type: 'button' }, '×');
+      const row = el('div', { style: 'display:flex;gap:6px;margin-bottom:6px;' }, codeInput, debitInput, creditInput, removeBtn);
+      removeBtn.addEventListener('click', () => row.remove());
+      row._readers = () => ({
+        accountCode: codeInput.value.trim(),
+        debit: debitInput.value ? Number(debitInput.value) : 0,
+        credit: creditInput.value ? Number(creditInput.value) : 0,
+      });
+      return row;
+    }
+    linesBox.append(
+      makeLine({ code: '1101', debit: 500000 }),
+      makeLine({ code: '3101', credit: 500000 }),
+    );
+    const addBtn = el('button', { type: 'button', class: 'btn' }, '+ 加一行');
+    addBtn.addEventListener('click', () => linesBox.append(makeLine()));
+    const submitBtn = el('button', { class: 'btn primary' }, '建立期初分錄');
+    const errBox = el('div', { class: 'err', style: 'margin-top:8px;' });
+    form.append(
+      el('div', { style: 'margin-bottom:12px;' },
+        el('label', { style: 'display:block;font-size:12px;color:#666;margin-bottom:4px;' }, '日期'),
+        dateInput),
+      el('div', { style: 'font-size:12px;color:#666;margin-bottom:6px;' }, '科目編號 / 借 / 貸（同一行借貸只能一邊有值）'),
+      linesBox, addBtn,
+      el('div', { style: 'margin-top:12px;' }, submitBtn, errBox),
+    );
+    main.append(form);
+    submitBtn.addEventListener('click', async () => {
+      errBox.textContent = '';
+      submitBtn.disabled = true;
+      try {
+        const lines = [...linesBox.children].map((r) => r._readers()).filter((l) => l.accountCode);
+        await api.post('/accounting/opening-balance', {
+          entryDate: new Date(dateInput.value).toISOString(),
+          description: '期初開帳',
+          lines,
+        });
+        toast('期初餘額已建立', 'ok');
+        location.reload();
+      } catch (e) { errBox.textContent = e.message; submitBtn.disabled = false; }
+    });
+  }
+}
+
+async function viewAcctCoa(main) {
+  main.innerHTML = '';
+  main.append(el('h2', {}, '科目表'));
+  const status = await loadAcctStatus();
+  if (!status.enabled) {
+    main.append(el('div', { class: 'empty' }, '會計模組尚未啟用。')); return;
+  }
+  const list = await api.get('/accounting/coa');
+  const tbl = el('table', { class: 'data-table' });
+  tbl.append(el('thead', {}, el('tr', {},
+    el('th', {}, '編號'),
+    el('th', {}, '名稱'),
+    el('th', {}, '類型'),
+    el('th', {}, '正常餘額'),
+    el('th', {}, '系統'),
+    el('th', {}, '狀態'),
+  )));
+  const tb = el('tbody');
+  list.forEach((a) => {
+    tb.append(el('tr', {},
+      el('td', {}, a.code),
+      el('td', { style: 'padding-left:' + (a.level - 1) * 16 + 'px;' }, a.name),
+      el('td', {}, ACCT_TYPE_LABEL[a.type] || a.type),
+      el('td', {}, a.normalSide === 'debit' ? '借' : '貸'),
+      el('td', {}, a.isSystem ? '是' : ''),
+      el('td', {}, a.isActive ? '啟用' : '停用'),
+    ));
+  });
+  tbl.append(tb);
+  main.append(tbl);
+  main.append(el('div', { class: 'page-sub', style: 'margin-top:8px;' },
+    `共 ${list.length} 個科目。新增/停用功能於下個版本提供（Phase A 後）。`));
+}
+
+async function viewAcctPeriods(main) {
+  main.innerHTML = '';
+  main.append(el('h2', {}, '會計期間'));
+  const status = await loadAcctStatus();
+  if (!status.enabled) { main.append(el('div', { class: 'empty' }, '會計模組尚未啟用。')); return; }
+  const list = await api.get('/accounting/periods');
+  const tbl = el('table', { class: 'data-table' });
+  tbl.append(el('thead', {}, el('tr', {},
+    el('th', {}, '年度'),
+    el('th', {}, '月份'),
+    el('th', {}, '起'),
+    el('th', {}, '迄'),
+    el('th', {}, '狀態'),
+    el('th', {}, '動作'),
+  )));
+  const tb = el('tbody');
+  list.forEach((p) => {
+    const fmt = (d) => new Date(d).toLocaleDateString('zh-TW');
+    const actionCell = el('td');
+    if (isAdmin()) {
+      if (p.status === 'open') {
+        const b = el('button', { class: 'btn', style: 'font-size:12px;' }, '關閉');
+        b.addEventListener('click', async () => {
+          if (!confirm(`關閉 ${p.year}/${p.period} 期？關閉後此期間無法新增傳票。`)) return;
+          try { await api.post(`/accounting/periods/${p.id}/close`); toast('已關閉', 'ok'); viewAcctPeriods(main); }
+          catch (e) { toast(e.message, 'err'); }
+        });
+        actionCell.append(b);
+      } else {
+        const b = el('button', { class: 'btn', style: 'font-size:12px;' }, '重開');
+        b.addEventListener('click', async () => {
+          if (!confirm(`重新開放 ${p.year}/${p.period} 期？`)) return;
+          try { await api.post(`/accounting/periods/${p.id}/reopen`); toast('已重開', 'ok'); viewAcctPeriods(main); }
+          catch (e) { toast(e.message, 'err'); }
+        });
+        actionCell.append(b);
+      }
+    }
+    tb.append(el('tr', {},
+      el('td', {}, String(p.year)),
+      el('td', {}, String(p.period)),
+      el('td', {}, fmt(p.startDate)),
+      el('td', {}, fmt(p.endDate)),
+      el('td', {}, p.status === 'open' ? '開放' : '關閉'),
+      actionCell,
+    ));
+  });
+  tbl.append(tb);
+  main.append(tbl);
+}
+
+async function viewAcctJournal(main) {
+  main.innerHTML = '';
+  main.append(el('h2', {}, '傳票'));
+  const status = await loadAcctStatus();
+  if (!status.enabled) { main.append(el('div', { class: 'empty' }, '會計模組尚未啟用。')); return; }
+
+  // 篩選列
+  const filters = el('div', { style: 'display:flex;gap:8px;margin-bottom:12px;align-items:center;' });
+  const stSel = el('select', {},
+    el('option', { value: '' }, '全部狀態'),
+    el('option', { value: 'pending' }, '待審核'),
+    el('option', { value: 'posted' }, '已過帳'),
+    el('option', { value: 'reversed' }, '已反沖'),
+  );
+  filters.append(el('span', { style: 'font-size:12px;color:#666;' }, '狀態'), stSel);
+  const refresh = el('button', { class: 'btn' }, '重新整理');
+  filters.append(refresh);
+  main.append(filters);
+
+  const tblBox = el('div');
+  main.append(tblBox);
+
+  async function reload() {
+    const params = new URLSearchParams();
+    if (stSel.value) params.set('status', stSel.value);
+    const list = await api.get('/accounting/journal' + (params.toString() ? '?' + params : ''));
+    tblBox.innerHTML = '';
+    if (!list.length) { tblBox.append(el('div', { class: 'empty' }, '尚無傳票')); return; }
+    const tbl = el('table', { class: 'data-table' });
+    tbl.append(el('thead', {}, el('tr', {},
+      el('th', {}, '編號'),
+      el('th', {}, '日期'),
+      el('th', {}, '說明'),
+      el('th', {}, '來源'),
+      el('th', {}, '借合計'),
+      el('th', {}, '狀態'),
+      el('th', {}, '動作'),
+    )));
+    const tb = el('tbody');
+    list.forEach((e) => {
+      const totalDebit = e.lines.reduce((s, l) => s + Number(l.debit), 0);
+      const actCell = el('td', { style: 'display:flex;gap:4px;' });
+      if (e.status === 'pending') {
+        const postBtn = el('button', { class: 'btn primary', style: 'font-size:12px;' }, '過帳');
+        postBtn.addEventListener('click', async () => {
+          try { await api.post(`/accounting/journal/${e.id}/post`); toast('已過帳', 'ok'); reload(); }
+          catch (err) { toast(err.message, 'err'); }
+        });
+        actCell.append(postBtn);
+        if (isAdmin()) {
+          const delBtn = el('button', { class: 'btn', style: 'font-size:12px;' }, '刪除');
+          delBtn.addEventListener('click', async () => {
+            if (!confirm('確定刪除此 pending 傳票？')) return;
+            try { await api.del(`/accounting/journal/${e.id}`); toast('已刪除', 'ok'); reload(); }
+            catch (err) { toast(err.message, 'err'); }
+          });
+          actCell.append(delBtn);
+        }
+      } else if (e.status === 'posted' && isAdmin()) {
+        const revBtn = el('button', { class: 'btn', style: 'font-size:12px;' }, '反沖');
+        revBtn.addEventListener('click', async () => {
+          const reason = prompt('反沖原因？');
+          if (reason === null) return;
+          try { await api.post(`/accounting/journal/${e.id}/reverse`, { reason }); toast('已反沖', 'ok'); reload(); }
+          catch (err) { toast(err.message, 'err'); }
+        });
+        actCell.append(revBtn);
+      }
+      tb.append(el('tr', {},
+        el('td', {}, e.entryNo),
+        el('td', {}, new Date(e.entryDate).toLocaleDateString('zh-TW')),
+        el('td', {}, e.description),
+        el('td', {}, e.source),
+        el('td', { style: 'text-align:right;' }, fmtMoney(totalDebit)),
+        el('td', {}, e.status === 'pending' ? '待審核' : e.status === 'posted' ? '已過帳' : '已反沖'),
+        actCell,
+      ));
+    });
+    tbl.append(tb);
+    tblBox.append(tbl);
+  }
+
+  stSel.addEventListener('change', reload);
+  refresh.addEventListener('click', reload);
+  reload();
+}
+
+async function viewAcctTrialBalance(main) {
+  main.innerHTML = '';
+  main.append(el('h2', {}, '試算表'));
+  const status = await loadAcctStatus();
+  if (!status.enabled) { main.append(el('div', { class: 'empty' }, '會計模組尚未啟用。')); return; }
+  const tb = await api.get('/accounting/reports/trial-balance');
+  main.append(el('div', { class: 'page-sub' },
+    `借合計 ${fmtMoney(tb.totalDebit)} / 貸合計 ${fmtMoney(tb.totalCredit)} — ${tb.balanced ? '✓ 平衡' : '✗ 不平衡'}`));
+  const tbl = el('table', { class: 'data-table' });
+  tbl.append(el('thead', {}, el('tr', {},
+    el('th', {}, '編號'),
+    el('th', {}, '名稱'),
+    el('th', {}, '類型'),
+    el('th', { style: 'text-align:right;' }, '借'),
+    el('th', { style: 'text-align:right;' }, '貸'),
+    el('th', { style: 'text-align:right;' }, '餘額'),
+  )));
+  const body = el('tbody');
+  tb.balances.forEach((b) => {
+    body.append(el('tr', {},
+      el('td', {}, b.code),
+      el('td', {}, b.name),
+      el('td', {}, ACCT_TYPE_LABEL[b.type] || b.type),
+      el('td', { style: 'text-align:right;' }, fmtMoney(b.totalDebit)),
+      el('td', { style: 'text-align:right;' }, fmtMoney(b.totalCredit)),
+      el('td', { style: 'text-align:right;font-weight:600;' }, fmtMoney(b.balance)),
+    ));
+  });
+  tbl.append(body);
+  main.append(tbl);
+}
+
+async function viewAcctIncome(main) {
+  main.innerHTML = '';
+  main.append(el('h2', {}, '損益表'));
+  const status = await loadAcctStatus();
+  if (!status.enabled) { main.append(el('div', { class: 'empty' }, '會計模組尚未啟用。')); return; }
+  const today = new Date();
+  const yearStart = new Date(today.getFullYear(), 0, 1);
+  const fromInput = el('input', { type: 'date', value: yearStart.toISOString().slice(0, 10) });
+  const toInput = el('input', { type: 'date', value: today.toISOString().slice(0, 10) });
+  const refreshBtn = el('button', { class: 'btn' }, '查詢');
+  main.append(el('div', { style: 'display:flex;gap:8px;margin-bottom:12px;align-items:center;' },
+    el('span', { style: 'font-size:12px;color:#666;' }, '從'), fromInput,
+    el('span', { style: 'font-size:12px;color:#666;' }, '到'), toInput,
+    refreshBtn,
+  ));
+  const out = el('div');
+  main.append(out);
+  async function reload() {
+    const r = await api.get(`/accounting/reports/income-statement?from=${fromInput.value}&to=${toInput.value}`);
+    out.innerHTML = '';
+    function section(title, items, total) {
+      const sec = el('div', { style: 'margin-bottom:16px;' });
+      sec.append(el('h3', {}, title));
+      const t = el('table', { class: 'data-table' });
+      t.append(el('thead', {}, el('tr', {}, el('th', {}, '編號'), el('th', {}, '名稱'), el('th', { style: 'text-align:right;' }, '金額'))));
+      const tb = el('tbody');
+      items.forEach((it) => tb.append(el('tr', {},
+        el('td', {}, it.code), el('td', {}, it.name),
+        el('td', { style: 'text-align:right;' }, fmtMoney(it.balance)))));
+      tb.append(el('tr', { style: 'background:#f4f4f4;font-weight:600;' },
+        el('td', { colSpan: '2' }, '小計'),
+        el('td', { style: 'text-align:right;' }, fmtMoney(total))));
+      t.append(tb);
+      sec.append(t);
+      return sec;
+    }
+    out.append(section('營業收入', r.income, r.totalIncome));
+    out.append(section('銷貨成本', r.cost, r.totalCost));
+    out.append(el('div', { class: 'card', style: 'padding:12px;margin-bottom:16px;background:#eef;' },
+      `毛利：${fmtMoney(r.grossProfit)}`));
+    out.append(section('營業費用', r.expense, r.totalExpense));
+    out.append(el('div', { class: 'card', style: 'padding:14px;background:#dfe;font-size:18px;font-weight:600;' },
+      `本期淨利（損）：${fmtMoney(r.netIncome)}`));
+  }
+  refreshBtn.addEventListener('click', reload);
+  reload();
+}
+
+async function viewAcctBalance(main) {
+  main.innerHTML = '';
+  main.append(el('h2', {}, '資產負債表'));
+  const status = await loadAcctStatus();
+  if (!status.enabled) { main.append(el('div', { class: 'empty' }, '會計模組尚未啟用。')); return; }
+  const today = new Date();
+  const asOfInput = el('input', { type: 'date', value: today.toISOString().slice(0, 10) });
+  const refreshBtn = el('button', { class: 'btn' }, '查詢');
+  main.append(el('div', { style: 'display:flex;gap:8px;margin-bottom:12px;align-items:center;' },
+    el('span', { style: 'font-size:12px;color:#666;' }, '截止日'), asOfInput, refreshBtn));
+  const out = el('div');
+  main.append(out);
+  async function reload() {
+    const r = await api.get(`/accounting/reports/balance-sheet?asOf=${asOfInput.value}`);
+    out.innerHTML = '';
+    function section(title, items, total) {
+      const sec = el('div', { style: 'margin-bottom:16px;' });
+      sec.append(el('h3', {}, title));
+      const t = el('table', { class: 'data-table' });
+      t.append(el('thead', {}, el('tr', {}, el('th', {}, '編號'), el('th', {}, '名稱'), el('th', { style: 'text-align:right;' }, '金額'))));
+      const tb = el('tbody');
+      items.forEach((it) => tb.append(el('tr', {},
+        el('td', {}, it.code), el('td', {}, it.name),
+        el('td', { style: 'text-align:right;' }, fmtMoney(it.balance)))));
+      tb.append(el('tr', { style: 'background:#f4f4f4;font-weight:600;' },
+        el('td', { colSpan: '2' }, '小計'),
+        el('td', { style: 'text-align:right;' }, fmtMoney(total))));
+      t.append(tb);
+      sec.append(t);
+      return sec;
+    }
+    out.append(section('資產', r.asset, r.totalAsset));
+    out.append(section('負債', r.liability, r.totalLiability));
+    out.append(section('權益（不含本期淨利）', r.equity, r.totalEquity - r.netIncomeYTD));
+    out.append(el('div', { class: 'card', style: 'padding:12px;margin-bottom:16px;background:#eef;' },
+      `本期累計淨利：${fmtMoney(r.netIncomeYTD)}`));
+    out.append(el('div', { class: 'card', style: 'padding:14px;background:' + (r.balanced ? '#dfe' : '#fdd') + ';font-size:16px;font-weight:600;' },
+      `資產 ${fmtMoney(r.totalAsset)} = 負債 ${fmtMoney(r.totalLiability)} + 權益 ${fmtMoney(r.totalEquity)}　${r.balanced ? '✓ 平衡' : '✗ 不平衡'}`));
+  }
+  refreshBtn.addEventListener('click', reload);
+  reload();
+}
+
 async function viewAuditLogs(main) {
   if (window.__session?.employee?.role !== 'ADMIN') {
     main.innerHTML = '';
@@ -2671,6 +3106,18 @@ const GROUPS = {
       { key: 'einvoice-pools',  label: '發票配號', view: 'einvoice-pools', adminOnly: true },
     ],
   },
+  accounting: {
+    title: '會計',
+    tabs: [
+      { key: 'overview',      label: '總覽',     view: 'acct-overview', denySales: true },
+      { key: 'coa',           label: '科目表',   view: 'acct-coa', denySales: true },
+      { key: 'periods',       label: '會計期間', view: 'acct-periods', denySales: true },
+      { key: 'journal',       label: '傳票',     view: 'acct-journal', denySales: true },
+      { key: 'trial-balance', label: '試算表',   view: 'acct-trial-balance', denySales: true },
+      { key: 'income',        label: '損益表',   view: 'acct-income', denySales: true },
+      { key: 'balance',       label: '資產負債', view: 'acct-balance', denySales: true },
+    ],
+  },
   logs: {
     title: '紀錄',
     tabs: [
@@ -2753,6 +3200,13 @@ const LEAF_VIEWS = {
   einvoices: viewEinvoices,
   'einvoice-pools': viewEinvoicePools,
   inventory: viewInventory,
+  'acct-overview':       viewAcctOverview,
+  'acct-coa':            viewAcctCoa,
+  'acct-periods':        viewAcctPeriods,
+  'acct-journal':        viewAcctJournal,
+  'acct-trial-balance':  viewAcctTrialBalance,
+  'acct-income':         viewAcctIncome,
+  'acct-balance':        viewAcctBalance,
   'audit-logs': viewAuditLogs,
   'error-logs': viewErrorLogs,
   company: viewCompany,
