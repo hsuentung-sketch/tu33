@@ -2249,12 +2249,6 @@ async function loadAcctStatus() {
   return await api.get('/accounting/status');
 }
 
-function fmtMoney(n) {
-  if (n == null) return '';
-  const v = Number(n);
-  return v.toLocaleString('zh-TW', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-}
-
 async function viewAcctOverview(main) {
   main.innerHTML = '';
   main.append(el('h2', {}, '會計總覽'));

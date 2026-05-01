@@ -3,6 +3,11 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.5.1] - 2026-05-01
+
+### Fixed
+- 後台首頁卡在「載入中…」：v2.5.0 在 app.js 重複宣告 `fmtMoney` 觸發 SyntaxError 導致整個 admin SPA 無法 parse；移除重複宣告，沿用全域 fmtMoney（line 45）
+
 ## [2.5.0] - 2026-04-30
 
 ### Added — 會計模組 Phase A 基礎建設（預設關閉）
