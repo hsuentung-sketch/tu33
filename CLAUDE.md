@@ -183,25 +183,8 @@ dueDate = endOfMonth(addMonths(firstOfMonth(billingYear, billingMonth), paymentD
 
 ## 未完成 / 待驗證
 
-### 待做
-- 銷貨單「送貨備註」在 LINE chat 流程沒有收集（PDF 會留空）
-- 報價追蹤流程（從 LINE Rich Menu 進入）尚未實作
-- 逾期帳款 LINE 推播（cron job）
-- 語音開單（Whisper）整合測試
-- 多公司複製流程的管理介面
-
-### Phase 2（後台擴充）
-- 報價 / 銷貨 / 進貨的**建單 UI**（目前只能查）
-- 員工自改密碼 UI
-- 審計日誌（AuditLog）檢視
-- 報表：銷售/毛利/月度對帳
-- tenant-level 設定頁（稅率、單號前綴、pdf 頁尾…）
-
-### 可能的使用者未來需求（記下備參）
-- LIFF 銷貨/進貨表單（像 LIFF 報價單那樣的 autocomplete 體驗）
-- 月結對帳單 PDF
-- 庫存追蹤
-- 銷售報表（毛利分析）
+> **詳細待辦清單見** [`TODO.md`](TODO.md) — 含 Phase B 會計 / 電子發票 / 一般 ERP / 維護技術債分類。
+> 完成項即從 TODO.md 移除；新功能請求先寫進 TODO.md 再排優先序。
 
 ---
 
