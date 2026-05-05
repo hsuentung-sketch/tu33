@@ -27,12 +27,17 @@ const issueSchema = z.object({
   buyerName: z.string().min(1, '請填寫買受人名稱'),
   buyerAddress: z.string().optional(),
   items: z.array(itemSchema).min(1, '至少一個品項'),
-  taxType: z.enum(['1', '2', '3']).optional(),
+  // MIG 4.1：新增 "4"=應稅(特種稅率)
+  taxType: z.enum(['1', '2', '3', '4']).optional(),
   invoiceDate: z.coerce.date().optional(),
   carrierType: z.string().optional(),
   carrierId: z.string().optional(),
   npoban: z.string().optional(),
   printFlag: z.enum(['Y', 'N']).optional(),
+  // MIG 4.1 新增
+  mainRemark: z.string().max(200).optional(),
+  customsClearanceMark: z.enum(['1', '2']).optional(),
+  zeroTaxRateReason: z.string().max(60).optional(),
 });
 
 const voidSchema = z.object({
@@ -112,6 +117,7 @@ einvoiceRouter.get('/:id/proof.pdf', async (req: Request, res: Response, next: N
           voided: inv.status === 'voided',
           tenantId: req.tenantId,
           stampOpacity: settings.invoiceStamp?.opacity ?? 0.85,
+          aesKeyHex: cfg.qrAesKey || '',
         })
       : await generateProofPdf({
           invoiceNo: inv.invoiceNo,

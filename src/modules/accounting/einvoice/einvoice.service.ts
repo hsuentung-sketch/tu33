@@ -30,6 +30,12 @@ export interface IssueInput {
   npoban?: string;
   /** Y=列印證明聯 N=不列印；預設依 tenant 設定 */
   printFlag?: string;
+  /** MIG 4.1：總備註（200 字內），寫入 XML <MainRemark> */
+  mainRemark?: string;
+  /** MIG 4.1：通關方式 "1"=非經海關 "2"=經海關，零稅率時必填 */
+  customsClearanceMark?: string;
+  /** MIG 4.1：零稅率原因（搭配 taxType=2 ） */
+  zeroTaxRateReason?: string;
   createdBy?: string;
 }
 
@@ -77,8 +83,16 @@ export async function createPool(tenantId: string, data: {
   if (!/^[A-Z]{2}$/.test(data.trackAlpha)) {
     throw new ValidationError('字軌必須為兩個大寫英文字母');
   }
-  if (!/^\d{3,}$/.test(data.yearMonth)) {
-    throw new ValidationError('期別格式錯誤（如 "11311" 代表民國 113 年 11-12 月期）');
+  // 期別格式：民國年(3) + 單月(2) + 雙月(2) = 7 碼。例 "1131112" = 113 年 11-12 月期。
+  // 依財政部「自行檢測表」項 5：須為 年(3碼)+單月(2碼)+雙月(2碼)。
+  if (!/^\d{7}$/.test(data.yearMonth)) {
+    throw new ValidationError('期別格式錯誤（須為 7 碼，民國年 3 碼 + 單月 2 碼 + 雙月 2 碼，如 "1131112" 代表民國 113 年 11-12 月期）');
+  }
+  const ymY = Number(data.yearMonth.slice(0, 3));
+  const ymOdd = Number(data.yearMonth.slice(3, 5));
+  const ymEven = Number(data.yearMonth.slice(5, 7));
+  if (ymY < 100 || ymOdd < 1 || ymOdd > 12 || ymOdd % 2 !== 1 || ymEven !== ymOdd + 1) {
+    throw new ValidationError('期別月份不合法：單月須為 1/3/5/7/9/11，雙月須為單月+1（如 1131112、1140102）');
   }
   if (data.rangeStart < 0 || data.rangeEnd <= data.rangeStart) {
     throw new ValidationError('起訖號碼錯誤');
@@ -104,14 +118,137 @@ export async function updatePool(tenantId: string, id: string, data: { isActive?
 }
 
 /**
- * Allocate the next invoice number from any active pool (FIFO by createdAt).
- * Uses an optimistic concurrency check: UPDATE ... WHERE nextNumber = expected.
- * If the row moved under us we retry; if all pools are exhausted we throw.
+ * 匯入「整合服務平台」下發的配號 CSV。
+ * 依財政部「自行檢測表」項 1(1)：以平台產出 CSV 配號檔匯入。
+ *
+ * 容忍多種欄位命名（中/英）：
+ *   - 期別 / 年期別 / yearMonth / InvoiceYearMonth
+ *   - 字軌 / 字軌號碼 / track / trackAlpha / InvoiceTrack
+ *   - 起號 / InvoiceBeginNo / rangeStart
+ *   - 迄號 / 訖號 / InvoiceEndNo / rangeEnd
+ *
+ * 解析自動 strip UTF-8 BOM。任何欄位驗證失敗的列會被計入 errors，不中斷匯入。
+ * 同 (tenantId, yearMonth, trackAlpha, rangeStart) 已存在則 skip。
  */
-async function allocateNumber(tenantId: string): Promise<{ poolId: string; trackAlpha: string; number: number }> {
+export interface ImportPoolsCsvResult {
+  inserted: number;
+  skipped: number;
+  errors: Array<{ row: number; message: string }>;
+}
+
+export async function importPoolsCsv(
+  tenantId: string,
+  csvText: string,
+  createdBy?: string,
+): Promise<ImportPoolsCsvResult> {
+  const result: ImportPoolsCsvResult = { inserted: 0, skipped: 0, errors: [] };
+  const stripped = csvText.replace(/^﻿/, '').replace(/\r\n?/g, '\n').trim();
+  if (!stripped) throw new ValidationError('CSV 內容為空');
+  const lines = stripped.split('\n').filter((l) => l.length);
+  if (lines.length < 2) throw new ValidationError('CSV 至少需 1 列標頭 + 1 列資料');
+
+  const headers = parseCsvLine(lines[0]).map((h) => h.trim());
+  const idxOf = (...alts: string[]) => {
+    for (const a of alts) {
+      const i = headers.findIndex((h) => h === a || h.replace(/\s/g, '') === a);
+      if (i >= 0) return i;
+    }
+    return -1;
+  };
+  const iY = idxOf('期別', '年期別', 'yearMonth', 'InvoiceYearMonth', '發票期別');
+  const iT = idxOf('字軌', '字軌號碼', 'track', 'trackAlpha', 'InvoiceTrack');
+  const iS = idxOf('起號', 'InvoiceBeginNo', 'rangeStart', '起');
+  const iE = idxOf('迄號', '訖號', 'InvoiceEndNo', 'rangeEnd', '迄');
+  if (iY < 0 || iT < 0 || iS < 0 || iE < 0) {
+    throw new ValidationError(`CSV 欄位缺漏：期別=${iY} 字軌=${iT} 起號=${iS} 迄號=${iE}（headers=${headers.join('|')}）`);
+  }
+
+  for (let r = 1; r < lines.length; r++) {
+    const cells = parseCsvLine(lines[r]).map((c) => c.trim());
+    if (cells.every((c) => !c)) continue;
+    try {
+      const yearMonth = cells[iY];
+      const trackAlpha = cells[iT].toUpperCase();
+      const rangeStart = Number(cells[iS]);
+      const rangeEnd = Number(cells[iE]);
+      if (!/^\d{7}$/.test(yearMonth)) throw new Error(`期別 ${yearMonth} 非 7 碼`);
+      if (!/^[A-Z]{2}$/.test(trackAlpha)) throw new Error(`字軌 ${trackAlpha} 非兩碼大寫英文`);
+      if (!Number.isInteger(rangeStart) || rangeStart < 0) throw new Error(`起號 ${cells[iS]} 不合法`);
+      if (!Number.isInteger(rangeEnd) || rangeEnd <= rangeStart) throw new Error(`迄號 ${cells[iE]} 不合法`);
+
+      const exists = await prisma.einvoiceNumberPool.findFirst({
+        where: { tenantId, yearMonth, trackAlpha, rangeStart },
+      });
+      if (exists) { result.skipped++; continue; }
+
+      await prisma.einvoiceNumberPool.create({
+        data: {
+          tenantId, yearMonth, trackAlpha, rangeStart, rangeEnd,
+          nextNumber: rangeStart, createdBy,
+          note: 'imported via CSV',
+        },
+      });
+      result.inserted++;
+    } catch (err) {
+      result.errors.push({ row: r + 1, message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  return result;
+}
+
+/** Minimal CSV line parser supporting quoted cells with embedded commas/quotes. */
+function parseCsvLine(line: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQ) {
+      if (c === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i++; }
+        else inQ = false;
+      } else cur += c;
+    } else {
+      if (c === ',') { out.push(cur); cur = ''; }
+      else if (c === '"') inQ = true;
+      else cur += c;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+
+/**
+ * 由 Date 推導對應期別 7 碼（民國年 3 + 單月 2 + 雙月 2，台北時區）。
+ * 例：2026-05-15 → 民國 115 年 5-6 月期 → "1150506"
+ */
+export function periodOfDate(d: Date): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit',
+  }).formatToParts(d);
+  const y = Number(parts.find((p) => p.type === 'year')!.value) - 1911;
+  const m = Number(parts.find((p) => p.type === 'month')!.value);
+  const odd = m % 2 === 1 ? m : m - 1;
+  const even = odd + 1;
+  return `${String(y).padStart(3, '0')}${String(odd).padStart(2, '0')}${String(even).padStart(2, '0')}`;
+}
+
+/**
+ * Allocate the next invoice number from a pool whose 期別 covers `invoiceDate`.
+ * 依財政部「自行檢測表」項 2(2)：依交易時間其發票號碼必須為當期所屬字軌號碼。
+ *
+ * Pool 必須 isActive=true 且 yearMonth === periodOfDate(invoiceDate)。
+ * 同期若有多 pool 用 FIFO（createdAt asc）；耗盡則自動停用後再 retry。
+ * Optimistic concurrency: UPDATE ... WHERE nextNumber = expected。
+ */
+async function allocateNumber(
+  tenantId: string,
+  invoiceDate: Date,
+): Promise<{ poolId: string; trackAlpha: string; number: number }> {
+  const wantedPeriod = periodOfDate(invoiceDate);
   for (let attempt = 0; attempt < 8; attempt++) {
     const pool = await prisma.einvoiceNumberPool.findFirst({
-      where: { tenantId, isActive: true },
+      where: { tenantId, isActive: true, yearMonth: wantedPeriod },
       orderBy: { createdAt: 'asc' },
     });
     if (!pool) break;
@@ -135,7 +272,9 @@ async function allocateNumber(tenantId: string): Promise<{ poolId: string; track
     }
     // Race lost → retry.
   }
-  throw new ValidationError('無可用配號區間（請先新增配號或重新啟用）');
+  throw new ValidationError(
+    `無可用配號：交易日 ${invoiceDate.toISOString().slice(0, 10)} 對應期別 ${wantedPeriod}，請先新增該期配號`,
+  );
 }
 
 function formatInvoiceNo(trackAlpha: string, number: number): string {
@@ -177,6 +316,16 @@ export async function issue(tenantId: string, input: IssueInput) {
   if (!einvCfg.turnkeyInboundDir) {
     throw new ValidationError('尚未設定 Turnkey 匯入目錄（settings.einvoice.turnkeyInboundDir）');
   }
+  // 依財政部「自行檢測表」項 8(8)：QRCode 內容須包含正確加密驗證資訊。
+  // 正式環境一律強制設定整合服務平台下發的 AES-128 金鑰（32 碼 hex）。
+  // 開發環境可留空，proof-barcodes.ts 會用 stub key 並在 log 警示。
+  if (process.env.NODE_ENV === 'production') {
+    if (!einvCfg.qrAesKey || !/^[0-9a-fA-F]{32}$/.test(einvCfg.qrAesKey)) {
+      throw new ValidationError(
+        'settings.einvoice.qrAesKey 未設定或格式錯誤：正式環境須填整合服務平台下發的 32 碼 hex AES-128 金鑰',
+      );
+    }
+  }
 
   // Optional linkage checks.
   if (input.receivableId) {
@@ -214,8 +363,13 @@ export async function issue(tenantId: string, input: IssueInput) {
   const totalAmount = salesAmount + taxAmount;
 
   // Allocate BEFORE creating XML so filename / XML use the real number.
-  const allocated = await allocateNumber(tenantId);
+  const allocated = await allocateNumber(tenantId, invoiceDate);
   const invoiceNo = formatInvoiceNo(allocated.trackAlpha, allocated.number);
+
+  // MIG 4.1：零稅率必填通關方式，前端未帶則拒絕。
+  if (taxType === '2' && !input.customsClearanceMark) {
+    throw new ValidationError('零稅率（taxType=2）必須填通關方式 customsClearanceMark（1=非經海關 2=經海關）');
+  }
 
   const xml = buildC0401({
     invoiceNo,
@@ -237,6 +391,9 @@ export async function issue(tenantId: string, input: IssueInput) {
     carrierId: input.carrierId,
     npoban: input.npoban,
     printFlag,
+    mainRemark: input.mainRemark,
+    customsClearanceMark: input.customsClearanceMark,
+    zeroTaxRateReason: input.zeroTaxRateReason,
   });
 
   let xmlPath: string | null = null;
@@ -264,6 +421,12 @@ export async function issue(tenantId: string, input: IssueInput) {
       taxType,
       status: 'issued',
       xmlPath,
+      // 二份備份：XML 內容直接存 DB，Turnkey 主機毀損仍可從 DB 重建（項 11）
+      xmlBody: xml,
+      // MIG 4.1 新增欄位
+      mainRemark: input.mainRemark,
+      customsClearanceMark: input.customsClearanceMark,
+      zeroTaxRateReason: input.zeroTaxRateReason,
       randomCode,
       carrierType: input.carrierType,
       carrierId: input.carrierId,
@@ -321,6 +484,14 @@ export async function voidInvoice(tenantId: string, id: string, reason: string, 
   }
 
   const voidDate = new Date();
+  // C0501 跨期檢核：依規範，作廢只能在發票當期內進行；跨期需走折讓單（D0401）。
+  const invPeriod = periodOfDate(inv.invoiceDate);
+  const voidPeriod = periodOfDate(voidDate);
+  if (invPeriod !== voidPeriod) {
+    throw new ValidationError(
+      `發票期別 ${invPeriod} 與作廢日期 ${voidPeriod} 不同期，跨期作廢請改用折讓單（D0401）`,
+    );
+  }
   const xml = buildC0501({
     invoiceNo: inv.invoiceNo,
     invoiceDate: inv.invoiceDate,
@@ -340,6 +511,7 @@ export async function voidInvoice(tenantId: string, id: string, reason: string, 
       voidedAt: voidDate,
       voidReason: reason.trim(),
       voidXmlPath: wrote.absolutePath,
+      voidXmlBody: xml,
     },
   });
 
@@ -396,10 +568,12 @@ export async function getById(tenantId: string, id: string) {
   return row;
 }
 
-/** Read the raw C0401 / C0501 XML previously written to turnkeyInboundDir. */
+/** Read the raw C0401 / C0501 XML — DB 內容（項 11 二份備份）優先，fallback 到 turnkey 目錄。 */
 export async function readXml(tenantId: string, id: string, kind: 'issue' | 'void'): Promise<string | null> {
   const row = await prisma.einvoice.findFirst({ where: { id, tenantId } });
   if (!row) throw new NotFoundError('Einvoice', id);
+  const body = kind === 'issue' ? row.xmlBody : row.voidXmlBody;
+  if (body) return body;
   const p = kind === 'issue' ? row.xmlPath : row.voidXmlPath;
   if (!p) return null;
   const { promises: fs } = await import('node:fs');

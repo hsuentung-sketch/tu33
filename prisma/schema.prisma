@@ -563,18 +563,21 @@ model EinvoiceNumberPool {
   id          String   @id @default(cuid())
   tenantId    String
   tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  yearMonth   String   // e.g. "11311" = 民國 113 年 11-12 月期
+  yearMonth   String   // 7 碼 民國年 3 + 單月 2 + 雙月 2 e.g. "1131112" = 民國 113 年 11-12 月期
   trackAlpha  String   // 字軌兩碼 e.g. "AB"
   rangeStart  Int      // 00000000 - 99999999
   rangeEnd    Int
   nextNumber  Int
   isActive    Boolean  @default(true)
+  /** 分支機構（總公司=null）。預留欄位，無對應 Branch FK；用於分店字軌隔離。 */
+  branchId    String?
   note        String?
   createdBy   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([tenantId, isActive])
+  @@index([tenantId, yearMonth, branchId])
 }
 
 // 單張電子發票主檔。與 AccountReceivable 1:1、SalesOrder N:1（同一銷貨單
@@ -597,6 +600,17 @@ model Einvoice {
   voidReason    String?
   xmlPath       String?   // 寫到 Turnkey inbound 目錄後的檔名（絕對路徑）
   voidXmlPath   String?
+  /** XML 內容存 DB 第二份，避免 Turnkey 主機毀損時 metadata 對不到原始 XML（項 11） */
+  xmlBody       String?   @db.Text
+  voidXmlBody   String?   @db.Text
+  /** 分支機構（總公司=null）；對應 EinvoiceNumberPool.branchId */
+  branchId      String?
+  /** MIG 4.1 新增：總備註 (200 字內)。寫入 XML <MainRemark>。 */
+  mainRemark    String?
+  /** MIG 4.1 新增：通關方式 "1"=非經海關出口 "2"=經海關出口；零稅率必填。 */
+  customsClearanceMark String?
+  /** MIG 4.1 新增：零稅率原因（搭配 taxType=2） */
+  zeroTaxRateReason    String?
   uploadedAt    DateTime?
   confirmedAt   DateTime?
   rejectReason  String?

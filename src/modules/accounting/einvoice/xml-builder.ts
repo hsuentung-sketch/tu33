@@ -1,19 +1,23 @@
 /**
- * MIG 3.2.1 XML builder for 財政部 Turnkey.
+ * MIG 4.1 XML builder for 財政部 Turnkey v3.2+。
  *
- * Generates:
- *  - C0401 (一般稅額 / 開立): B2B 三聯式 or B2C 二聯式
- *  - C0501 (作廢): 當期內作廢
+ * 升級自 3.2.1 重點（114-12-16 全面、115-01-01 強制）：
+ *  - 所有 namespace 從 `:3.2` 升 `:4.1`（5 種訊息）
+ *  - Main 區塊新增：MainRemark / CustomsClearanceMark / ZeroTaxRateReason
+ *  - ProductItem 新增 TaxType（混合稅率支援）
+ *  - RandomNumber 改為非必填（O）
+ *  - 折讓單僅賣方可開立或作廢（D0401/D0501 type=1 賣方）
+ *  - 日期格式：民國 YYYMMDD 或 西元 YYYYMMDD（皆受理；本實作沿用西元）
  *
- * 涵蓋：
- *  - C0401 開立（含載具 / 捐贈碼 / 列印註記 / 隨機碼，B2B + B2C）
- *  - C0501 作廢
- *  - D0401 折讓（賣方開立）
- *  - D0501 折讓作廢
+ * 涵蓋訊息：
+ *  - C0401 B2C 開立發票（B2B 開立用 A0101，本系統一律走 C0401 並依買受人有無統編切換）
+ *  - C0501 B2C 作廢發票
+ *  - D0401 折讓單（賣方開立）
+ *  - D0501 折讓單作廢
  *  - C0701 空白未使用字軌回報
  *
- * Reference: 電子發票資料交換標準 MIG 3.2.1
- *            https://www.einvoice.nat.gov.tw/
+ * Reference: 電子發票資料交換標準 MIG 4.1（114-10-29）
+ *            https://www.einvoice.nat.gov.tw/static/ptl/ein_upload/download/5340.pdf
  */
 
 export interface XmlSeller {
@@ -35,6 +39,10 @@ export interface XmlInvoiceItem {
   unit?: string;
   unitPrice: number;
   amount: number;
+  /** MIG 4.1 新增：每品項稅別（支援混合稅率）。預設沿用全發票 taxType。 */
+  taxType?: string;
+  /** 該品項稅額（混合稅情境下品項分別計稅）。MIG 4.1 ProductItem 內可有 Tax，但本實作仍以 Amount 區塊總稅額為準。 */
+  remark?: string;
 }
 
 export interface XmlInvoiceInput {
@@ -46,9 +54,9 @@ export interface XmlInvoiceInput {
   salesAmount: number;     // 未稅
   taxAmount: number;
   totalAmount: number;
-  taxType: string;         // "1" | "2" | "3"
+  taxType: string;         // "1"=應稅 "2"=零稅率 "3"=免稅 "4"=應稅(特種稅率)
   taxRate?: number;        // default 0.05
-  /** 4 碼隨機碼，B2C 證明聯 QR 驗證用；缺省時 builder 會產生 */
+  /** 4 碼隨機碼，B2C 證明聯 QR 驗證用；MIG 4.1 改為非必填，缺省時 builder 會產生 "0000" */
   randomCode?: string;
   /** 載具類別：3J0002=手機條碼 CQ0001=自然人憑證 EJ0113=會員載具等 */
   carrierType?: string;
@@ -57,6 +65,12 @@ export interface XmlInvoiceInput {
   npoban?: string;
   /** Y=列印 N=不列印 */
   printFlag?: string;
+  /** MIG 4.1 新增：總備註，最多 200 字 */
+  mainRemark?: string;
+  /** MIG 4.1 新增：通關方式（"1"=非經海關出口 "2"=經海關出口），零稅率必填 */
+  customsClearanceMark?: string;
+  /** MIG 4.1 新增：零稅率原因（搭配 taxType=2 使用） */
+  zeroTaxRateReason?: string;
 }
 
 export interface XmlVoidInput {
@@ -124,14 +138,17 @@ export function buildC0401(input: XmlInvoiceInput): string {
   const randomCode = input.randomCode ?? '0000';
   const printFlag = input.printFlag ?? 'Y';
 
+  // MIG 4.1：每品項 TaxType（無填則沿用全發票 taxType），支援混合稅率。
   const itemsXml = input.items.map((it) => `
     <ProductItem>
       <Description>${esc(it.description)}</Description>
       <Quantity>${amt(it.quantity, 4)}</Quantity>
       ${it.unit ? `<Unit>${esc(it.unit)}</Unit>` : ''}
       <UnitPrice>${amt(it.unitPrice, 4)}</UnitPrice>
+      <TaxType>${esc(it.taxType ?? input.taxType)}</TaxType>
       <Amount>${amt(it.amount, 0)}</Amount>
-      <SequenceNumber>${it.sequence}</SequenceNumber>
+      <SequenceNumber>${it.sequence}</SequenceNumber>${it.remark ? `
+      <Remark>${esc(it.remark)}</Remark>` : ''}
     </ProductItem>`).join('');
 
   // 載具 / 捐贈碼 區塊（擇一或皆無）
@@ -147,8 +164,16 @@ export function buildC0401(input: XmlInvoiceInput): string {
     <NPOBAN>${esc(input.npoban)}</NPOBAN>`
     : '';
 
+  // MIG 4.1 新增 Main-level optional 欄位
+  const mainRemarkBlock = input.mainRemark ? `
+    <MainRemark>${esc(input.mainRemark.slice(0, 200))}</MainRemark>` : '';
+  const customsBlock = input.customsClearanceMark ? `
+    <CustomsClearanceMark>${esc(input.customsClearanceMark)}</CustomsClearanceMark>` : '';
+  const zeroTaxBlock = input.zeroTaxRateReason ? `
+    <ZeroTaxRateReason>${esc(input.zeroTaxRateReason)}</ZeroTaxRateReason>` : '';
+
   return `<?xml version="1.0" encoding="UTF-8"?>
-<Invoice xmlns="urn:GEINV:eInvoiceMessage:C0401:3.2">
+<Invoice xmlns="urn:GEINV:eInvoiceMessage:C0401:4.1">
   <Main>
     <InvoiceNumber>${esc(input.invoiceNo)}</InvoiceNumber>
     <InvoiceDate>${ymd(input.invoiceDate)}</InvoiceDate>
@@ -162,11 +187,11 @@ export function buildC0401(input: XmlInvoiceInput): string {
       <Identifier>${esc(buyerId)}</Identifier>
       <Name>${esc(input.buyer.name)}</Name>
       ${input.buyer.address ? `<Address>${esc(input.buyer.address)}</Address>` : ''}
-    </Buyer>
+    </Buyer>${mainRemarkBlock}${customsBlock}
     <InvoiceType>07</InvoiceType>
     <DonateMark>${input.npoban ? '1' : '0'}</DonateMark>
     <PrintMark>${esc(printFlag)}</PrintMark>
-    <RandomNumber>${esc(randomCode)}</RandomNumber>${carrierBlock}${donationBlock}
+    <RandomNumber>${esc(randomCode)}</RandomNumber>${zeroTaxBlock}${carrierBlock}${donationBlock}
   </Main>
   <Details>${itemsXml}
   </Details>
@@ -229,7 +254,7 @@ export function buildD0401(input: XmlAllowanceInput): string {
     </ProductItem>`).join('');
 
   return `<?xml version="1.0" encoding="UTF-8"?>
-<Allowance xmlns="urn:GEINV:eInvoiceMessage:D0401:3.2">
+<Allowance xmlns="urn:GEINV:eInvoiceMessage:D0401:4.1">
   <Main>
     <AllowanceNumber>${esc(input.allowanceNo)}</AllowanceNumber>
     <AllowanceDate>${ymd(input.allowanceDate)}</AllowanceDate>
@@ -267,7 +292,7 @@ export function buildD0501(input: XmlAllowanceVoidInput): string {
     ? input.buyer.identifier.trim()
     : '0000000000';
   return `<?xml version="1.0" encoding="UTF-8"?>
-<CancelAllowance xmlns="urn:GEINV:eInvoiceMessage:D0501:3.2">
+<CancelAllowance xmlns="urn:GEINV:eInvoiceMessage:D0501:4.1">
   <Main>
     <CancelAllowanceNumber>${esc(input.allowanceNo)}</CancelAllowanceNumber>
     <AllowanceDate>${ymd(input.allowanceDate)}</AllowanceDate>
@@ -297,7 +322,7 @@ export interface XmlBlankRangeInput {
 
 export function buildC0701(input: XmlBlankRangeInput): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
-<BlankInvoiceNumber xmlns="urn:GEINV:eInvoiceMessage:C0701:3.2">
+<BlankInvoiceNumber xmlns="urn:GEINV:eInvoiceMessage:C0701:4.1">
   <Main>
     <Seller>
       <Identifier>${esc(input.seller.identifier)}</Identifier>
@@ -319,7 +344,7 @@ export function buildC0501(input: XmlVoidInput): string {
   const { track, number } = splitInvoiceNo(input.invoiceNo);
   void track; void number;
   return `<?xml version="1.0" encoding="UTF-8"?>
-<CancelInvoice xmlns="urn:GEINV:eInvoiceMessage:C0501:3.2">
+<CancelInvoice xmlns="urn:GEINV:eInvoiceMessage:C0501:4.1">
   <Main>
     <CancelInvoiceNumber>${esc(input.invoiceNo)}</CancelInvoiceNumber>
     <InvoiceDate>${ymd(input.invoiceDate)}</InvoiceDate>

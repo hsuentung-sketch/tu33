@@ -12,6 +12,10 @@
 import PDFDocument from 'pdfkit';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import {
+  barcodeContent, buildQrPayloads, renderQrPng, renderBarcodePng,
+  type ProofMeta,
+} from '../modules/accounting/einvoice/proof-barcodes.js';
 
 const STAMP_DIR = process.env.STAMP_DIR
   || (existsSync('/data') ? '/data/stamps' : resolve(process.cwd(), 'data/stamps'));
@@ -59,6 +63,8 @@ export interface B2BEinvoicePdfData {
   /** 蓋章圖檔的 tenantId；無則不蓋章 */
   tenantId?: string;
   stampOpacity?: number;
+  /** 證明聯 QR 加密金鑰（32 碼 hex / AES-128）。空字串會走 stub key（dev only）。 */
+  aesKeyHex?: string;
 }
 
 function adDate(d: Date): string {
@@ -254,6 +260,44 @@ export async function generateB2BEinvoicePdf(
   doc.fontSize(10).fillColor('#222').text('總計新台幣（中文大寫）', left + 6, y + 6, { width: 130 });
   doc.fillColor('#000').fontSize(11).text(chineseUpperAmount(data.totalAmount), left + 140, y + 5, { width: contentW - 146 });
   y += cnRowH + 6;
+
+  // 證明聯一維 + 二維條碼區
+  // 依財政部「自行檢測表」項 8(3)(6)(7)(8) — 即使是三聯式，主管機關檢測員依「證明聯列印」條目逐項勾選，
+  // 故補齊 一維 Code 39（含期別+號碼+隨機碼）+ 左右雙 QR（左含加密驗證碼，右為剩餘品項）。
+  const proofMeta: ProofMeta = {
+    invoiceNo: data.invoiceNo,
+    invoiceDate: data.invoiceDate,
+    randomCode: data.randomCode || '0000',
+    salesAmount: data.salesAmount,
+    totalAmount: data.totalAmount,
+    buyerTaxId: data.buyerTaxId ?? null,
+    sellerTaxId: data.sellerTaxId,
+    aesKeyHex: data.aesKeyHex || '',
+    items: data.items.map((it) => ({
+      description: it.description,
+      quantity: it.quantity,
+      unitPrice: it.unitPrice,
+    })),
+  };
+  const { left: leftQrPayload, right: rightQrPayload } = buildQrPayloads(proofMeta);
+  const bcText = barcodeContent(proofMeta);
+  const [leftQrPng, rightQrPng, barcodePng] = await Promise.all([
+    renderQrPng(leftQrPayload, 240),
+    renderQrPng(rightQrPayload, 240),
+    renderBarcodePng(bcText),
+  ]);
+
+  const proofH = 80;
+  const qrSize = 70;
+  const barW = contentW - qrSize * 2 - 16;
+  // 一維條碼（左側）
+  doc.image(barcodePng, left, y + 8, { width: barW, height: 40 });
+  doc.fontSize(8).fillColor('#444').text(bcText, left, y + 52, { width: barW, align: 'center' });
+  // 雙 QR（右側）
+  doc.image(leftQrPng, left + barW + 8, y + 4, { width: qrSize, height: qrSize });
+  doc.image(rightQrPng, left + barW + 8 + qrSize + 8, y + 4, { width: qrSize, height: qrSize });
+  doc.fillColor('#000');
+  y += proofH + 6;
 
   // 三欄並排：備註 / 賣方資訊 / 發票章
   const bottomH = 80;

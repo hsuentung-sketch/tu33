@@ -57,12 +57,19 @@ function hexAmt(n: number): string {
 
 function deriveFallbackKey(sellerTaxId: string): Buffer {
   // 未設定正式 AES key 時用 sellerTaxId 的 SHA-256 前 16 bytes 做 stub 金鑰。
-  // 正式上線必須改用整合服務平台下發的金鑰。
+  // 正式上線必須改用整合服務平台下發的金鑰。issue() 在 production 已 fail-fast，
+  // 這裡僅是雙保險（PDF 重產時仍會落到此路徑）。
   return createHash('sha256').update('stub:' + sellerTaxId).digest().subarray(0, 16);
 }
 
+let stubKeyWarned = false;
 function aesKey(cfg: string, sellerTaxId: string): Buffer {
   if (cfg && /^[0-9a-fA-F]{32}$/.test(cfg)) return Buffer.from(cfg, 'hex');
+  // 正式環境不該走到這裡（issue() 已擋）；若仍走到，console.warn 一次以利除錯。
+  if (process.env.NODE_ENV === 'production' && !stubKeyWarned) {
+    stubKeyWarned = true;
+    console.warn('[einvoice] WARNING: falling back to stub AES key — PDF QR will fail platform verification');
+  }
   return deriveFallbackKey(sellerTaxId);
 }
 

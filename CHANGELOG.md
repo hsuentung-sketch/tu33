@@ -3,6 +3,162 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.7.1] - 2026-05-05
+
+### Added — 會計科目表 Phase A：新增 / 編輯 / 停用 / 刪除（後台 UI）
+後端 CRUD 在 v2.5.0 已完成（service + router），本版補上後台介面。
+
+- 「會計 → 科目表」頁加 ADMIN 工具列：「＋新增科目」按鈕
+- 表格行尾加動作欄：
+  - **編輯**：可改名稱 / 描述 / 啟用狀態
+  - **停用 / 啟用** 切換按鈕
+  - **刪除**：僅非系統科目顯示；service 層另擋「已被傳票引用」
+- 新增 modal：
+  - 編號（4 位數字驗證）
+  - 名稱
+  - 類型（6 選 1：資產/負債/權益/收入/成本/費用）
+  - **正常餘額自動推導**（`asset/cost/expense`=借；`liability/equity/income`=貸）
+  - 上層科目（可空，若選必須與本科目同類型，level=2）
+  - 描述
+- 系統科目（`isSystem=true`）UI 上隱藏「刪除」按鈕；service 層也保護
+- 「狀態」欄位用顏色區分（啟用綠 / 停用灰）
+
+## [2.7.0] - 2026-05-05
+
+### Changed — XML 規格升級至 **MIG 4.1**（Turnkey v3.2+ 必需）
+財政部 114-12-16 強制 MIG 4.1，舊版 Turnkey + MIG 3.2.1 將無法上傳。本版完成升級。
+
+#### XML namespace（5 種訊息全升）
+- C0401 / C0501 / D0401 / D0501 / C0701 從 `:3.2` → `:4.1`
+
+#### C0401 新增欄位
+- `MainRemark` (Main, 0..1, ≤200 字)：總備註
+- `CustomsClearanceMark` (Main, 0..1, "1" 非經海關 / "2" 經海關)：零稅率時必填
+- `ZeroTaxRateReason` (Main, 0..1)：零稅率原因
+- `ProductItem.TaxType` (1)：每品項稅別（支援混合稅率，預設沿用全發票 taxType）
+- `ProductItem.Remark` (0..1)：品項備註
+- `RandomNumber` 改為非必填（M → O），仍保留 4 碼產生
+- 新增 taxType `"4"`：應稅(特種稅率)
+
+#### Schema 變更
+- `Einvoice` 加：`mainRemark` / `customsClearanceMark` / `zeroTaxRateReason` 三欄位（皆可為 null）
+- 已透過 `npx prisma db push` 套用至 Supabase
+- Migration SQL：
+  ```sql
+  ALTER TABLE "Einvoice" ADD COLUMN "mainRemark" TEXT;
+  ALTER TABLE "Einvoice" ADD COLUMN "customsClearanceMark" TEXT;
+  ALTER TABLE "Einvoice" ADD COLUMN "zeroTaxRateReason" TEXT;
+  ```
+
+#### Service 強化
+- `issue()` 在 taxType=2 時強制要求 `customsClearanceMark`，否則 throw
+- 新欄位寫入 DB + 傳遞給 `buildC0401`
+
+#### Router schema
+- `taxType` enum 加 `"4"`
+- 新增 `mainRemark` (max 200) / `customsClearanceMark` enum / `zeroTaxRateReason` (max 60)
+
+#### Admin UI（後台 AR 頁「開立電子發票」modal）
+- 加「課稅別」下拉（4 選項）
+- 零稅率時動態顯示「通關方式」+「零稅率原因」欄位
+- 加「總備註 MainRemark」欄位（200 字內）
+
+#### 折讓單（D0401 / D0501）
+- AllowanceType 已硬編 `"1"`（賣方開立），符合 MIG 4.1「僅賣方可開立」要求
+- 不需額外改動
+
+### Note
+- **過渡相容**：新 XML 用 `:4.1` namespace，Turnkey v3.2+ 可解；舊版 Turnkey 會拒絕（這正是升級目的）
+- 升級後必須使用 **Turnkey v3.2.1+**；舊 Turnkey 拒收
+- Turnkey 安裝在公司本地主機，不在這台 Fly server（Fly ↔ 公司主機之間檔案同步另議）
+- ADMIN 開立發票時若選零稅率，UI 強制要填通關方式
+
+## [2.6.0] - 2026-05-05
+
+### Changed — 電子發票合規修補（依財政部「自行檢測表」P0 + P1 + P2 全項目）
+
+#### P1-1：交易時間 vs 期別檢核（項 2(2)）
+- `allocateNumber()` 改吃 `invoiceDate` 參數，依該日期推算 `periodOfDate(d)` (7 碼) 過濾 pool；
+  pool.yearMonth 不符當期一律拒發，錯訊明確指出該期別代號
+- 新增 `export periodOfDate(d)` 給 boot-check 重用
+
+#### Extra：C0501 跨期作廢檢核
+- `voidInvoice()` 在送 C0501 前比對發票期別 vs 作廢日期期別；跨期 throw「跨期作廢請改用折讓單」
+
+#### P1-2：CSV 配號匯入（項 1(1)）
+- 新增 `POST /api/einvoice-number-pools/import-csv`（multipart `file` 欄位，1MB 上限，ADMIN）
+- service `importPoolsCsv()` 容忍中/英欄位命名（期別/年期別/yearMonth/InvoiceYearMonth、字軌/字軌號碼/track、起號/迄號/訖號），自動 strip UTF-8 BOM；單列錯誤計數但不中斷
+- 後台「發票配號」頁加「匯入 CSV」按鈕，回傳 inserted/skipped/errors 統計
+
+#### P1-3：漏傳補傳 cron（項 10）
+- 新增 `src/jobs/einvoice-sync.ts`：每天台北時間 02:30 跑
+  1. `syncAllTenants()` 拉 outbound 回執更新 issued → confirmed/rejected
+  2. 找 status='issued' 且 createdAt < now-24h 的發票，從 `xmlPath` 讀回 XML 重寫到 inbound（檔名加 `_retry-<ts>` 後綴）
+- 在 `src/index.ts` listen 後 `scheduleEinvoiceSync()`
+
+#### P2-1：開機自我檢測（項 3）
+- 新增 `src/jobs/einvoice-boot-check.ts`，服務啟動時跑：
+  - 對時：fetch `worldtimeapi.org/Asia/Taipei`，本機時鐘偏移 > 5s 警告、> 60s 錯誤
+  - 賣方統編 8 碼驗證
+  - 至少一筆 active pool；當期至少一筆可用配號
+  - 前次 invoiceNo 是否一致於 `pool.nextNumber`
+  - production 強制檢查 qrAesKey 32 碼 hex
+- 任何缺漏只 log warn，不阻擋啟動
+
+#### P2-2：XML 二份備份（項 11）
+- `Einvoice` 加 `xmlBody String? @db.Text` / `voidXmlBody String? @db.Text`
+- `issue()` / `voidInvoice()` 寫入 inbound 同時把 XML 內容存 DB
+- `readXml()` 優先讀 DB `xmlBody`，fallback 到磁碟 `xmlPath`（Turnkey 主機毀損仍可重建）
+
+#### P2-3：分店字軌欄位
+- `EinvoiceNumberPool.branchId String?`（無 FK，純字串欄位）+ `@@index([tenantId, yearMonth, branchId])`
+- `Einvoice.branchId String?`（同上）
+- 暫不開 UI；待 Branch model 確立後再串
+- 預設 null = 總公司共用
+
+### Changed — 電子發票合規修補（依財政部「自行檢測表」P0 項目）
+- **項 5（字軌年期別）**：`EinvoiceNumberPool.yearMonth` 由 5 碼改為 **7 碼** —— 民國年 3 + 單月 2 + 雙月 2（如 `1131112` = 113 年 11-12 月期）
+  - service `createPool` 加嚴：必須 `^\d{7}$` 且月份組合合法（單月 1/3/5/7/9/11、雙月 = 單月+1）
+  - admin UI placeholder 同步更新
+  - **DB migration 提示**：若已有 5 碼資料需手動 backfill，例 `'11311'` → `'1131112'`：
+    ```sql
+    UPDATE "EinvoiceNumberPool"
+    SET "yearMonth" = LEFT("yearMonth", 3)
+                    || LPAD((CAST(SUBSTRING("yearMonth", 4) AS INT) * 2 - 1)::text, 2, '0')
+                    || LPAD((CAST(SUBSTRING("yearMonth", 4) AS INT) * 2)::text, 2, '0')
+    WHERE LENGTH("yearMonth") = 5;
+    ```
+    （目前正式環境尚無資料，可略過）
+
+### Added — B2B 證明聯補齊一維/二維條碼（項 8(3)(6)(7)(8)）
+- B2B PDF（`einvoice-b2b-pdf.ts`）在「中文大寫」與「三欄並排」之間新增證明聯條碼區：
+  - **左半**：Code 39 一維條碼（期別 + 字軌號碼 + 隨機碼，共 19 字）
+  - **右半**：左 QR（含 AES-128 加密驗證碼 + 首品項）+ 右 QR（剩餘品項）
+  - 兩 QR 各 70×70pt，一維條碼自適應寬度
+- B2B PDF data 介面新增 `aesKeyHex?: string` 欄位；router 自動帶入 `settings.einvoice.qrAesKey`
+
+### Security — QR 加密金鑰強制（項 8(8)）
+- `einvoice.service.issue()` 在 `NODE_ENV=production` 時強制檢查 `settings.einvoice.qrAesKey`：
+  - 必填，且須為 32 碼 hex（AES-128 / 16 bytes）
+  - 缺失或格式錯誤直接 throw，**不再 fallback 到 stub key**
+- `proof-barcodes.aesKey()` 在 production 仍走到 stub 時 console.warn 一次（雙保險）
+- 開發環境保留 stub 路徑以利本地測試
+
+### Note
+- 升級後 ADMIN 須至「公司資料 → 電子發票設定」填入整合服務平台下發的 32 碼 AES 金鑰，否則正式環境開立會被擋
+- 後台「發票配號」頁可改用「匯入 CSV」一次帶入整期配號
+
+### Migration (Supabase / 已透過 `npx prisma db push` 套用)
+```sql
+ALTER TABLE "EinvoiceNumberPool" ADD COLUMN "branchId" TEXT;
+CREATE INDEX "EinvoiceNumberPool_tenantId_yearMonth_branchId_idx"
+  ON "EinvoiceNumberPool"("tenantId", "yearMonth", "branchId");
+
+ALTER TABLE "Einvoice" ADD COLUMN "xmlBody" TEXT;
+ALTER TABLE "Einvoice" ADD COLUMN "voidXmlBody" TEXT;
+ALTER TABLE "Einvoice" ADD COLUMN "branchId" TEXT;
+```
+
 ## [2.5.1] - 2026-05-01
 
 ### Fixed

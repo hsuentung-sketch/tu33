@@ -1490,6 +1490,11 @@ async function openEinvoiceIssueModal(ar, onSaved) {
     buyerTaxId: customer.taxId || '',
     buyerAddress: customer.address || '',
     items: defaultItems.length ? defaultItems : [{ description: '', quantity: 1, unitPrice: 0 }],
+    // MIG 4.1 新增欄位
+    taxType: '1',
+    mainRemark: '',
+    customsClearanceMark: '',
+    zeroTaxRateReason: '',
   };
   const errBox = el('div', { class: 'err' });
 
@@ -1567,6 +1572,39 @@ async function openEinvoiceIssueModal(ar, onSaved) {
   const itemsHost = el('div', {});
   renderItems(itemsHost);
 
+  // MIG 4.1 新增欄位
+  const taxTypeSelect = el('select', {
+    onChange: (ev) => { state.taxType = ev.target.value; updateTaxFields(); },
+  },
+    el('option', { value: '1' }, '1 應稅'),
+    el('option', { value: '2' }, '2 零稅率'),
+    el('option', { value: '3' }, '3 免稅'),
+    el('option', { value: '4' }, '4 應稅(特種稅率)'),
+  );
+  const customsSelect = el('select', {
+    onChange: (ev) => { state.customsClearanceMark = ev.target.value; },
+  },
+    el('option', { value: '' }, '（不適用）'),
+    el('option', { value: '1' }, '1 非經海關出口'),
+    el('option', { value: '2' }, '2 經海關出口'),
+  );
+  const zeroReasonInput = el('input', {
+    type: 'text', maxlength: 60, placeholder: '如「外銷」、「保稅區」',
+    oninput: (ev) => { state.zeroTaxRateReason = ev.target.value; },
+  });
+  const remarkInput = el('input', {
+    type: 'text', maxlength: 200, placeholder: '寫入 XML <MainRemark>，最多 200 字',
+    oninput: (ev) => { state.mainRemark = ev.target.value; },
+  });
+  const customsField = wrapField('通關方式', customsSelect);
+  const zeroReasonField = wrapField('零稅率原因', zeroReasonInput);
+  function updateTaxFields() {
+    const isZero = state.taxType === '2';
+    customsField.style.display = isZero ? '' : 'none';
+    zeroReasonField.style.display = isZero ? '' : 'none';
+  }
+  updateTaxFields();
+
   const backdrop = el('div', { class: 'modal-backdrop' });
   const modal = el('div', { class: 'modal', style: 'max-width:720px;' },
     el('h3', {}, `開立電子發票 — ${customer.name || ''}`),
@@ -1576,6 +1614,13 @@ async function openEinvoiceIssueModal(ar, onSaved) {
       wrapField('統一編號', taxIdInput),
       wrapField('地址', addrInput),
       b2cBox,
+      el('hr'),
+      el('div', { class: 'field row', style: 'gap:8px;' },
+        wrapField('課稅別 (MIG 4.1)', taxTypeSelect, 200),
+        customsField,
+      ),
+      zeroReasonField,
+      wrapField('總備註 MainRemark', remarkInput),
       el('hr'),
       el('div', { style: 'font-size:12px;color:var(--muted);margin-bottom:4px;' },
         '品項（金額 = 數量 × 單價；稅額依公司稅率自動計算）'),
@@ -1599,6 +1644,9 @@ async function openEinvoiceIssueModal(ar, onSaved) {
               unitPrice: it.unitPrice,
             }));
           if (!items.length) throw new Error('至少一個有效品項');
+          if (state.taxType === '2' && !state.customsClearanceMark) {
+            throw new Error('零稅率須選通關方式');
+          }
           const payload = {
             receivableId: ar.id,
             salesOrderId: ar.salesOrderId,
@@ -1606,7 +1654,11 @@ async function openEinvoiceIssueModal(ar, onSaved) {
             buyerName: state.buyerName.trim(),
             buyerAddress: state.buyerAddress.trim() || undefined,
             items,
+            taxType: state.taxType,
           };
+          if (state.mainRemark.trim()) payload.mainRemark = state.mainRemark.trim();
+          if (state.customsClearanceMark) payload.customsClearanceMark = state.customsClearanceMark;
+          if (state.zeroTaxRateReason.trim()) payload.zeroTaxRateReason = state.zeroTaxRateReason.trim();
           if (state.buyerType === 'B2C') {
             if (state.carrierType && state.carrierId) {
               payload.carrierType = state.carrierType;
@@ -1769,7 +1821,7 @@ async function viewEinvoicePools(main) {
     title: '新增配號區間',
     initial: { yearMonth: '', trackAlpha: '', rangeStart: 0, rangeEnd: 99999999 },
     fields: [
-      { name: 'yearMonth', label: '期別（民國年+雙數月，如 11311 = 113 年 11-12 月）', required: true },
+      { name: 'yearMonth', label: '期別 7 碼：民國年 3 碼 + 單月 2 碼 + 雙月 2 碼，如 1131112 = 113 年 11-12 月', required: true },
       { name: 'trackAlpha', label: '字軌（兩個大寫英文字母，如 AB）', required: true },
       { name: 'rangeStart', label: '起號（整數，0–99999999）', type: 'number', required: true },
       { name: 'rangeEnd', label: '迄號', type: 'number', required: true },
@@ -1788,7 +1840,32 @@ async function viewEinvoicePools(main) {
     },
   }) }, '＋新增配號');
 
-  main.append(el('div', { class: 'toolbar' }, addBtn), table);
+  // CSV 匯入：依財政部「自行檢測表」項 1(1) 以平台 CSV 配號檔匯入
+  const csvFile = el('input', { type: 'file', accept: '.csv,text/csv', style: 'display:none;' });
+  csvFile.addEventListener('change', async () => {
+    const f = csvFile.files?.[0];
+    if (!f) return;
+    if (f.size > 1024 * 1024) { toast('檔案超過 1MB', 'err'); csvFile.value = ''; return; }
+    try {
+      const fd = new FormData();
+      fd.append('file', f);
+      const res = await fetch('/api/einvoice-number-pools/import-csv', {
+        method: 'POST', credentials: 'same-origin', body: fd,
+      });
+      if (res.status === 401) { location.href = './login.html'; return; }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error?.message || '匯入失敗');
+      const errSummary = (data.errors || []).length
+        ? `（${data.errors.length} 筆錯誤：${data.errors.slice(0, 3).map((e) => `第${e.row}列 ${e.message}`).join('；')}${data.errors.length > 3 ? '…' : ''}）`
+        : '';
+      toast(`已匯入 ${data.inserted}，略過 ${data.skipped} ${errSummary}`, data.errors?.length ? 'warn' : 'ok');
+      reload();
+    } catch (err) { toast(err.message, 'err'); }
+    finally { csvFile.value = ''; }
+  });
+  const importBtn = el('button', { class: 'btn', onClick: () => csvFile.click() }, '匯入 CSV');
+
+  main.append(el('div', { class: 'toolbar' }, addBtn, importBtn, csvFile), table);
   reload();
 }
 
@@ -2364,6 +2441,12 @@ async function viewAcctOverview(main) {
   }
 }
 
+// 類型 → 正常餘額自動推導（會計鐵則）
+const ACCT_NORMAL_SIDE = {
+  asset: 'debit', cost: 'debit', expense: 'debit',
+  liability: 'credit', equity: 'credit', income: 'credit',
+};
+
 async function viewAcctCoa(main) {
   main.innerHTML = '';
   main.append(el('h2', {}, '科目表'));
@@ -2371,31 +2454,160 @@ async function viewAcctCoa(main) {
   if (!status.enabled) {
     main.append(el('div', { class: 'empty' }, '會計模組尚未啟用。')); return;
   }
-  const list = await api.get('/accounting/coa');
-  const tbl = el('table', { class: 'data-table' });
-  tbl.append(el('thead', {}, el('tr', {},
-    el('th', {}, '編號'),
-    el('th', {}, '名稱'),
-    el('th', {}, '類型'),
-    el('th', {}, '正常餘額'),
-    el('th', {}, '系統'),
-    el('th', {}, '狀態'),
-  )));
-  const tb = el('tbody');
-  list.forEach((a) => {
-    tb.append(el('tr', {},
-      el('td', {}, a.code),
-      el('td', { style: 'padding-left:' + (a.level - 1) * 16 + 'px;' }, a.name),
-      el('td', {}, ACCT_TYPE_LABEL[a.type] || a.type),
-      el('td', {}, a.normalSide === 'debit' ? '借' : '貸'),
-      el('td', {}, a.isSystem ? '是' : ''),
-      el('td', {}, a.isActive ? '啟用' : '停用'),
-    ));
+
+  async function reload() {
+    const list = await api.get('/accounting/coa');
+    render(list);
+  }
+
+  function render(list) {
+    main.querySelectorAll('.coa-host').forEach((n) => n.remove());
+    const host = el('div', { class: 'coa-host' });
+
+    if (isAdmin()) {
+      const addBtn = el('button', { class: 'btn primary', onClick: () => openCoaCreateModal(list, reload) }, '＋新增科目');
+      host.append(el('div', { class: 'toolbar' }, addBtn));
+    }
+
+    const tbl = el('table', { class: 'data-table' });
+    const headerRow = el('tr', {},
+      el('th', {}, '編號'),
+      el('th', {}, '名稱'),
+      el('th', {}, '類型'),
+      el('th', {}, '正常餘額'),
+      el('th', {}, '系統'),
+      el('th', {}, '狀態'),
+    );
+    if (isAdmin()) headerRow.append(el('th', {}, '動作'));
+    tbl.append(el('thead', {}, headerRow));
+
+    const tb = el('tbody');
+    list.forEach((a) => {
+      const row = el('tr', {},
+        el('td', {}, a.code),
+        el('td', { style: 'padding-left:' + (a.level - 1) * 16 + 'px;' }, a.name),
+        el('td', {}, ACCT_TYPE_LABEL[a.type] || a.type),
+        el('td', {}, a.normalSide === 'debit' ? '借' : '貸'),
+        el('td', {}, a.isSystem ? '是' : ''),
+        el('td', {}, a.isActive
+          ? el('span', { style: 'color:#0a8a3e;' }, '啟用')
+          : el('span', { style: 'color:#888;' }, '停用')),
+      );
+      if (isAdmin()) {
+        const editBtn = el('button', { class: 'btn small', style: 'margin-right:4px;',
+          onClick: () => openCoaEditModal(a, reload) }, '編輯');
+        const toggleBtn = el('button', { class: 'btn small', style: 'margin-right:4px;',
+          onClick: async () => {
+            try {
+              await api.put(`/accounting/coa/${a.id}`, { isActive: !a.isActive });
+              toast(a.isActive ? '已停用' : '已啟用', 'ok');
+              reload();
+            } catch (e) { toast(e.message, 'err'); }
+          } }, a.isActive ? '停用' : '啟用');
+        const cell = el('td', {}, editBtn, toggleBtn);
+        if (!a.isSystem) {
+          const delBtn = el('button', { class: 'btn small danger',
+            onClick: async () => {
+              if (!confirm(`確定刪除科目 ${a.code} ${a.name}？\n（僅未引用過的科目可刪；已引用請改停用）`)) return;
+              try {
+                await api.del(`/accounting/coa/${a.id}`);
+                toast('已刪除', 'ok');
+                reload();
+              } catch (e) { toast(e.message, 'err'); }
+            } }, '刪除');
+          cell.append(delBtn);
+        }
+        row.append(cell);
+      }
+      tb.append(row);
+    });
+    tbl.append(tb);
+    host.append(tbl);
+    host.append(el('div', { class: 'page-sub', style: 'margin-top:8px;' },
+      `共 ${list.length} 個科目（含 ${list.filter((x) => !x.isActive).length} 個停用）。系統預設科目可改名稱／停用，但不可刪除。`));
+    main.append(host);
+  }
+
+  await reload();
+}
+
+function openCoaCreateModal(currentList, reload) {
+  const typeOptions = [
+    { value: 'asset', label: '資產 (debit)' },
+    { value: 'liability', label: '負債 (credit)' },
+    { value: 'equity', label: '權益 (credit)' },
+    { value: 'income', label: '收入 (credit)' },
+    { value: 'cost', label: '成本 (debit)' },
+    { value: 'expense', label: '費用 (debit)' },
+  ];
+  // 上層科目：只列 level=1 的科目，作為新增 level=2 的 parent
+  const parents = currentList.filter((a) => a.level === 1);
+  const parentOptions = [{ value: '', label: '（無 / level 1 頂層）' }]
+    .concat(parents.map((p) => ({ value: p.id, label: `${p.code} ${p.name} (${ACCT_TYPE_LABEL[p.type]})` })));
+
+  openModal({
+    title: '新增科目',
+    initial: { code: '', name: '', type: 'asset', parentId: '', description: '' },
+    fields: [
+      { name: 'code', label: '編號（4 位數字）', required: true, placeholder: '如 1151' },
+      { name: 'name', label: '名稱', required: true },
+      { name: 'type', label: '類型', type: 'select', options: typeOptions, required: true },
+      { name: 'parentId', label: '上層科目（可空）', type: 'select', options: parentOptions },
+      { name: 'description', label: '描述（選填）' },
+    ],
+    onSubmit: async (v) => {
+      if (!/^\d{4}$/.test(String(v.code || '').trim())) throw new Error('編號需 4 位數字');
+      if (!v.name?.trim()) throw new Error('請填名稱');
+      const type = v.type;
+      const normalSide = ACCT_NORMAL_SIDE[type];
+      if (!normalSide) throw new Error('類型不合法');
+      // 若選了 parent，要求 parent 同類型
+      if (v.parentId) {
+        const parent = currentList.find((a) => a.id === v.parentId);
+        if (parent && parent.type !== type) throw new Error('上層科目類型必須與本科目相同');
+      }
+      await api.post('/accounting/coa', {
+        code: String(v.code).trim(),
+        name: v.name.trim(),
+        type,
+        normalSide,
+        level: v.parentId ? 2 : 1,
+        parentId: v.parentId || null,
+        description: v.description?.trim() || null,
+      });
+      toast('已新增', 'ok');
+      reload();
+    },
   });
-  tbl.append(tb);
-  main.append(tbl);
-  main.append(el('div', { class: 'page-sub', style: 'margin-top:8px;' },
-    `共 ${list.length} 個科目。新增/停用功能於下個版本提供（Phase A 後）。`));
+}
+
+function openCoaEditModal(account, reload) {
+  openModal({
+    title: `編輯科目 ${account.code}`,
+    initial: {
+      name: account.name,
+      description: account.description || '',
+      isActive: account.isActive ? '1' : '0',
+    },
+    fields: [
+      { name: 'name', label: '名稱', required: true },
+      { name: 'description', label: '描述' },
+      { name: 'isActive', label: '狀態', type: 'select', options: [
+        { value: '1', label: '啟用' },
+        { value: '0', label: '停用' },
+      ] },
+    ],
+    onSubmit: async (v) => {
+      if (!v.name?.trim()) throw new Error('請填名稱');
+      await api.put(`/accounting/coa/${account.id}`, {
+        name: v.name.trim(),
+        description: v.description?.trim() || null,
+        isActive: String(v.isActive) === '1',
+      });
+      toast('已更新', 'ok');
+      reload();
+    },
+  });
 }
 
 async function viewAcctPeriods(main) {

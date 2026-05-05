@@ -11,6 +11,8 @@ import { writeErrorLog, runWithRequestContext, newRequestId } from './shared/err
 import { scheduleOverdueReminder } from './jobs/overdue-reminder.js';
 import { scheduleMonthlyStatements } from './jobs/monthly-statement.js';
 import { scheduleDailyBackup } from './jobs/daily-backup.js';
+import { scheduleEinvoiceSync } from './jobs/einvoice-sync.js';
+import { runEinvoiceBootCheck } from './jobs/einvoice-boot-check.js';
 import { registerInventoryEventHandlers } from './modules/inventory/inventory.events.js';
 
 const app = express();
@@ -97,7 +99,9 @@ app.listen(config.port, '0.0.0.0', () => {
   scheduleOverdueReminder();
   scheduleMonthlyStatements();
   scheduleDailyBackup();
+  scheduleEinvoiceSync();
   registerInventoryEventHandlers();
+  void runEinvoiceBootCheck();
 });
 
 export default app;
