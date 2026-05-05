@@ -197,35 +197,53 @@ function drawInfoGrid(
   left: InfoRow[],
   right: InfoRow[],
 ): number {
-  const rowH = 24;
+  const minRowH = 24;
+  const padTop = 7;
+  const padBottom = 7;
   const rows = Math.max(left.length, right.length);
   const colW = PAGE.contentWidth / 2;
   const labelW = 54;
+  const valueW = colW - labelW - 8;
+
+  // 預先量測每列高度：左右兩欄 value 各自 wrap 後的高度，取大者 + 上下 padding，
+  // 不小於 minRowH。讓地址等長字串自動換行而不被截斷。
+  doc.fontSize(FS.body);
+  const rowHeights: number[] = [];
+  for (let i = 0; i < rows; i++) {
+    const l = left[i];
+    const r = right[i];
+    let lH = 0;
+    let rH = 0;
+    if (l && l.value) lH = doc.heightOfString(String(l.value), { width: valueW });
+    if (r && r.value) rH = doc.heightOfString(String(r.value), { width: valueW });
+    rowHeights.push(Math.max(minRowH, Math.max(lH, rH) + padTop + padBottom));
+  }
+  const totalH = rowHeights.reduce((s, h) => s + h, 0);
 
   doc.lineWidth(0.9).strokeColor('#333');
-  doc.rect(PAGE.left, startY, PAGE.contentWidth, rowH * rows).stroke();
-  // vertical split between left/right columns
-  doc.moveTo(PAGE.left + colW, startY).lineTo(PAGE.left + colW, startY + rowH * rows).stroke();
+  doc.rect(PAGE.left, startY, PAGE.contentWidth, totalH).stroke();
+  // 中間垂直分隔
+  doc.moveTo(PAGE.left + colW, startY).lineTo(PAGE.left + colW, startY + totalH).stroke();
 
-  doc.fontSize(FS.body);
+  let y = startY;
   for (let i = 0; i < rows; i++) {
-    const y = startY + i * rowH;
     if (i > 0) {
       doc.moveTo(PAGE.left, y).lineTo(PAGE.right, y).stroke();
     }
     const l = left[i];
     const r = right[i];
     if (l) {
-      doc.fillColor('#222').text(l.label, PAGE.left + 6, y + 7, { width: labelW });
-      doc.fillColor('#000').text(l.value, PAGE.left + 4 + labelW, y + 7, { width: colW - labelW - 8 });
+      doc.fillColor('#222').text(l.label, PAGE.left + 6, y + padTop, { width: labelW });
+      doc.fillColor('#000').text(l.value, PAGE.left + 4 + labelW, y + padTop, { width: valueW });
     }
     if (r) {
-      doc.fillColor('#222').text(r.label, PAGE.left + colW + 6, y + 7, { width: labelW });
-      doc.fillColor('#000').text(r.value, PAGE.left + colW + 4 + labelW, y + 7, { width: colW - labelW - 8 });
+      doc.fillColor('#222').text(r.label, PAGE.left + colW + 6, y + padTop, { width: labelW });
+      doc.fillColor('#000').text(r.value, PAGE.left + colW + 4 + labelW, y + padTop, { width: valueW });
     }
+    y += rowHeights[i];
   }
   doc.fillColor('#000');
-  return startY + rowH * rows;
+  return y;
 }
 
 interface Column {
@@ -249,7 +267,9 @@ function drawItemTable(
     ? rows
     : [...rows, ...Array.from({ length: minRows - rows.length }, () => columns.map(() => ''))];
   const headerH = 26;
-  const rowH = 24;
+  const minRowH = 24;
+  const padTop = 7;
+  const padBottom = 7;
   const totalFrac = columns.reduce((s, c) => s + c.width, 0);
   const xs: number[] = [PAGE.left];
   let accum = PAGE.left;
@@ -276,20 +296,35 @@ function drawItemTable(
     doc.moveTo(xs[i], startY).lineTo(xs[i], startY + headerH).stroke();
   }
 
+  // 預先量測每 row 各 cell 高度，取最大值；長品名自動換行不被截斷。
+  doc.fontSize(FS.body);
+  const rowHeights: number[] = padded.map((row) => {
+    let maxCellH = 0;
+    row.forEach((cell, i) => {
+      if (!cell) return;
+      const cellW = xs[i + 1] - xs[i] - 8;
+      const h = doc.heightOfString(String(cell), { width: cellW });
+      if (h > maxCellH) maxCellH = h;
+    });
+    return Math.max(minRowH, maxCellH + padTop + padBottom);
+  });
+
   // body rows
   let y = startY + headerH;
   const bodyTop = y;
-  doc.fontSize(FS.body);
-  padded.forEach((row) => {
+  padded.forEach((row, rIdx) => {
+    const h = rowHeights[rIdx];
+    // 每列底部分隔線
+    if (rIdx > 0) {
+      doc.moveTo(PAGE.left, y).lineTo(PAGE.right, y).stroke();
+    }
     row.forEach((cell, i) => {
-      doc.text(cell, xs[i] + 4, y + 7, {
+      doc.text(cell, xs[i] + 4, y + padTop, {
         width: xs[i + 1] - xs[i] - 8,
         align: columns[i].align ?? 'left',
-        height: rowH - 4,
-        ellipsis: true,
       });
     });
-    y += rowH;
+    y += h;
   });
   // body outer + column dividers
   doc.rect(PAGE.left, bodyTop, PAGE.contentWidth, y - bodyTop).stroke();

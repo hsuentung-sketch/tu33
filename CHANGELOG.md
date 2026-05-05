@@ -3,6 +3,23 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.7.3] - 2026-05-05
+
+### Fixed — PDF 文字超出欄位自動換行（修月結請款單地址被截斷）
+共用 `drawInfoGrid` / `drawItemTable` 之前用固定 `rowH=24` 並對 item table 加 `ellipsis:true`，
+長地址或長品名會被截字。改為 **量測 → 動態列高 → 自動換行**：
+
+- `drawInfoGrid`：對每列左右兩欄 value 預先 `doc.heightOfString(val, {width})`，
+  取大者 + 上下 padding，最少 24pt。多列時每列獨立計算。
+  - 影響：報價單 / 銷貨單 / 進貨單 / 月結請款單 / 月結應付對帳單的雙欄資訊區塊
+- `drawItemTable`：移除 `ellipsis:true` + `height:rowH-4`，改成預先量測每 row max cell 高度，
+  動態決定該 row 列高。
+  - 影響：所有單據的品項表
+- 短文字（< 一行）視覺不變；只有真的會超出寬度時才會撐高列高
+
+### Note
+- 列高動態化後，**整張 PDF 高度可能變動**；若觸發換頁需注意 totals/footer 位置（目前所有單據用 absolute Y, 仍在 A4 內）
+
 ## [2.7.2] - 2026-05-05
 
 ### Added — 會計模組 Phase A：快速費用登記 + 零用金調撥
