@@ -3,6 +3,47 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.7.2] - 2026-05-05
+
+### Added — 會計模組 Phase A：快速費用登記 + 零用金調撥
+ADMIN/ACCOUNTING 不必再手動填借貸欄位產傳票；日常費用透過簡化 UI 自動產 JE。
+
+#### 後端 — 新模組 `src/modules/accounting/expense/`
+- `expense.service.ts`：
+  - **`inferExpenseAccount(desc)`**：依「用途說明」關鍵字自動推論費用科目
+    - 6101 薪資 / 6201 租金 / 6211 水電瓦斯 / 6221 文具 / 6231 交通 / 6241 郵電
+    - 命中關鍵字優先；皆無命中 → 6291 雜項
+    - 該 code 不存在或停用 → fallback 到 6291
+  - **`quickExpense()`**：產 `Dr <費用> / Cr <付款帳戶>` JE
+    - 付款方式：現金 (1101) / 銀行存款 (1111) / 應付帳款 (2101)
+    - 預設 status='pending'，ADMIN 可選 'posted' 直接過帳
+    - 可手動指定 expenseAccountId 覆蓋自動推論（會擋非 expense/cost 類）
+    - source='expense'，sourceId 存收據/憑證號
+  - **`pettyCashTransfer()`**：零用金 ↔ 銀行兩向調撥
+    - withdraw：`Dr 1101 / Cr 1111`（從銀行提現補零用金）
+    - deposit：`Dr 1111 / Cr 1101`（零用金繳回銀行）
+    - source='petty_cash'，自動 status='posted'
+- `expense.router.ts`：4 個 endpoint 掛在 `/api/accounting/expense`
+  - `POST /quick`、`POST /petty-cash`
+  - `GET /preview?description=...`（live preview，不建任何資料）
+  - `GET /rules`（公開關鍵字規則表）
+- 角色：沿用 accountingRouter 的 ACCOUNTING+ guard（無新增權限層）
+
+#### 前端 — 「會計 → 傳票」頁
+- 工具列加 2 顆按鈕：「＋快速費用登記」/「零用金調撥」
+- **快速費用登記 modal**：
+  - 日期 / 用途說明 / 金額 / 付款方式（radio）/ 憑證號 / 過帳狀態
+  - 使用者邊打描述邊 debounce 250ms 呼叫 `/expense/preview`，即時顯示「`6231 交通`（命中關鍵字：計程車）」
+  - `<details>` 摺疊區「手動指定」可下拉覆蓋自動判斷（顯示所有啟用中 expense + cost 科目）
+- **零用金調撥 modal**：
+  - 方向（撥補 / 繳回）/ 金額 / 說明
+  - 動態提示對應的 Dr/Cr 分錄
+
+#### Note
+- 不影響任何 schema；複用既有 JournalEntry / JournalLine
+- 不依賴自動分錄 hook（user 仍未通知正式啟用銷貨/進貨 auto-JE）
+- Phase B 留：薪資代扣明細、零用金 imprest 模式、員工借支、JE 模板系統
+
 ## [2.7.1] - 2026-05-05
 
 ### Added — 會計科目表 Phase A：新增 / 編輯 / 停用 / 刪除（後台 UI）

@@ -2667,6 +2667,15 @@ async function viewAcctJournal(main) {
   const status = await loadAcctStatus();
   if (!status.enabled) { main.append(el('div', { class: 'empty' }, '會計模組尚未啟用。')); return; }
 
+  // 工具列：快速費用登記 + 零用金調撥
+  const toolbar = el('div', { class: 'toolbar', style: 'display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;' });
+  const expenseBtn = el('button', { class: 'btn primary',
+    onClick: () => openQuickExpenseModal(() => reload()) }, '＋快速費用登記');
+  const pettyBtn = el('button', { class: 'btn',
+    onClick: () => openPettyCashModal(() => reload()) }, '零用金調撥');
+  toolbar.append(expenseBtn, pettyBtn);
+  main.append(toolbar);
+
   // 篩選列
   const filters = el('div', { style: 'display:flex;gap:8px;margin-bottom:12px;align-items:center;' });
   const stSel = el('select', {},
@@ -2746,6 +2755,204 @@ async function viewAcctJournal(main) {
   stSel.addEventListener('change', reload);
   refresh.addEventListener('click', reload);
   reload();
+}
+
+// ----- 快速費用登記 modal -----
+async function openQuickExpenseModal(onSaved) {
+  const today = new Date().toISOString().slice(0, 10);
+  // 載入費用 + 成本科目給「手動覆蓋」下拉
+  let expenseAccts = [];
+  try {
+    const [exp, cost] = await Promise.all([
+      api.get('/accounting/coa?type=expense&activeOnly=1'),
+      api.get('/accounting/coa?type=cost&activeOnly=1'),
+    ]);
+    expenseAccts = [...exp, ...cost].sort((a, b) => a.code.localeCompare(b.code));
+  } catch (e) { /* 啟用前查不到，繼續以 inferred 為準 */ }
+
+  const errBox = el('div', { class: 'err' });
+  const dateInput = el('input', { type: 'date', value: today });
+  const descInput = el('input', { type: 'text', placeholder: '如：搭計程車到客戶端 / 繳電費 / 文具採購' });
+  const amountInput = el('input', { type: 'number', min: '1', step: '1', value: '' });
+  const payRadioCash = el('input', { type: 'radio', name: 'payMethod', value: 'cash', checked: true });
+  const payRadioBank = el('input', { type: 'radio', name: 'payMethod', value: 'bank' });
+  const payRadioPay = el('input', { type: 'radio', name: 'payMethod', value: 'payable' });
+  const voucherInput = el('input', { type: 'text', placeholder: '如：發票號 / 收據編號' });
+  const statusSelect = el('select', {},
+    el('option', { value: 'pending' }, '待審核（之後過帳）'),
+    el('option', { value: 'posted' }, '直接過帳'),
+  );
+
+  // 自動判斷顯示區
+  const inferredBadge = el('div', {
+    style: 'padding:8px 10px;background:#f0f7ff;border:1px solid #b6d4fe;border-radius:4px;font-size:13px;line-height:1.5;',
+  }, '輸入用途後自動判斷會計科目');
+  let manualOverrideId = '';
+  const overrideSelect = el('select', { style: 'margin-top:6px;' },
+    el('option', { value: '' }, '（自動判斷）'),
+    ...expenseAccts.map((a) => el('option', { value: a.id }, `${a.code} ${a.name}`)),
+  );
+  overrideSelect.addEventListener('change', () => { manualOverrideId = overrideSelect.value; });
+
+  // debounced preview
+  let inferTimer = null;
+  let lastInferred = null;
+  async function refreshInferred() {
+    const desc = descInput.value.trim();
+    if (!desc) {
+      inferredBadge.textContent = '輸入用途後自動判斷會計科目';
+      lastInferred = null;
+      return;
+    }
+    try {
+      const r = await api.get('/accounting/expense/preview?description=' + encodeURIComponent(desc));
+      lastInferred = r;
+      const kw = r.matchedKeyword ? `（命中關鍵字：${r.matchedKeyword}）` : '（無命中，預設雜項）';
+      inferredBadge.innerHTML = '';
+      inferredBadge.append(
+        el('span', { style: 'color:#0a4d99;font-weight:600;' }, `${r.code} ${r.name}`),
+        el('span', { style: 'color:#666;margin-left:8px;' }, kw),
+      );
+    } catch (e) {
+      inferredBadge.textContent = '判斷失敗：' + (e.message || e);
+    }
+  }
+  descInput.addEventListener('input', () => {
+    clearTimeout(inferTimer);
+    inferTimer = setTimeout(refreshInferred, 250);
+  });
+
+  function payValue() {
+    if (payRadioBank.checked) return 'bank';
+    if (payRadioPay.checked) return 'payable';
+    return 'cash';
+  }
+  function row(label, ...children) {
+    return el('div', { class: 'field' },
+      el('label', {}, label),
+      ...children,
+    );
+  }
+
+  const backdrop = el('div', { class: 'modal-backdrop' });
+  const modal = el('div', { class: 'modal', style: 'max-width:520px;' },
+    el('h3', {}, '快速費用登記'),
+    el('div', { class: 'body' },
+      row('日期', dateInput),
+      row('用途說明 *', descInput),
+      row('金額 *', amountInput),
+      row('付款方式 *',
+        el('div', { style: 'display:flex;gap:14px;font-size:14px;' },
+          el('label', {}, payRadioCash, ' 現金 (1101)'),
+          el('label', {}, payRadioBank, ' 銀行存款 (1111)'),
+          el('label', {}, payRadioPay, ' 應付帳款（賒帳，2101）'),
+        ),
+      ),
+      el('div', { class: 'field' },
+        el('label', {}, '判斷的會計科目'),
+        inferredBadge,
+        el('details', { style: 'margin-top:6px;font-size:12px;' },
+          el('summary', { style: 'cursor:pointer;color:#666;' }, '手動指定（覆蓋自動判斷）'),
+          overrideSelect,
+        ),
+      ),
+      row('憑證號（選填）', voucherInput),
+      row('過帳狀態', statusSelect),
+    ),
+    errBox,
+    el('div', { class: 'actions' },
+      el('button', { class: 'btn', onClick: () => backdrop.remove() }, '取消'),
+      el('button', { class: 'btn primary', onClick: async () => {
+        try {
+          const desc = descInput.value.trim();
+          if (!desc) throw new Error('請填用途說明');
+          const amount = Number(amountInput.value);
+          if (!Number.isFinite(amount) || amount <= 0) throw new Error('金額需 > 0');
+          const payload = {
+            date: dateInput.value || today,
+            description: desc,
+            amount,
+            paymentMethod: payValue(),
+            status: statusSelect.value,
+          };
+          if (voucherInput.value.trim()) payload.voucherNo = voucherInput.value.trim();
+          if (manualOverrideId) payload.expenseAccountId = manualOverrideId;
+          const result = await api.post('/accounting/expense/quick', payload);
+          const inf = result?.inferred;
+          const msg = inf
+            ? `已建立傳票 ${result.entry.entryNo}（${inf.expenseCode} ${inf.expenseName} / ${inf.paymentCode} ${inf.paymentName}）`
+            : `已建立傳票 ${result.entry.entryNo}`;
+          toast(msg, 'ok');
+          backdrop.remove();
+          if (onSaved) await onSaved();
+        } catch (e) { errBox.textContent = e.message; }
+      } }, '建立傳票'),
+    ),
+  );
+  backdrop.append(modal);
+  backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
+  document.body.append(backdrop);
+}
+
+// ----- 零用金調撥 modal -----
+async function openPettyCashModal(onSaved) {
+  const today = new Date().toISOString().slice(0, 10);
+  const errBox = el('div', { class: 'err' });
+  const dateInput = el('input', { type: 'date', value: today });
+  const directionSelect = el('select', {},
+    el('option', { value: 'withdraw' }, '撥補（從銀行提現補充零用金）'),
+    el('option', { value: 'deposit' }, '繳回（零用金存回銀行）'),
+  );
+  const amountInput = el('input', { type: 'number', min: '1', step: '1', value: '' });
+  const descInput = el('input', { type: 'text', placeholder: '空白＝預設「零用金撥補/繳回」' });
+
+  const hint = el('div', {
+    style: 'padding:8px 10px;background:#fff8e1;border:1px solid #ffe0a0;border-radius:4px;font-size:12px;line-height:1.5;color:#6c5400;',
+  });
+  function refreshHint() {
+    if (directionSelect.value === 'withdraw') {
+      hint.textContent = '撥補：Dr 1101 現金 / Cr 1111 銀行存款（直接過帳）';
+    } else {
+      hint.textContent = '繳回：Dr 1111 銀行存款 / Cr 1101 現金（直接過帳）';
+    }
+  }
+  directionSelect.addEventListener('change', refreshHint);
+  refreshHint();
+
+  const backdrop = el('div', { class: 'modal-backdrop' });
+  const modal = el('div', { class: 'modal', style: 'max-width:480px;' },
+    el('h3', {}, '零用金調撥'),
+    el('div', { class: 'body' },
+      el('div', { class: 'field' }, el('label', {}, '日期'), dateInput),
+      el('div', { class: 'field' }, el('label', {}, '方向'), directionSelect),
+      el('div', { class: 'field' }, el('label', {}, '金額 *'), amountInput),
+      el('div', { class: 'field' }, el('label', {}, '說明（選填）'), descInput),
+      el('div', { class: 'field' }, el('label', {}, '會計分錄'), hint),
+    ),
+    errBox,
+    el('div', { class: 'actions' },
+      el('button', { class: 'btn', onClick: () => backdrop.remove() }, '取消'),
+      el('button', { class: 'btn primary', onClick: async () => {
+        try {
+          const amount = Number(amountInput.value);
+          if (!Number.isFinite(amount) || amount <= 0) throw new Error('金額需 > 0');
+          const payload = {
+            date: dateInput.value || today,
+            direction: directionSelect.value,
+            amount,
+          };
+          if (descInput.value.trim()) payload.description = descInput.value.trim();
+          const result = await api.post('/accounting/expense/petty-cash', payload);
+          toast(`已建立傳票 ${result.entry.entryNo}（已過帳）`, 'ok');
+          backdrop.remove();
+          if (onSaved) await onSaved();
+        } catch (e) { errBox.textContent = e.message; }
+      } }, '建立傳票'),
+    ),
+  );
+  backdrop.append(modal);
+  backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
+  document.body.append(backdrop);
 }
 
 async function viewAcctTrialBalance(main) {

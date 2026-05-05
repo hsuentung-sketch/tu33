@@ -17,6 +17,7 @@ import * as coaService from './coa/coa.service.js';
 import * as periodService from './period/period.service.js';
 import * as journalService from './journal/journal.service.js';
 import * as reports from './reports.service.js';
+import { expenseRouter } from './expense/expense.router.js';
 
 export const accountingRouter = Router();
 
@@ -28,6 +29,9 @@ accountingRouter.use((req: Request, res: Response, next: NextFunction) => {
   }
   next();
 });
+
+// 快速費用登記 + 零用金調撥（簡化 UI 抽象，內部產 JE）
+accountingRouter.use('/expense', expenseRouter);
 
 // ----- Activation / Settings -----
 
