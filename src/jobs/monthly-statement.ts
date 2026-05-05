@@ -34,7 +34,8 @@ export async function runMonthlyStatements(
 
   for (const tenant of tenants) {
     const settings = getTenantSettings(tenant.settings);
-    const companyHeader = settings.companyHeader || tenant.companyName;
+    // 抬頭一律以「公司資料」為準，不再讀 settings.companyHeader override
+    const companyHeader = tenant.companyName;
     const pdfFooter = settings.pdfFooter;
 
     // Customers → AR

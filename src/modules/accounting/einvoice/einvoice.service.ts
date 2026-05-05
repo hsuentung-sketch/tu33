@@ -308,10 +308,14 @@ export async function issue(tenantId: string, input: IssueInput) {
   if (!tenant) throw new NotFoundError('Tenant', tenantId);
   const settings = getTenantSettings(tenant.settings);
   const einvCfg = settings.einvoice;
-  const sellerTaxId = einvCfg.sellerTaxId || tenant.taxId || '';
-  const sellerName = einvCfg.sellerName || tenant.companyName;
+  // 賣方資訊一律取自「公司資料」（Tenant.companyName / taxId / address），
+  // 不再讀 settings.einvoice.sellerXxx override —— 防止使用者誤填造成 XML
+  // <Seller> 區塊填到客戶資料而被財政部退件。
+  const sellerTaxId = tenant.taxId || '';
+  const sellerName = tenant.companyName;
+  const sellerAddress = tenant.address || '';
   if (!/^\d{8}$/.test(sellerTaxId)) {
-    throw new ValidationError('尚未設定公司統一編號（Tenant.taxId 或 settings.einvoice.sellerTaxId）');
+    throw new ValidationError('Tenant.taxId 未設定或格式錯誤（請至「公司資料」填 8 碼統編）');
   }
   if (!einvCfg.turnkeyInboundDir) {
     throw new ValidationError('尚未設定 Turnkey 匯入目錄（settings.einvoice.turnkeyInboundDir）');
@@ -374,7 +378,7 @@ export async function issue(tenantId: string, input: IssueInput) {
   const xml = buildC0401({
     invoiceNo,
     invoiceDate,
-    seller: { identifier: sellerTaxId, name: sellerName, address: einvCfg.sellerAddress || tenant.address || undefined },
+    seller: { identifier: sellerTaxId, name: sellerName, address: sellerAddress || undefined },
     buyer: {
       identifier: input.buyerTaxId?.trim() || null,
       name: input.buyerName.trim(),

@@ -3,6 +3,50 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.7.4] - 2026-05-05
+
+### Fixed — 公司名 / 電子發票賣方資訊單一資料來源（修使用者誤填污染）
+原本 PDF 抬頭與電子發票 XML `<Seller>` 區塊允許 `settings` 欄位 override：
+- `settings.companyHeader` 蓋過 `Tenant.companyName`
+- `settings.einvoice.sellerName/sellerTaxId/sellerAddress` 蓋過 `Tenant.*`
+
+實際資料庫巡檢發現該租戶設定被誤填成**客戶**資料（sellerTaxId 寫成客戶宏茂的統編 80096772），
+若不修，**開立電子發票上傳會被財政部拒收**。
+
+#### 後端：移除 override，固定取自「公司資料」
+- `src/routes/pdf.router.ts`：`companyHeader = tenant.companyName`（原 `settings.companyHeader || tenant.companyName`）
+- `src/jobs/monthly-statement.ts`：同上
+- `src/line/handlers/quotation.handler.ts`：同上
+- `src/modules/accounting/einvoice/einvoice.service.ts`：
+  - `sellerTaxId = tenant.taxId`（原 `einvCfg.sellerTaxId || tenant.taxId`）
+  - `sellerName = tenant.companyName`
+  - `sellerAddress = tenant.address`
+- `src/modules/accounting/einvoice/einvoice.router.ts`（B2C 證明聯 PDF）：同步硬編
+
+#### 後端：擋住未來重新污染
+- `tenant.router.ts` `PUT /me/einvoice-settings` 接到 `sellerTaxId/sellerName/sellerAddress` 一律忽略 + 強制清空 DB 殘值
+
+#### 前端：移除賣方三欄位輸入
+- `public/admin/app.js` 公司資料頁 → 電子發票設定區塊：刪除「賣方統編 / 賣方名稱 / 賣方地址」三個 input
+- 取代為唯讀提示卡：「賣方資訊一律取自上方『公司資料』」
+
+#### 資料修復工具
+- `src/tools/fix-tenant-settings-pollution.ts`：
+  - 預設 dry-run 列出所有 tenant 內髒掉的 `companyHeader` / `einvoice.seller*`
+  - `--apply` 旗標實際清除（companyHeader 移除 key、einvoice.seller* 設空字串）
+- 已對潤樋租戶執行 `--apply`，清掉以下污染：
+  - `companyHeader="潤樋實業股份有限公司"`（不正確全名 → 移除）
+  - `einvoice.sellerTaxId="80096772"`（客戶統編 → 清空）
+  - `einvoice.sellerName="宏茂事業股份有限公司"`（客戶名 → 清空）
+- 結果：PDF 抬頭與電子發票 XML 賣方一律顯示 `潤樋實業有限公司` / `62198132` / `苗栗縣頭份市中正一路32號1F`
+
+#### 巡檢工具
+- `src/tools/check-company-name.ts`：列出每個 tenant 的 `companyName` / `taxId` / `address` / `settings.companyHeader` / `settings.einvoice.seller*` 與「PDF 實際顯示」結果，方便日後快速對帳
+
+### Note
+- **若公司正名有變動 → 改 Tenant.companyName**（後台「公司資料」），不要再用 settings override
+- 若有分公司另用字軌需求（極少數情境），未來透過 v2.6.0 預留的 `branchId` 欄位處理
+
 ## [2.7.3] - 2026-05-05
 
 ### Fixed — PDF 文字超出欄位自動換行（修月結請款單地址被截斷）

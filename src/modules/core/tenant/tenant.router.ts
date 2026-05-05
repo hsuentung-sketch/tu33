@@ -41,6 +41,9 @@ const updateSchema = z.object({
 
 const einvoiceSettingsSchema = z.object({
   enabled: z.boolean().optional(),
+  // sellerTaxId / sellerName / sellerAddress 已停用：賣方資訊一律從「公司資料」
+  // (Tenant.companyName / taxId / address) 取得，避免使用者誤填造成 XML 錯誤。
+  // schema 仍接受這些欄位但會直接忽略，保留向後相容。
   sellerTaxId: z.string().optional(),
   sellerName: z.string().optional(),
   sellerAddress: z.string().optional(),
@@ -118,9 +121,21 @@ tenantRouter.put('/me/einvoice-settings', requireRole('ADMIN'),
       const t = await prisma.tenant.findUnique({ where: { id: req.tenantId } });
       if (!t) throw new ValidationError('Tenant not found');
       const current = getTenantSettings(t.settings);
+      // 強制移除使用者提交的賣方欄位（v2.7.4 起一律取自 Tenant.*；
+      // 同時把舊資料殘留也清空，避免後續 fallback 路徑誤讀）
+      const sanitized: Record<string, unknown> = { ...parsed.data };
+      delete sanitized.sellerTaxId;
+      delete sanitized.sellerName;
+      delete sanitized.sellerAddress;
       const updated = {
         ...current,
-        einvoice: { ...current.einvoice, ...parsed.data },
+        einvoice: {
+          ...current.einvoice,
+          ...sanitized,
+          sellerTaxId: '',
+          sellerName: '',
+          sellerAddress: '',
+        },
       };
       // Preserve existing qrAesKey if not provided.
       if (!parsed.data.qrAesKey) updated.einvoice.qrAesKey = current.einvoice.qrAesKey;

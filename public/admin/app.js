@@ -2121,9 +2121,15 @@ async function viewCompany(main) {
     return input;
   }
   const eEnabled = einvField('enabled', '啟用電子發票模組', { type: 'checkbox' });
-  const eSellerTaxId = einvField('sellerTaxId', '賣方統一編號（8 碼）');
-  const eSellerName = einvField('sellerName', '賣方名稱（顯示於證明聯）');
-  const eSellerAddress = einvField('sellerAddress', '賣方地址（顯示於證明聯）');
+  // v2.7.4 起賣方資訊（統編 / 名稱 / 地址）一律取自上方「公司資料」，不再於此覆蓋。
+  // 加一段唯讀提示，讓使用者知道該去哪裡改。
+  einvForm.append(el('div', {
+    style: 'margin-bottom:12px;padding:10px 12px;background:#f0f7ff;border:1px solid #b6d4fe;border-radius:4px;font-size:12px;line-height:1.6;',
+  },
+    el('div', { style: 'font-weight:600;color:#0a4d99;margin-bottom:4px;' }, '賣方資訊（自動）'),
+    el('div', {}, '電子發票 XML 與證明聯 PDF 的「賣方統編 / 名稱 / 地址」一律取自上方「公司資料」，不可在此覆蓋。'),
+    el('div', { style: 'color:#666;' }, '若需修改 → 請至本頁最上方「公司資料」區塊更新。'),
+  ));
   const eTaxRegNo = einvField('taxRegistrationNo', '稅籍編號（字軌申請書用）');
   const eInboundDir = einvField('turnkeyInboundDir', 'Turnkey 匯入目錄（絕對路徑）',
     { placeholder: '/data/einvoice/inbound' });
@@ -2155,9 +2161,6 @@ async function viewCompany(main) {
   try {
     const cfg = await api.get('/tenant/me/einvoice-settings');
     eEnabled.checked = !!cfg.enabled;
-    eSellerTaxId.value = cfg.sellerTaxId || '';
-    eSellerName.value = cfg.sellerName || '';
-    eSellerAddress.value = cfg.sellerAddress || '';
     eTaxRegNo.value = cfg.taxRegistrationNo || '';
     eInboundDir.value = cfg.turnkeyInboundDir || '';
     eOutboundDir.value = cfg.turnkeyOutboundDir || '';
@@ -2176,9 +2179,6 @@ async function viewCompany(main) {
     try {
       const body = {
         enabled: eEnabled.checked,
-        sellerTaxId: eSellerTaxId.value.trim(),
-        sellerName: eSellerName.value.trim(),
-        sellerAddress: eSellerAddress.value.trim(),
         taxRegistrationNo: eTaxRegNo.value.trim(),
         turnkeyInboundDir: eInboundDir.value.trim(),
         turnkeyOutboundDir: eOutboundDir.value.trim(),

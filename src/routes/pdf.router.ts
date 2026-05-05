@@ -75,7 +75,9 @@ pdfRouter.get('/:kind/:id', async (req: Request, res: Response, next: NextFuncti
     const tenant = await prisma.tenant.findUnique({ where: { id: payload.t } });
     if (!tenant) return res.status(404).send('Tenant not found');
     const settings = getTenantSettings(tenant.settings);
-    const companyHeader = settings.companyHeader || tenant.companyName;
+    // 抬頭一律以「公司資料」為準（Tenant.companyName）— 不再讀 settings.companyHeader override
+    // 防止使用者誤填造成 PDF 顯示與系統登記不一致。
+    const companyHeader = tenant.companyName;
     const companyTaxId = tenant.taxId ?? null;
     const companyAddress = tenant.address ?? '';
 

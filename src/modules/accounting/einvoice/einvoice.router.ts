@@ -128,9 +128,10 @@ einvoiceRouter.get('/:id/proof.pdf', async (req: Request, res: Response, next: N
           totalAmount: Number(inv.totalAmount),
           buyerTaxId: inv.buyerTaxId,
           buyerName: inv.buyerName,
-          sellerTaxId: cfg.sellerTaxId || tenant.taxId || '',
-          sellerName: cfg.sellerName || tenant.companyName,
-          sellerAddress: cfg.sellerAddress || tenant.address || undefined,
+          // 賣方一律取自「公司資料」，不再讀 settings.einvoice.seller* override
+          sellerTaxId: tenant.taxId || '',
+          sellerName: tenant.companyName,
+          sellerAddress: tenant.address || undefined,
           aesKeyHex: cfg.qrAesKey || '',
           voided: inv.status === 'voided',
           printFlag: inv.printFlag,
