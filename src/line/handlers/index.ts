@@ -11,6 +11,8 @@ import { handleAccountingCommand, handleAccountingText } from './accounting.hand
 import { handleMasterCommand, handleMasterText } from './master.handler.js';
 import { handleManagementCommand, handleManagementText } from './management.handler.js';
 import { handleVoiceMessage, handleImageMessage } from './media.handler.js';
+import { handleJeCommand, handleJeText, handleJeImage } from './je.handler.js';
+import * as session from '../session.js';
 
 type WebhookEvent = webhook.Event;
 type MessageEvent = webhook.MessageEvent;
@@ -93,6 +95,8 @@ async function handleMessage(event: MessageEvent, tenant: HandlerTenant): Promis
   } else if (event.message.type === 'audio') {
     await handleVoiceMessage(event, { ...ctx, accessToken: tenant.lineAccessToken });
   } else if (event.message.type === 'image') {
+    // 若使用者正處於 JE OCR 流程 → 走發票 OCR；否則走名片 OCR
+    if (await maybeRouteJeImage(event, tenant, ctx)) return;
     await handleImageMessage(event, { ...ctx, accessToken: tenant.lineAccessToken });
   } else if (event.message.type === 'file') {
     // LINE sends image attachments from the "檔案" picker as type=file
@@ -101,6 +105,7 @@ async function handleMessage(event: MessageEvent, tenant: HandlerTenant): Promis
     const fileMsg = event.message as { fileName?: string };
     const isImageLike = /\.(jpe?g|png|heic|webp|gif)$/i.test(fileMsg.fileName || '');
     if (isImageLike) {
+      if (await maybeRouteJeImage(event, tenant, ctx)) return;
       await handleImageMessage(event, { ...ctx, accessToken: tenant.lineAccessToken });
     } else if (event.replyToken) {
       const client = getLineClient(tenant.lineAccessToken);
@@ -147,6 +152,8 @@ async function handlePostback(event: PostbackEvent, tenant: HandlerTenant): Prom
     await handlePurchaseCommand(action, ctx);
   } else if (action.startsWith('accounting:')) {
     await handleAccountingCommand(action, ctx);
+  } else if (action.startsWith('je:')) {
+    await handleJeCommand(action, ctx);
   } else if (action.startsWith('master:')) {
     await handleMasterCommand(action, ctx);
   } else if (action.startsWith('management:')) {
@@ -171,6 +178,7 @@ async function routeTextCommand(text: string, ctx: TextCommandContext): Promise<
   if (await handleSalesText(text, ctx)) return;
   if (await handlePurchaseText(text, ctx)) return;
   if (await handleAccountingText(text, ctx)) return;
+  if (await handleJeText(text, ctx)) return;
   if (await handleMasterText(text, ctx)) return;
   if (await handleManagementText(text, ctx)) return;
 
@@ -283,5 +291,26 @@ async function routeTextCommand(text: string, ctx: TextCommandContext): Promise<
       type: 'text',
       text: '請使用選單操作，或輸入以下指令：\n• 報價 - 報價管理\n• 銷貨 - 銷貨管理\n• 進貨 - 進貨管理\n• 帳務 - 帳務查詢\n• 查詢 關鍵字 - 搜尋',
     }],
+  });
+}
+
+/**
+ * Route image to JE OCR handler if the user is currently in je-ocr-wait-image step.
+ * Returns true if handled (skip default business-card OCR).
+ */
+async function maybeRouteJeImage(
+  event: MessageEvent,
+  tenant: HandlerTenant,
+  ctx: { client: ReturnType<typeof getLineClient>; employee: { id: string; lineUserId: string | null; role?: string }; tenantId: string },
+): Promise<boolean> {
+  const userId = ctx.employee.lineUserId;
+  if (!userId) return false;
+  const s = session.get(tenant.id, userId);
+  if (!s || s.flow !== 'je:create' || s.step !== 'je-ocr-wait-image') return false;
+  return handleJeImage(event, {
+    tenantId: tenant.id,
+    employee: ctx.employee,
+    client: ctx.client,
+    accessToken: tenant.lineAccessToken,
   });
 }

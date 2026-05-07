@@ -14,6 +14,9 @@ export async function handleAccountingCommand(action: string, ctx: any): Promise
 
   const isSalesRole = employee?.role === 'SALES';
 
+  const role = (employee as { role?: string })?.role;
+  const isAccounting = role === 'ADMIN' || role === 'ACCOUNTING';
+
   switch (action) {
     case 'accounting:menu': {
       const actions: any[] = [
@@ -23,6 +26,36 @@ export async function handleAccountingCommand(action: string, ctx: any): Promise
       if (!isSalesRole) {
         actions.splice(1, 0, { type: 'postback', label: '應付 - 未付款', data: 'action=accounting:ap-unpaid' });
         actions.push({ type: 'postback', label: '應付 - 逾期', data: 'action=accounting:ap-overdue' });
+      }
+      // ADMIN/ACCOUNTING 才看得到「新增傳票」
+      if (isAccounting) {
+        // LINE buttons template 上限 4 個 actions，已可能超過。改用兩則訊息：先送原本的查詢，再送新增傳票。
+        const messages: any[] = [
+          {
+            type: 'template',
+            altText: '帳務管理',
+            template: {
+              type: 'buttons',
+              title: '帳務查詢',
+              text: '應收應付',
+              actions: actions.slice(0, 4),
+            },
+          },
+          {
+            type: 'template',
+            altText: '新增傳票',
+            template: {
+              type: 'buttons',
+              title: '新增傳票',
+              text: '快速登錄費用支出（自動推會計科目）',
+              actions: [
+                { type: 'postback', label: '➕ 新增傳票', data: 'action=je:start' },
+              ],
+            },
+          },
+        ];
+        await client.replyMessage({ replyToken: event.replyToken, messages });
+        return;
       }
       await client.replyMessage({
         replyToken: event.replyToken,

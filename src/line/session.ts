@@ -20,6 +20,27 @@ export interface OcrCard {
   taxId?: string;
 }
 
+/**
+ * 快速建立傳票 session（v2.7.5+）：LINE 帳務選單 → 「新增傳票」
+ * 兩條路徑（OCR / 手動）最終都收集 description / amount / paymentMethod 三欄
+ * 然後呼叫後端 POST /api/accounting/expense/quick。
+ */
+export interface JeDraft {
+  /** OCR 辨識結果（手動路徑為 undefined） */
+  ocr?: {
+    merchantName?: string;
+    invoiceNo?: string;
+    rawText?: string;
+  };
+  description?: string;
+  amount?: number;
+  invoiceDate?: string; // ISO yyyy-mm-dd；OCR 抽到的日期或預設今天
+  paymentMethod?: 'cash' | 'bank' | 'payable';
+  voucherNo?: string;
+  /** ADMIN 可選 'posted'，ACCOUNTING 強制 'pending' */
+  status?: 'pending' | 'posted';
+}
+
 export interface Session {
   flow:
     | 'sales:create'
@@ -31,8 +52,12 @@ export interface Session {
     | 'master:search'
     | 'master:product-list'
     | 'mgmt:emp:add'
-    | 'mgmt:sup:add';
-  step: 'party' | 'items' | 'confirm' | 'item-await-note' | 'await-delivery-note';
+    | 'mgmt:sup:add'
+    | 'je:create';
+  step:
+    | 'party' | 'items' | 'confirm' | 'item-await-note' | 'await-delivery-note'
+    | 'je-method' | 'je-ocr-wait-image'
+    | 'je-describe' | 'je-amount' | 'je-payment' | 'je-confirm';
   data: {
     partyId?: string;
     partyName?: string;
@@ -57,6 +82,8 @@ export interface Session {
      * 30-min TTL is plenty for browsing.
      */
     productListIds?: string[];
+    /** v2.7.5: 快速建立傳票草稿 */
+    jeDraft?: JeDraft;
   };
   updatedAt: number;
 }

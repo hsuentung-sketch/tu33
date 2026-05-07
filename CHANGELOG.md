@@ -3,6 +3,44 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.7.5] - 2026-05-05
+
+### Added — LINE chat 新增傳票（拍照辨識 / 手動輸入）
+ADMIN/ACCOUNTING 從 LINE「帳務」選單進入「➕ 新增傳票」，兩條路徑最終都對接後端 `expense.service.quickExpense` 自動產 JE。
+
+#### 流程
+- 「帳務」選單 → 「➕ 新增傳票」按鈕（僅 ADMIN/ACCOUNTING 可見）
+- 選方式：📸 拍照辨識 / ✍️ 手動輸入
+- **拍照辨識**：上傳發票照片 → Google Vision OCR → regex 抽 (商家名 / 金額 / 日期 / 統編 / 發票號) → 自動填入 description + amount + voucherNo + date
+- **手動輸入**：逐步問 用途說明 → 金額 → 付款方式
+- 兩條路徑共用：付款方式（現金 1101 / 銀行 1111 / 應付帳款 2101） → 確認預覽（含自動推論的會計科目）→ 送出
+- 確認前可隨時輸入「修改用途 XXX」覆蓋自動辨識結果，會重新跑科目推論
+- ADMIN 可在確認前切「直接過帳」/「待審核」；ACCOUNTING 強制 pending
+
+#### 新增檔案
+- `src/ai/invoice-ocr.ts` — 發票 OCR：用既有 `GOOGLE_VISION_API_KEY`，regex 抽 5 個欄位
+  - 金額：搜「總計/合計/應付」附近數字 → fallback 取 `$/NT$ NNN` 最大值
+  - 日期：西元 / 民國 / 中華民國 X 年 X 月 X 日 三種格式
+  - 發票號：`AB12345678`（兩碼英文+8 碼數字）
+  - 商家名：含「公司/超商/工坊/商行/實業」等關鍵字優先；fallback 第一行
+  - 統編：「統一編號 / 統編」標記優先；fallback 任意 8 碼數字
+- `src/line/handlers/je.handler.ts` — 完整對話流程（postback / text / image 三入口），含 safeSend reply→push fallback
+
+#### 修改
+- `src/line/session.ts`：新增 `flow='je:create'` 與 6 個 step；`data.jeDraft` 草稿欄位
+- `src/line/handlers/accounting.handler.ts`：`accounting:menu` 對 ADMIN/ACCOUNTING 多送一張「新增傳票」按鈕卡（避開 LINE buttons template 4-action 上限）
+- `src/line/handlers/index.ts`：image dispatcher 先檢查 JE session，是 `je-ocr-wait-image` 才走發票 OCR；否則保持原本名片 OCR 行為。postback router 加 `je:` 前綴。text router 加 `handleJeText` 分支
+
+#### 失敗處理
+- 無 `GOOGLE_VISION_API_KEY` → 自動 fallback 手動輸入路徑
+- OCR 抽不到金額 → 進 `je-amount` step 由使用者補（其他欄位保留）
+- OCR 抽不到商家 → 進 `je-describe` step
+- 後端會計模組未啟用 / 期間關閉 → service 錯訊原文回 LINE
+
+#### 對接後端（未動既有 API）
+- POST `/api/accounting/expense/quick`（v2.7.2 已有）
+- `previewExpenseAccount(description)` 用於每步即時顯示判斷結果
+
 ## [2.7.4] - 2026-05-05
 
 ### Fixed — 公司名 / 電子發票賣方資訊單一資料來源（修使用者誤填污染）
