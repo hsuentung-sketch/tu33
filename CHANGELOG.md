@@ -3,6 +3,29 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.7.7] - 2026-05-07
+
+### Added — 客戶 / 供應商名片辨識上傳（後台網頁）
+延續 v2.7.6 把同樣模式套到名片 OCR：避開 LINE 拍照壓縮，從電腦/手機瀏覽器上傳原圖。
+
+#### 後端
+- 新 endpoints：
+  - `POST /api/customers/ocr`（multipart `file`）
+  - `POST /api/suppliers/ocr`（多一層 SALES 擋）
+- 兩個 endpoint 都重用 `recognizeBusinessCard()`（既有 `src/ai/ocr.ts`）
+- 5MB 上限、驗 mimetype `image/jpeg|png|heic|webp|gif`
+- 不寫資料；回 `{ companyName, contactName, phone, email, address, taxId, rawTextPreview }`
+
+#### 前端
+- 「客戶」頁工具列加「📇 名片辨識上傳」按鈕（在「+新增客戶」左邊）
+- 「供應商」頁工具列同樣加按鈕
+- 點選 → 開檔案選擇器 → 上傳 → 自動開「新增客戶/供應商」modal 並預填公司/聯絡人/電話/統編/Email/地址
+- `editCustomer()` / supplier `edit()` 簽名擴充加 `prefill` 參數
+
+#### 適用情境
+- 業務帶名片回辦公室，掃描或拍照後上傳（電腦上傳原圖品質遠優於 LINE 拍照）
+- LINE 上拍照辨識不佳時，可以改用後台網頁上傳同張照片重試
+
 ## [2.7.6] - 2026-05-07
 
 ### Added — 後台拍照辨識上傳（避開 LINE 拍照壓縮）

@@ -1,9 +1,16 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
+import multer from 'multer';
 import { ForbiddenError, ValidationError } from '../../../shared/errors.js';
+import { recognizeBusinessCard } from '../../../ai/ocr.js';
 import * as supplierService from './supplier.service.js';
 
 export const supplierRouter = Router();
+
+const ocrUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+});
 
 // SALES 完全沒供應商權限（讀寫都擋）。
 supplierRouter.use((req: Request, _res: Response, next: NextFunction) => {
@@ -66,6 +73,33 @@ supplierRouter.post('/', async (req: Request, res: Response, next: NextFunction)
     next(err);
   }
 });
+
+/**
+ * 名片辨識上傳：multipart `file` → Vision OCR → 抽欄位 → 不寫資料。
+ * 前端拿結果預填「新增供應商」modal。
+ */
+supplierRouter.post('/ocr',
+  ocrUpload.single('file'),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const f = (req as Request & { file?: Express.Multer.File }).file;
+      if (!f) throw new ValidationError('未收到檔案（field name 必須是 file）');
+      if (!/^image\/(jpe?g|png|heic|webp|gif)$/i.test(f.mimetype)) {
+        throw new ValidationError(`不支援的檔案類型：${f.mimetype}（僅接受 jpg/png/heic/webp/gif）`);
+      }
+      const card = await recognizeBusinessCard(f.buffer);
+      res.json({
+        companyName: card.companyName ?? null,
+        contactName: card.contactName ?? null,
+        phone: card.phone ?? null,
+        email: card.email ?? null,
+        address: card.address ?? null,
+        taxId: card.taxId ?? null,
+        rawTextPreview: (card.rawText || '').slice(0, 300),
+      });
+    } catch (err) { next(err); }
+  },
+);
 
 supplierRouter.put('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {

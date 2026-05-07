@@ -202,10 +202,22 @@ async function viewCustomers(main) {
     }
   }
 
-  function editCustomer(c, done) {
+  function editCustomer(c, done, prefill) {
+    const initial = c
+      ? { ...c }
+      : {
+        paymentDays: 30,
+        grade: 'B',
+        name: prefill?.companyName || '',
+        contactName: prefill?.contactName || '',
+        phone: prefill?.phone || '',
+        taxId: prefill?.taxId || '',
+        email: prefill?.email || '',
+        address: prefill?.address || '',
+      };
     openModal({
       title: c ? '編輯客戶' : '新增客戶',
-      initial: c ? { ...c } : { paymentDays: 30, grade: 'B' },
+      initial,
       fields: [
         { name: 'name', label: '公司名稱', required: true },
         { type: 'row', fields: [
@@ -234,12 +246,43 @@ async function viewCustomers(main) {
     });
   }
 
+  // 名片辨識上傳：避開 LINE 拍照壓縮
+  const ocrFile = el('input', {
+    type: 'file', accept: 'image/jpeg,image/png,image/heic,image/webp',
+    style: 'display:none;',
+  });
+  ocrFile.addEventListener('change', async () => {
+    const f = ocrFile.files?.[0];
+    if (!f) return;
+    if (f.size > 5 * 1024 * 1024) { toast('檔案超過 5MB', 'err'); ocrFile.value = ''; return; }
+    try {
+      const fd = new FormData();
+      fd.append('file', f);
+      const res = await fetch('/api/customers/ocr', {
+        method: 'POST', credentials: 'same-origin', body: fd,
+      });
+      if (res.status === 401) { location.href = './login.html'; return; }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error?.message || 'OCR 失敗');
+      const fields = [];
+      if (data.companyName) fields.push(`公司：${data.companyName}`);
+      if (data.contactName) fields.push(`聯絡人：${data.contactName}`);
+      if (data.phone) fields.push(`電話：${data.phone}`);
+      if (data.taxId) fields.push(`統編：${data.taxId}`);
+      toast(`📇 已辨識：${fields.join('；') || '欄位皆空，請手動輸入'}`, fields.length ? 'ok' : 'warn');
+      editCustomer(null, reload, data);
+    } catch (err) { toast(err.message, 'err'); }
+    finally { ocrFile.value = ''; }
+  });
+
   const toolbar = el('div', { class: 'toolbar' },
     search,
     el('button', { class: 'btn', onClick: reload }, '搜尋'),
     el('label', { style: 'font-size:12px;color:var(--muted);' }, includeInactive, ' 含停用'),
     el('div', { style: 'flex:1;' }),
+    el('button', { class: 'btn', onClick: () => ocrFile.click() }, '📇 名片辨識上傳'),
     el('button', { class: 'btn primary', onClick: () => editCustomer(null, reload) }, '+ 新增客戶'),
+    ocrFile,
   );
   search.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); reload(); } });
   includeInactive.addEventListener('change', reload);
@@ -502,10 +545,21 @@ async function viewSuppliers(main) {
     }
   }
 
-  function edit(s) {
+  function edit(s, prefill) {
+    const initial = s
+      ? { ...s }
+      : {
+        paymentDays: 60,
+        name: prefill?.companyName || '',
+        contactName: prefill?.contactName || '',
+        phone: prefill?.phone || '',
+        taxId: prefill?.taxId || '',
+        email: prefill?.email || '',
+        address: prefill?.address || '',
+      };
     openModal({
       title: s ? '編輯供應商' : '新增供應商',
-      initial: s ? { ...s } : { paymentDays: 60 },
+      initial,
       fields: [
         { name: 'name', label: '供應商名稱', required: true },
         { type: 'row', fields: [
@@ -534,11 +588,42 @@ async function viewSuppliers(main) {
     });
   }
 
+  // 名片辨識上傳
+  const ocrFile = el('input', {
+    type: 'file', accept: 'image/jpeg,image/png,image/heic,image/webp',
+    style: 'display:none;',
+  });
+  ocrFile.addEventListener('change', async () => {
+    const f = ocrFile.files?.[0];
+    if (!f) return;
+    if (f.size > 5 * 1024 * 1024) { toast('檔案超過 5MB', 'err'); ocrFile.value = ''; return; }
+    try {
+      const fd = new FormData();
+      fd.append('file', f);
+      const res = await fetch('/api/suppliers/ocr', {
+        method: 'POST', credentials: 'same-origin', body: fd,
+      });
+      if (res.status === 401) { location.href = './login.html'; return; }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error?.message || 'OCR 失敗');
+      const fields = [];
+      if (data.companyName) fields.push(`公司：${data.companyName}`);
+      if (data.contactName) fields.push(`聯絡人：${data.contactName}`);
+      if (data.phone) fields.push(`電話：${data.phone}`);
+      if (data.taxId) fields.push(`統編：${data.taxId}`);
+      toast(`📇 已辨識：${fields.join('；') || '欄位皆空，請手動輸入'}`, fields.length ? 'ok' : 'warn');
+      edit(null, data);
+    } catch (err) { toast(err.message, 'err'); }
+    finally { ocrFile.value = ''; }
+  });
+
   includeInactive.addEventListener('change', reload);
   main.append(el('div', { class: 'toolbar' },
     el('label', { style: 'font-size:12px;color:var(--muted);' }, includeInactive, ' 含停用'),
     el('div', { style: 'flex:1;' }),
+    el('button', { class: 'btn', onClick: () => ocrFile.click() }, '📇 名片辨識上傳'),
     el('button', { class: 'btn primary', onClick: () => edit(null) }, '+ 新增供應商'),
+    ocrFile,
   ), table);
   reload();
 }
