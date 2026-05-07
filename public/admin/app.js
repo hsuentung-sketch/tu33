@@ -2667,13 +2667,49 @@ async function viewAcctJournal(main) {
   const status = await loadAcctStatus();
   if (!status.enabled) { main.append(el('div', { class: 'empty' }, '會計模組尚未啟用。')); return; }
 
-  // 工具列：快速費用登記 + 零用金調撥
+  // 工具列：快速費用登記 + 拍照辨識上傳 + 零用金調撥
   const toolbar = el('div', { class: 'toolbar', style: 'display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;' });
   const expenseBtn = el('button', { class: 'btn primary',
     onClick: () => openQuickExpenseModal(() => reload()) }, '＋快速費用登記');
+  // 拍照辨識上傳：避開 LINE 拍照壓縮造成的低辨識率
+  const ocrFile = el('input', {
+    type: 'file', accept: 'image/jpeg,image/png,image/heic,image/webp',
+    style: 'display:none;',
+  });
+  ocrFile.addEventListener('change', async () => {
+    const f = ocrFile.files?.[0];
+    if (!f) return;
+    if (f.size > 5 * 1024 * 1024) { toast('檔案超過 5MB', 'err'); ocrFile.value = ''; return; }
+    try {
+      const fd = new FormData();
+      fd.append('file', f);
+      const res = await fetch('/api/accounting/expense/ocr', {
+        method: 'POST', credentials: 'same-origin', body: fd,
+      });
+      if (res.status === 401) { location.href = './login.html'; return; }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error?.message || 'OCR 失敗');
+      const fields = [];
+      if (data.merchantName) fields.push(`商家：${data.merchantName}`);
+      if (data.amount != null) fields.push(`金額：$${Number(data.amount).toLocaleString('zh-TW')}`);
+      if (data.invoiceDate) fields.push(`日期：${data.invoiceDate}`);
+      if (data.invoiceNo) fields.push(`發票號：${data.invoiceNo}`);
+      toast(`📷 已辨識：${fields.join('；') || '欄位皆空，請手動輸入'}`, fields.length ? 'ok' : 'warn');
+      // 開啟 modal 並預填
+      openQuickExpenseModal(() => reload(), {
+        description: data.merchantName || '',
+        amount: data.amount,
+        invoiceDate: data.invoiceDate,
+        voucherNo: data.invoiceNo,
+        inferred: data.inferred,
+      });
+    } catch (err) { toast(err.message, 'err'); }
+    finally { ocrFile.value = ''; }
+  });
+  const ocrBtn = el('button', { class: 'btn', onClick: () => ocrFile.click() }, '📷 拍照辨識上傳');
   const pettyBtn = el('button', { class: 'btn',
     onClick: () => openPettyCashModal(() => reload()) }, '零用金調撥');
-  toolbar.append(expenseBtn, pettyBtn);
+  toolbar.append(expenseBtn, ocrBtn, pettyBtn, ocrFile);
   main.append(toolbar);
 
   // 篩選列
@@ -2758,7 +2794,8 @@ async function viewAcctJournal(main) {
 }
 
 // ----- 快速費用登記 modal -----
-async function openQuickExpenseModal(onSaved) {
+// prefill: 從 OCR 上傳預填，shape = { description, amount, invoiceDate, voucherNo, inferred }
+async function openQuickExpenseModal(onSaved, prefill) {
   const today = new Date().toISOString().slice(0, 10);
   // 載入費用 + 成本科目給「手動覆蓋」下拉
   let expenseAccts = [];
@@ -2771,13 +2808,22 @@ async function openQuickExpenseModal(onSaved) {
   } catch (e) { /* 啟用前查不到，繼續以 inferred 為準 */ }
 
   const errBox = el('div', { class: 'err' });
-  const dateInput = el('input', { type: 'date', value: today });
-  const descInput = el('input', { type: 'text', placeholder: '如：搭計程車到客戶端 / 繳電費 / 文具採購' });
-  const amountInput = el('input', { type: 'number', min: '1', step: '1', value: '' });
+  const dateInput = el('input', { type: 'date', value: prefill?.invoiceDate || today });
+  const descInput = el('input', {
+    type: 'text', value: prefill?.description || '',
+    placeholder: '如：搭計程車到客戶端 / 繳電費 / 文具採購',
+  });
+  const amountInput = el('input', {
+    type: 'number', min: '1', step: '1',
+    value: prefill?.amount != null ? String(prefill.amount) : '',
+  });
   const payRadioCash = el('input', { type: 'radio', name: 'payMethod', value: 'cash', checked: true });
   const payRadioBank = el('input', { type: 'radio', name: 'payMethod', value: 'bank' });
   const payRadioPay = el('input', { type: 'radio', name: 'payMethod', value: 'payable' });
-  const voucherInput = el('input', { type: 'text', placeholder: '如：發票號 / 收據編號' });
+  const voucherInput = el('input', {
+    type: 'text', value: prefill?.voucherNo || '',
+    placeholder: '如：發票號 / 收據編號',
+  });
   const statusSelect = el('select', {},
     el('option', { value: 'pending' }, '待審核（之後過帳）'),
     el('option', { value: 'posted' }, '直接過帳'),
@@ -2787,6 +2833,16 @@ async function openQuickExpenseModal(onSaved) {
   const inferredBadge = el('div', {
     style: 'padding:8px 10px;background:#f0f7ff;border:1px solid #b6d4fe;border-radius:4px;font-size:13px;line-height:1.5;',
   }, '輸入用途後自動判斷會計科目');
+  // 若有 OCR prefill 的科目推論，先顯示
+  if (prefill?.inferred?.code) {
+    const r = prefill.inferred;
+    const kw = r.matchedKeyword ? `（命中：${r.matchedKeyword}）` : '（無命中→雜項）';
+    inferredBadge.innerHTML = '';
+    inferredBadge.append(
+      el('span', { style: 'color:#0a4d99;font-weight:600;' }, `${r.code} ${r.name}`),
+      el('span', { style: 'color:#666;margin-left:8px;' }, kw),
+    );
+  }
   let manualOverrideId = '';
   const overrideSelect = el('select', { style: 'margin-top:6px;' },
     el('option', { value: '' }, '（自動判斷）'),

@@ -128,7 +128,12 @@ export async function handleJeCommand(action: string, ctx: JeCtx): Promise<void>
       session.set(tenantId, lineUserId, s);
       await safeSend([{
         type: 'text',
-        text: '📷 請拍攝發票或收據照片並傳送（限 30 分鐘內）。\n系統會辨識金額、日期、商家名稱並自動判斷會計科目。',
+        text:
+          '📷 請傳送發票或收據圖片（限 30 分鐘內）\n\n' +
+          '⚠️ 提升辨識率小撇步：\n' +
+          '• LINE 「相機」拍照會壓縮畫質 → 建議改用「+」→「檔案」picker 上傳原圖\n' +
+          '• 或從手機相簿選照片直接傳\n' +
+          '• 若辨識仍不佳，請改用後台網頁「會計→傳票→📷 拍照辨識上傳」（不壓縮畫質）',
       }]);
       return;
     }
@@ -369,7 +374,10 @@ export async function handleJeImage(event: MessageEvent, ctx: {
     session.set(tenantId, lineUserId, s);
     await safeSend([{
       type: 'text',
-      text: `📷 OCR 失敗：${(err as Error).message}\n改用手動輸入。\n請描述用途：`,
+      text:
+        `📷 OCR 失敗：${(err as Error).message}\n\n` +
+        '改用手動輸入。請描述用途：\n' +
+        '（如照片畫質不佳，建議改用後台「會計→傳票→📷 拍照辨識上傳」）',
     }]);
     return true;
   }

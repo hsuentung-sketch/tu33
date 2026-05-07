@@ -3,6 +3,38 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.7.6] - 2026-05-07
+
+### Added — 後台拍照辨識上傳（避開 LINE 拍照壓縮）
+LINE 內建相機拍照會大幅壓縮畫質，影響 OCR 辨識率。提供兩條替代路徑：
+
+#### 後台網頁上傳（主推）
+- 「會計 → 傳票」頁工具列加「📷 拍照辨識上傳」按鈕
+- 點選 → 開檔案選擇器（accept=`image/jpeg,image/png,image/heic,image/webp`，5MB 上限）
+- 上傳到後端 → 跑 OCR + 科目推論 → 回傳結構化結果
+- 自動開「快速費用登記」modal 並**預填**：用途說明 / 金額 / 日期 / 憑證號 / 自動判斷的科目
+- 使用者只需確認 / 微調 / 選付款方式 → 送出
+
+#### 後端
+- 新 endpoint：`POST /api/accounting/expense/ocr`（ACCOUNTING+，multipart `file`）
+- 驗 mimetype 必須為 `image/jpeg|png|heic|webp|gif`
+- 不寫任何資料；回傳 `{ merchantName, amount, invoiceDate, invoiceNo, merchantTaxId, inferred, rawTextPreview }`
+- `rawTextPreview` 取前 300 字，方便除錯辨識結果
+
+#### 前端
+- `openQuickExpenseModal(onSaved, prefill?)` 簽名擴充：第二參數可帶 OCR 預填資料
+- prefill 帶入後 inferredBadge 即時顯示判斷的科目，省去使用者重新輸入觸發 debounce preview
+
+#### LINE 文案改進
+- `je-ocr-wait-image` 提示加「⚠️ 提升辨識率小撇步」段落，引導使用：
+  - LINE「+」→「檔案」picker 上傳原圖（不走相機壓縮）
+  - 或改用後台網頁上傳
+- OCR 失敗訊息也加引導：「如照片畫質不佳，建議改用後台」
+
+### 不影響既有
+- LINE 拍照路徑仍可用（v2.7.5 加的支援保留）
+- 後端 `recognizeInvoice()` / `expenseService.previewExpenseAccount()` 兩函式重用，無新依賴
+
 ## [2.7.5] - 2026-05-05
 
 ### Added — LINE chat 新增傳票（拍照辨識 / 手動輸入）
