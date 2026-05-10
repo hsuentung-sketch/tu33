@@ -2840,6 +2840,9 @@ async function viewAcctJournal(main) {
           catch (err) { toast(err.message, 'err'); }
         });
         actCell.append(postBtn);
+        const editBtn = el('button', { class: 'btn', style: 'font-size:12px;' }, '編輯');
+        editBtn.addEventListener('click', () => openJournalEntryEditor(e, () => reload()));
+        actCell.append(editBtn);
         if (isAdmin()) {
           const delBtn = el('button', { class: 'btn', style: 'font-size:12px;' }, '刪除');
           delBtn.addEventListener('click', async () => {
@@ -2876,6 +2879,175 @@ async function viewAcctJournal(main) {
   stSel.addEventListener('change', reload);
   refresh.addEventListener('click', reload);
   reload();
+}
+
+// ----- 編輯傳票 modal（pending 才開得起來）-----
+// service 端會擋 status !== 'pending'，UI 也只在 pending row 上掛按鈕。
+async function openJournalEntryEditor(entry, onSaved) {
+  // 載完整科目表（含 inactive 不要，避免使用者選到停用科目）
+  let accounts = [];
+  try {
+    accounts = await api.get('/accounting/coa?activeOnly=1');
+  } catch (e) { toast('載入科目表失敗：' + e.message, 'err'); return; }
+
+  const dateValue = (() => {
+    try { return new Date(entry.entryDate).toISOString().slice(0, 10); }
+    catch { return ''; }
+  })();
+  const dateInput = el('input', { type: 'date', value: dateValue });
+  const descInput = el('input', { type: 'text', value: entry.description || '' });
+
+  const linesBody = el('tbody');
+  const totalDebitCell = el('td', { style: 'text-align:right;font-weight:600;' }, '0');
+  const totalCreditCell = el('td', { style: 'text-align:right;font-weight:600;' }, '0');
+  const balanceMsg = el('span', { style: 'font-size:12px;' }, '');
+
+  function recalcTotals() {
+    let td = 0; let tc = 0;
+    linesBody.querySelectorAll('tr').forEach((tr) => {
+      const numInputs = tr.querySelectorAll('input[type="number"]');
+      td += Number(numInputs[0]?.value || 0);
+      tc += Number(numInputs[1]?.value || 0);
+    });
+    totalDebitCell.textContent = td.toLocaleString('zh-TW');
+    totalCreditCell.textContent = tc.toLocaleString('zh-TW');
+    if (Math.abs(td - tc) < 0.005 && td > 0) {
+      balanceMsg.textContent = '✓ 借貸平衡';
+      balanceMsg.style.color = '#0a7d2c';
+    } else {
+      balanceMsg.textContent = `差異：${(td - tc).toLocaleString('zh-TW')}`;
+      balanceMsg.style.color = '#c9302c';
+    }
+  }
+
+  function buildLineRow(line) {
+    const accSel = el('select', { style: 'width:100%;min-width:200px;' });
+    accSel.append(el('option', { value: '' }, '選擇科目…'));
+    for (const a of accounts) {
+      const o = el('option', { value: a.id }, `${a.code} ${a.name}`);
+      if (line.accountId === a.id) o.selected = true;
+      accSel.append(o);
+    }
+    const debitInput = el('input', {
+      type: 'number', step: '0.01', min: '0',
+      style: 'width:110px;text-align:right;',
+      value: line.debit != null ? String(Number(line.debit)) : '0',
+    });
+    const creditInput = el('input', {
+      type: 'number', step: '0.01', min: '0',
+      style: 'width:110px;text-align:right;',
+      value: line.credit != null ? String(Number(line.credit)) : '0',
+    });
+    const memoInput = el('input', {
+      type: 'text', style: 'width:100%;min-width:140px;',
+      value: line.description || '',
+    });
+    const removeBtn = el('button', {
+      class: 'btn', style: 'font-size:12px;padding:2px 8px;', title: '刪除此分錄',
+    }, '×');
+    const tr = el('tr', {},
+      el('td', {}, accSel),
+      el('td', {}, debitInput),
+      el('td', {}, creditInput),
+      el('td', {}, memoInput),
+      el('td', { style: 'text-align:center;' }, removeBtn),
+    );
+    removeBtn.addEventListener('click', () => { tr.remove(); recalcTotals(); });
+    debitInput.addEventListener('input', recalcTotals);
+    creditInput.addEventListener('input', recalcTotals);
+    return tr;
+  }
+
+  for (const l of (entry.lines || [])) linesBody.append(buildLineRow(l));
+  if (!linesBody.children.length) {
+    linesBody.append(buildLineRow({ accountId: '', debit: 0, credit: 0, description: '' }));
+    linesBody.append(buildLineRow({ accountId: '', debit: 0, credit: 0, description: '' }));
+  }
+  recalcTotals();
+
+  const addLineBtn = el('button', {
+    class: 'btn', style: 'margin-top:8px;font-size:12px;',
+  }, '＋ 增加分錄');
+  addLineBtn.addEventListener('click', () => {
+    linesBody.append(buildLineRow({ accountId: '', debit: 0, credit: 0, description: '' }));
+    recalcTotals();
+  });
+
+  const errBox = el('div', { class: 'err' });
+
+  const backdrop = el('div', { class: 'modal-backdrop' });
+  const modal = el('div', { class: 'modal', style: 'max-width:820px;width:96%;' },
+    el('h3', {}, `編輯傳票 ${entry.entryNo}`),
+    el('div', { class: 'body' },
+      el('div', { style: 'display:flex;gap:12px;flex-wrap:wrap;' },
+        el('div', { class: 'field', style: 'flex:0 0 180px;' },
+          el('label', {}, '日期 *'),
+          dateInput,
+        ),
+        el('div', { class: 'field', style: 'flex:1;min-width:220px;' },
+          el('label', {}, '說明 *'),
+          descInput,
+        ),
+      ),
+      el('div', { style: 'margin-top:6px;font-weight:600;font-size:13px;color:#333;' }, '分錄明細'),
+      el('table', { class: 'data-table', style: 'width:100%;font-size:13px;margin-top:6px;' },
+        el('thead', {}, el('tr', {},
+          el('th', {}, '科目'),
+          el('th', { style: 'text-align:right;width:120px;' }, '借'),
+          el('th', { style: 'text-align:right;width:120px;' }, '貸'),
+          el('th', {}, '摘要'),
+          el('th', { style: 'width:36px;' }, ''),
+        )),
+        linesBody,
+        el('tfoot', {}, el('tr', {},
+          el('td', { style: 'text-align:right;color:#666;' }, '合計'),
+          totalDebitCell,
+          totalCreditCell,
+          el('td', { colspan: '2' }, balanceMsg),
+        )),
+      ),
+      addLineBtn,
+      el('div', { style: 'margin-top:8px;font-size:12px;color:#666;' },
+        '註：已過帳 / 已反沖的傳票不可在此編輯，需先反沖再重新建立。'),
+    ),
+    errBox,
+    el('div', { class: 'actions' },
+      el('button', { class: 'btn', onClick: () => backdrop.remove() }, '取消'),
+      el('button', { class: 'btn primary', onClick: async () => {
+        errBox.textContent = '';
+        try {
+          if (!dateInput.value) throw new Error('日期不可空白');
+          const desc = descInput.value.trim();
+          if (!desc) throw new Error('說明不可空白');
+          const lines = [];
+          linesBody.querySelectorAll('tr').forEach((tr) => {
+            const accSel = tr.querySelector('select');
+            const inputs = tr.querySelectorAll('input');
+            const accountId = accSel?.value || '';
+            const debit = Number(inputs[0]?.value || 0);
+            const credit = Number(inputs[1]?.value || 0);
+            const memo = inputs[2]?.value?.trim() || '';
+            // 略過完全空白 row（無科目且金額皆 0）
+            if (!accountId && debit === 0 && credit === 0) return;
+            if (!accountId) throw new Error('每筆分錄都必須選擇科目');
+            lines.push({ accountId, debit, credit, description: memo || undefined });
+          });
+          if (lines.length < 2) throw new Error('至少需 2 筆分錄');
+          await api.put(`/accounting/journal/${entry.id}`, {
+            entryDate: dateInput.value,
+            description: desc,
+            lines,
+          });
+          backdrop.remove();
+          toast(`已更新 ${entry.entryNo}`, 'ok');
+          if (onSaved) onSaved();
+        } catch (e) { errBox.textContent = e.message; }
+      } }, '儲存'),
+    ),
+  );
+  backdrop.append(modal);
+  backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
+  document.body.append(backdrop);
 }
 
 // ----- 快速費用登記 modal -----

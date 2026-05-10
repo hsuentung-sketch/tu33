@@ -3,6 +3,29 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.7.8] - 2026-05-10
+
+### Added — 會計傳票編輯功能（後台 pending 才可改）
+ACCOUNTING / ADMIN 在「會計 → 傳票」頁的 pending 行新增「編輯」按鈕。
+
+#### 範圍
+- 可改：日期、說明、全部分錄（科目 / 借 / 貸 / 摘要）
+- 不可改：已過帳（posted）→ 必須先反沖；已反沖（reversed）→ 不再開放
+- 權限沿用 router 層守門：ACCOUNTING + ADMIN（自動分錄/手動分錄都同樣可改）
+
+#### 前端
+- `public/admin/app.js`：pending 行加「編輯」按鈕（在「過帳」與「刪除」之間）
+- 新 modal `openJournalEntryEditor(entry, onSaved)`：
+  - 載入 active CoA 給科目下拉
+  - 動態分錄表（增 / 刪 row、即時計算借貸合計、平衡狀態色提示）
+  - 提交前驗：日期 / 說明非空、≥ 2 筆分錄、每筆必選科目；空白 row 自動略過
+  - 送 `PUT /api/accounting/journal/:id`
+- 後端不動：`journal.service.update()` 早就支援，且寫死 `status !== 'pending'` → 擋
+
+#### 為什麼設計成「只 pending 可改」
+- 已過帳的傳票走「反沖」是會計慣例（保留原始軌跡，紅字回沖再重開），不直接改
+- 自動分錄（sales/purchase）通常 source=auto-* 且馬上 posted，要改一律走反沖
+
 ## [2.7.7] - 2026-05-07
 
 ### Added — 客戶 / 供應商名片辨識上傳（後台網頁）
