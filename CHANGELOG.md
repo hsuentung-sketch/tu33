@@ -49,52 +49,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 - 內建 14 個 EK 系列產品的「產品特點與摘要」+「對應產品（國外牌號）」對照
 - 用 `EK-{PDF code}` 找 DB 中的 product（fallback 用 PDF code 本身）
 - 寫入格式：`{產品特點}\n對應產品：{國外牌號}`（無對應牌號則只寫前段）
-- **覆蓋既有 note**（user 決定 a/a/a/a）
+- **追加在原 note 後**（若原 note 有內容；空 note 直接寫；冪等檢查避免重複追加）— 保留原有營運記錄如「進價漲價」歷史
+- 匹配 DB 產品依據 `Product.name`（如 `EK-SS-6280 1/200`），不是 `code`（code 是 `MP-NNN`）。同一 PDF 條目通常對應 2 個 DB 規格（1/200 + 1/19）
 
-亦可以 SQL Editor 跑（單一 tenant 替換 `:TENANT`）：
+> SQL 版本已移除：DB 實況 `Product.code` 為 `MP-NNN` 而非 `EK-` 前綴；
+> 匹配需走 `Product.name`，且要 append 而非 overwrite。直接用上面的 Node 工具。
 
-```sql
-UPDATE "Product" SET note='適用於各種材質之加工，潤滑極壓均佳。
-對應產品：MORESCO BS-6S' WHERE "tenantId"=:TENANT AND code='EK-SS-6280';
-
-UPDATE "Product" SET note='泛用型之油劑產品，適用於鐵及非鐵金屬之一般加工。'
-  WHERE "tenantId"=:TENANT AND code='EK-EW-5268';
-
-UPDATE "Product" SET note='一般泛用型之產品，適合各種材質之切削研磨。'
-  WHERE "tenantId"=:TENANT AND code='EK-SS-6336';
-
-UPDATE "Product" SET note='泛用型之油劑、潤滑、極壓、抗腐敗性均佳。'
-  WHERE "tenantId"=:TENANT AND code='EK-EW-5206';
-
-UPDATE "Product" SET note='含氯系極壓劑，潤滑、極壓、耐腐敗性佳，適用於嚴苛之切削。
-對應產品：Blaser 4000' WHERE "tenantId"=:TENANT AND code='EK-EW-5202';
-
-UPDATE "Product" SET note='在 EW-5206 中提高潤滑劑劑量，適用於要求較高的表面光澤度及延長刀具壽命。
-對應產品：Blaser 2000' WHERE "tenantId"=:TENANT AND code='EK-EW-5209';
-
-UPDATE "Product" SET note='極佳的排油性、低泡性、長壽命，提供優異的防鏽與抗菌性，提升加工精度、保護工件與機器。
-對應產品：Castrol 9930C' WHERE "tenantId"=:TENANT AND code='EK-SYN-7052';
-
-UPDATE "Product" SET note='極佳的刀具壽命以及表面精密度，很好的工件可見度極不易起泡。
-對應產品：CImcool 3200VLZ' WHERE "tenantId"=:TENANT AND code='EK-SYN-7720';
-
-UPDATE "Product" SET note='銅及鋁合金專用油劑，適合長時間的加工，優異的抗腐蝕性及清潔性。
-對應產品：福斯 7630' WHERE "tenantId"=:TENANT AND code='EK-SS-6368';
-
-UPDATE "Product" SET note='銅及鋁合金專用油劑，適用大型工件長時間加工，提供超強抗腐蝕性能及保護表面光澤度。'
-  WHERE "tenantId"=:TENANT AND code='EK-EW-5369';
-
-UPDATE "Product" SET note='鋼材之切削、鑽孔、銑削適合複合車床、多刀車床、CNC、MC 之應用。
-對應產品：ENEOS RELIACUT DH10' WHERE "tenantId"=:TENANT AND code='EK-C-215';
-
-UPDATE "Product" SET note='抗乳化多用途滑道油。' WHERE "tenantId"=:TENANT AND code='EK-AE-68';
-
-UPDATE "Product" SET note='溶劑型防鏽，鹽霧試驗 12 小時，防鏽期 3-6 個月。'
-  WHERE "tenantId"=:TENANT AND code='EK-X-324M';
-
-UPDATE "Product" SET note='溶劑型防鏽，鹽霧試驗 24 小時，防鏽期 8-12 個月。'
-  WHERE "tenantId"=:TENANT AND code='EK-X-324L';
-```
+潤樋實業 tenant 已於 2026-05-12 跑過：14 PDF 條目 → 28 DB 產品全部更新，
+3 個原本有「進價漲價」note 的產品在後面追加產品特點。
 
 ### Added — npm dependency
 

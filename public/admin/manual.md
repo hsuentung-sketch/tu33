@@ -428,11 +428,15 @@ npx tsx src/tools/import-product-notes.ts <tenantId>
 npx tsx src/tools/import-product-notes.ts <tenantId> --confirm
 ```
 
-### Supabase SQL Editor 跑
+### 寫入規則
 
-CHANGELOG.md v2.9.0 段有完整 14 條 `UPDATE "Product" SET note=...` 語句，把 `:TENANT` 換成實際 tenantId 後一次貼進去執行。
+- 原 note 為空 → 直接寫產品特點 + 對應產品（若有）
+- 原 note 有內容（例如「3/30 進價漲 1500」）→ **在後面換行追加** 產品特點，不刪原內容
+- 若 note 已包含相同產品特點 → 跳過（冪等，可重複跑）
 
-寫入規則：**覆蓋既有 note**。原本手填的備註會被新內容取代。
+### 匹配規則
+
+依產品 **name** 而不是 `code`。DB 中 `Product.code` 是 `MP-NNN` 序號，`Product.name` 才是 `EK-SS-6280 1/200` 這種規格代號。同一 PDF 條目通常對應到 1/200 + 1/19 兩個容量規格。
 
 ---
 

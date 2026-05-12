@@ -1,15 +1,24 @@
 /**
  * Import EK 系列產品「產品特點與摘要 + 對應產品」到 Product.note。
  *
- * 資料來源：D:\\Claude\\ERP\\public\\admin\\EK產品說明.pdf（v2.9.0 隨附）
+ * 資料來源：EKYLE 金屬加工用油 / 防鏽與設備用油 catalog（v2.9.0 隨附）。
  *
  * Usage:
  *   npx tsx src/tools/import-product-notes.ts <tenantId> [--confirm] [--dry-run]
  *
  * 預設 dry-run（只報告會改什麼）。加 --confirm 才實際 UPDATE。
  *
- * 對應規則：PDF 代號 `SS-6280` → DB code `EK-SS-6280`（前綴 EK-）
- * 寫入規則：覆蓋既有 note（user 決定 a/a/a/a 中第 4 題選「覆蓋既有 note」）
+ * 對應規則（潤樋 DB 實況 v2.9.0）：
+ *   - Product.code 是 MP-NNN 序號
+ *   - 產品的 name 才是 EK 規格代號，例如 "EK-SS-6280 1/200"、"EK-C-215 1/19"
+ *   - 同一 PDF 條目通常對應 1-2 個 DB 產品（1/200 和 1/19 兩種容量）
+ *
+ *   匹配條件：name = `EK-{pdfCode}`（精確）或 name 以 `EK-{pdfCode} ` 開頭
+ *
+ * 寫入規則（v2.9.0 a/a/a/a 後修正）：
+ *   - 原 note 為空 → 直接寫產品特點
+ *   - 原 note 有內容 → 在後面換行接產品特點（保留營運記錄，例如「進價漲價」歷史）
+ *   - 已含相同產品特點則跳過（冪等）
  */
 import 'dotenv/config';
 import { prisma } from '../shared/prisma.js';
@@ -105,6 +114,17 @@ function buildNote(entry: ProductNoteEntry): string {
   return entry.description;
 }
 
+/**
+ * 合併新舊 note：原 note 為空就直接寫；有內容就換行追加；
+ * 已含新內容（冪等檢查）就不變。
+ */
+function mergeNote(oldNote: string | null | undefined, newPart: string): string {
+  const o = (oldNote ?? '').trim();
+  if (o === '') return newPart;
+  if (o.includes(newPart)) return o;
+  return `${o}\n${newPart}`;
+}
+
 async function main() {
   const [, , tenantId, ...flags] = process.argv;
   if (!tenantId) {
@@ -124,52 +144,65 @@ async function main() {
   console.log(`Tenant: ${tenant.companyName} (${tenantId})`);
   console.log(`Mode: ${isDry ? 'DRY-RUN (no writes)' : 'CONFIRM (will UPDATE)'}\n`);
 
-  let found = 0;
-  let missing = 0;
+  let matchedEntries = 0;
+  let totalMatchedProducts = 0;
   let updated = 0;
+  let overwriteWarned = 0;
   const missingList: string[] = [];
 
   for (const entry of ENTRIES) {
-    const expectedCode = entry.dbCode ?? `EK-${entry.pdfCode}`;
-    // 嘗試 EK-{code} 為主，找不到再用 PDF code 本身
-    let product = await prisma.product.findFirst({
-      where: { tenantId, code: expectedCode },
+    const prefix = entry.dbCode ?? `EK-${entry.pdfCode}`;
+    // 匹配 name == prefix 或 name startsWith `${prefix} `
+    const candidates = await prisma.product.findMany({
+      where: {
+        tenantId,
+        OR: [
+          { name: prefix },
+          { name: { startsWith: prefix + ' ' } },
+        ],
+      },
+      orderBy: { code: 'asc' },
     });
-    if (!product) {
-      product = await prisma.product.findFirst({
-        where: { tenantId, code: entry.pdfCode },
-      });
-    }
-    if (!product) {
-      missing++;
+    if (candidates.length === 0) {
       missingList.push(entry.pdfCode);
-      console.log(`✗ ${entry.pdfCode}: 找不到（試 ${expectedCode}、${entry.pdfCode}）`);
+      console.log(`✗ ${entry.pdfCode}: 找不到 name 對應「${prefix}」的產品`);
       continue;
     }
-    found++;
-    const newNote = buildNote(entry);
-    const oldNote = product.note ?? '';
-    if (oldNote === newNote) {
-      console.log(`= ${product.code}: 已是最新，跳過`);
-      continue;
-    }
-    if (isDry) {
-      console.log(`→ ${product.code}: 將更新 note`);
-      console.log(`    舊：${oldNote.slice(0, 80) || '(空)'}`);
-      console.log(`    新：${newNote.slice(0, 80)}`);
-    } else {
-      await prisma.product.update({
-        where: { id: product.id },
-        data: { note: newNote },
-      });
-      updated++;
-      console.log(`✓ ${product.code}: 已更新`);
+    matchedEntries++;
+    totalMatchedProducts += candidates.length;
+    const newPart = buildNote(entry);
+    for (const product of candidates) {
+      const oldNote = product.note ?? '';
+      const finalNote = mergeNote(oldNote, newPart);
+      if (oldNote === finalNote) {
+        console.log(`= ${product.code} (${product.name}): 已是最新，跳過`);
+        continue;
+      }
+      const hadOld = oldNote.trim().length > 0;
+      if (hadOld) {
+        overwriteWarned++;
+        console.log(`+ ${product.code} (${product.name}): 在原 note 後追加`);
+        console.log(`    原：${oldNote.slice(0, 80)}`);
+      }
+      if (isDry) {
+        console.log(`→ ${product.code} (${product.name}): 將${hadOld ? '追加' : '寫入'} note`);
+        console.log(`    新：${finalNote.replace(/\n/g, ' / ').slice(0, 120)}`);
+      } else {
+        await prisma.product.update({
+          where: { id: product.id },
+          data: { note: finalNote },
+        });
+        updated++;
+        console.log(`✓ ${product.code} (${product.name}): 已${hadOld ? '追加' : '更新'}`);
+      }
     }
   }
 
   console.log(`\n--- 統計 ---`);
-  console.log(`找到產品：${found} / ${ENTRIES.length}`);
-  console.log(`找不到：${missing}${missing > 0 ? ' (' + missingList.join(', ') + ')' : ''}`);
+  console.log(`PDF 條目匹配到：${matchedEntries} / ${ENTRIES.length}`);
+  console.log(`受影響的 DB 產品數：${totalMatchedProducts}`);
+  console.log(`找不到對應產品的 PDF 條目：${missingList.length}${missingList.length ? ' (' + missingList.join(', ') + ')' : ''}`);
+  if (overwriteWarned > 0) console.log(`原本有 note，已在後面追加：${overwriteWarned} 個`);
   if (!isDry) console.log(`實際更新：${updated}`);
   else console.log(`Dry-run，未實際寫入。加 --confirm 才執行。`);
 }
