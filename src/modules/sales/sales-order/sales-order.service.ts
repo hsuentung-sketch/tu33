@@ -3,7 +3,7 @@ import { prisma } from '../../../shared/prisma.js';
 import { NotFoundError, ValidationError } from '../../../shared/errors.js';
 import { eventBus } from '../../../shared/event-bus.js';
 import {
-  calculateDueDate,
+  calculateBillingAndDueDate,
   calculateTotals,
   getTenantSettings,
 } from '../../../shared/utils.js';
@@ -72,10 +72,10 @@ export async function create(tenantId: string, data: SalesOrderCreateInput) {
     settings.taxRate,
   );
 
+  // Order date in Asia/Taipei business day. Use today's wall-clock date.
   const tp = taipeiNow();
-  const billingYear = tp.year;
-  const billingMonth = tp.month;
-  const dueDate = calculateDueDate(billingYear, billingMonth, customer.paymentDays);
+  const orderDate = new Date(tp.year, tp.month - 1, tp.day);
+  const { billingYear, billingMonth, dueDate } = calculateBillingAndDueDate(orderDate, customer);
 
   const created = await createWithDailyNumber({
     counter: (tx, w) =>

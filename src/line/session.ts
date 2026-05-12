@@ -41,6 +41,14 @@ export interface JeDraft {
   status?: 'pending' | 'posted';
 }
 
+export interface VisitLogDraft {
+  visitDate?: string;        // ISO yyyy-mm-dd
+  customerId?: string;
+  customerName?: string;
+  content?: string;
+  nextActionDate?: string | null;
+}
+
 export interface Session {
   flow:
     | 'sales:create'
@@ -53,11 +61,13 @@ export interface Session {
     | 'master:product-list'
     | 'mgmt:emp:add'
     | 'mgmt:sup:add'
-    | 'je:create';
+    | 'je:create'
+    | 'visitlog:create';
   step:
     | 'party' | 'items' | 'confirm' | 'item-await-note' | 'await-delivery-note'
     | 'je-method' | 'je-ocr-wait-image'
-    | 'je-describe' | 'je-amount' | 'je-payment' | 'je-confirm';
+    | 'je-describe' | 'je-amount' | 'je-payment' | 'je-confirm'
+    | 'visitlog-date' | 'visitlog-customer' | 'visitlog-content' | 'visitlog-next' | 'visitlog-confirm';
   data: {
     partyId?: string;
     partyName?: string;
@@ -84,6 +94,8 @@ export interface Session {
     productListIds?: string[];
     /** v2.7.5: 快速建立傳票草稿 */
     jeDraft?: JeDraft;
+    /** v2.8.0: 工作日誌草稿 */
+    visitDraft?: VisitLogDraft;
   };
   updatedAt: number;
 }

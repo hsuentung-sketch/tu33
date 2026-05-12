@@ -12,6 +12,9 @@ const ocrUpload = multer({
   limits: { fileSize: 5 * 1024 * 1024 },
 });
 
+const dayOfMonth = z.number().int().min(1).max(31).nullable().optional();
+const paymentMethodEnum = z.enum(['check', 'cash', 'transfer']).nullable().optional();
+
 const createSchema = z.object({
   name: z.string().min(1),
   contactName: z.string().optional(),
@@ -20,6 +23,10 @@ const createSchema = z.object({
   zipCode: z.string().optional(),
   address: z.string().optional(),
   paymentDays: z.number().int().nonnegative().optional(),
+  statementDay: dayOfMonth,
+  fixedPaymentDay: dayOfMonth,
+  paymentMethod: paymentMethodEnum,
+  createdByEmployeeId: z.string().nullable().optional(),
   lineUserId: z.string().optional(),
   email: z.string().email().optional(),
   grade: z.enum(['A', 'B', 'C']).optional(),
@@ -34,6 +41,10 @@ const updateSchema = z.object({
   zipCode: z.string().optional(),
   address: z.string().optional(),
   paymentDays: z.number().int().nonnegative().optional(),
+  statementDay: dayOfMonth,
+  fixedPaymentDay: dayOfMonth,
+  paymentMethod: paymentMethodEnum,
+  createdByEmployeeId: z.string().nullable().optional(),
   lineUserId: z.string().optional(),
   email: z.string().email().optional(),
   grade: z.enum(['A', 'B', 'C']).optional(),
@@ -90,9 +101,13 @@ customerRouter.post('/', async (req: Request, res: Response, next: NextFunction)
     if (!parsed.success) {
       throw new ValidationError(parsed.error.issues.map((i) => i.message).join(', '));
     }
+    // 若 body 帶 createdByEmployeeId（ADMIN 替別人指定業務）→ 用該值；
+    // 否則 fallback 到當前登入者。SALES 自己建客戶會走 fallback。
+    const ownerId = parsed.data.createdByEmployeeId ?? req.employee?.id ?? null;
     const customer = await customerService.create(req.tenantId, {
       ...parsed.data,
-      createdBy: req.employee?.id,
+      createdByEmployeeId: ownerId,
+      createdBy: ownerId ?? undefined,
     });
     res.status(201).json(customer);
   } catch (err) {

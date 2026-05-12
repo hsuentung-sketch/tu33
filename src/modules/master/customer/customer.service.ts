@@ -13,7 +13,14 @@ export async function list(
     where: {
       tenantId,
       ...(opts.includeInactive ? {} : { isActive: true }),
-      ...(opts.createdBy ? { createdBy: opts.createdBy } : {}),
+      ...(opts.createdBy
+        ? {
+            OR: [
+              { createdByEmployeeId: opts.createdBy },
+              { createdBy: opts.createdBy },
+            ],
+          }
+        : {}),
     },
     select: {
       id: true,
@@ -25,6 +32,11 @@ export async function list(
       zipCode: true,
       address: true,
       paymentDays: true,
+      statementDay: true,
+      fixedPaymentDay: true,
+      paymentMethod: true,
+      createdByEmployeeId: true,
+      createdBy: true,
       grade: true,
       tags: true,
       isActive: true,
@@ -44,14 +56,16 @@ export async function getById(tenantId: string, id: string) {
 }
 
 /**
- * SALES 規則：自己建的（createdBy === me.id）或 createdBy 為 null（歷史資料公開）
+ * SALES 規則：自己建的或歷史資料（createdBy/createdByEmployeeId 為 null）公開。
+ * 過渡期同時看舊欄位 `createdBy` 與新 FK `createdByEmployeeId`。
  * ADMIN / 其他角色不檢查。
  */
 export function canSalesAccessCustomer(
-  customer: { createdBy: string | null },
+  customer: { createdBy?: string | null; createdByEmployeeId?: string | null },
   meId: string,
 ): boolean {
-  return customer.createdBy === null || customer.createdBy === meId;
+  const owner = customer.createdByEmployeeId ?? customer.createdBy ?? null;
+  return owner === null || owner === meId;
 }
 
 export async function create(
@@ -64,6 +78,10 @@ export async function create(
     zipCode?: string;
     address?: string;
     paymentDays?: number;
+    statementDay?: number | null;
+    fixedPaymentDay?: number | null;
+    paymentMethod?: 'check' | 'cash' | 'transfer' | null;
+    createdByEmployeeId?: string | null;
     lineUserId?: string;
     email?: string;
     grade?: string;
@@ -73,6 +91,11 @@ export async function create(
 ) {
   // Schema has `createdBy` on all tenant DBs since 2026-03; the P2022
   // retry hack is no longer needed.
+  // 過渡期：同時寫 createdBy（舊純字串）與 createdByEmployeeId（新 FK），
+  // 任一有值都同步另一邊。讀取時先用新 FK。
+  const explicitEmpId = data.createdByEmployeeId ?? null;
+  const legacyId = data.createdBy ?? null;
+  const ownerId = explicitEmpId ?? legacyId;
   return prisma.customer.create({
     data: {
       tenantId,
@@ -83,11 +106,15 @@ export async function create(
       zipCode: data.zipCode,
       address: data.address,
       paymentDays: data.paymentDays ?? 30,
+      statementDay: data.statementDay ?? null,
+      fixedPaymentDay: data.fixedPaymentDay ?? null,
+      paymentMethod: data.paymentMethod ?? null,
+      createdByEmployeeId: ownerId,
+      createdBy: ownerId,
       lineUserId: data.lineUserId,
       email: data.email,
       grade: data.grade ?? 'B',
       tags: data.tags ?? [],
-      createdBy: data.createdBy,
     },
   });
 }
@@ -122,11 +149,23 @@ export async function findByName(
   // `createdBy`) hasn't been pushed to the production DB yet — the
   // default `findMany` without `select` would SELECT every column and
   // 500 on the missing one.
+  const ownerFilter = opts.createdBy
+    ? {
+        AND: [
+          {
+            OR: [
+              { createdByEmployeeId: opts.createdBy },
+              { createdBy: opts.createdBy },
+            ],
+          },
+        ],
+      }
+    : {};
   return prisma.customer.findMany({
     where: {
       tenantId,
       isActive: true,
-      ...(opts.createdBy ? { createdBy: opts.createdBy } : {}),
+      ...ownerFilter,
       OR: [
         { name: { contains: query, mode: 'insensitive' } },
         { contactName: { contains: query, mode: 'insensitive' } },
@@ -142,12 +181,34 @@ export async function findByName(
       zipCode: true,
       address: true,
       paymentDays: true,
+      statementDay: true,
+      fixedPaymentDay: true,
+      paymentMethod: true,
       grade: true,
       tags: true,
     },
     orderBy: { name: 'asc' },
     take: 20,
   });
+}
+
+/**
+ * 取出 AR 計算需要的客戶結帳資訊。被 sales-order service / 匯入工具呼叫。
+ */
+export async function getBillingProfile(customerId: string) {
+  const customer = await prisma.customer.findUnique({
+    where: { id: customerId },
+    select: {
+      id: true,
+      name: true,
+      paymentDays: true,
+      statementDay: true,
+      fixedPaymentDay: true,
+      paymentMethod: true,
+    },
+  });
+  if (!customer) throw new NotFoundError('Customer', customerId);
+  return customer;
 }
 
 export async function getPaymentDays(customerId: string) {

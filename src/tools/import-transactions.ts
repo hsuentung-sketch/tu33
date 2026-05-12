@@ -21,6 +21,7 @@ import 'dotenv/config';
 import ExcelJS from 'exceljs';
 import { endOfMonth, addMonths, startOfMonth } from 'date-fns';
 import { prisma as db } from '../shared/prisma.js';
+import { calculateBillingAndDueDate } from '../shared/utils.js';
 
 interface Stat {
   ordersCreated: number;
@@ -264,6 +265,8 @@ async function importSales(tenantId: string, ws: ExcelJS.Worksheet, createdBy: s
     }
     const customer = await db.customer.findUnique({ where: { id: customerId } });
     const paymentDays = customer?.paymentDays ?? 30;
+    const statementDay = customer?.statementDay ?? null;
+    const fixedPaymentDay = customer?.fixedPaymentDay ?? null;
 
     const orderDate = items.reduce((min, r) => (r.orderDate < min ? r.orderDate : min), items[0].orderDate);
     const deliveryDate = items.reduce<Date | null>((d, r) => {
@@ -300,7 +303,11 @@ async function importSales(tenantId: string, ws: ExcelJS.Worksheet, createdBy: s
     stat.ordersCreated++;
     stat.itemsCreated += items.length;
 
-    const { year, month } = billingFromDate(orderDate);
+    // Use customer billing profile (statementDay / fixedPaymentDay) when present.
+    const { billingYear: year, billingMonth: month, dueDate } = calculateBillingAndDueDate(
+      orderDate,
+      { paymentDays, statementDay, fixedPaymentDay },
+    );
     await db.accountReceivable.create({
       data: {
         tenantId,
@@ -309,7 +316,7 @@ async function importSales(tenantId: string, ws: ExcelJS.Worksheet, createdBy: s
         billingYear: year,
         billingMonth: month,
         amount: subtotal,
-        dueDate: computeDueDate(orderDate, paymentDays),
+        dueDate,
         isPaid: false,
       },
     });

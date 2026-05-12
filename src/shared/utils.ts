@@ -16,10 +16,9 @@ export function generateDocumentNo(date: Date, sequence: number): string {
 }
 
 /**
- * Calculate payment due date (from Excel formula):
- * EOMONTH(DATE(year, month, 1), paymentDays/30)
- *
- * Meaning: end of month of (billing month + floor(paymentDays/30) months)
+ * Legacy signature — kept for callers that only have paymentDays.
+ * Formula: EOMONTH(DATE(year, month, 1), floor(paymentDays/30))
+ *   = end of (billing month + floor(paymentDays/30) months).
  * Example: March billing, 30 days → end of April (2026/4/30)
  * Example: March billing, 60 days → end of May (2026/5/31)
  */
@@ -31,6 +30,73 @@ export function calculateDueDate(
   const baseDate = new Date(billingYear, billingMonth - 1, 1);
   const monthsToAdd = Math.floor(paymentDays / 30);
   return endOfMonth(addMonths(baseDate, monthsToAdd));
+}
+
+/**
+ * Calculate billing month + due date from an order date and the customer's
+ * billing profile. Replaces the old EOMONTH-only formula with the standard
+ * Taiwan B2B "結帳日 + 固定付款日" pattern.
+ *
+ * Steps:
+ *  1. stmtDay = customer.statementDay ?? 31 (月底)
+ *  2. orderDate.day ≤ stmtDay → 本月結；否則 +1 月（跨年自動 carry）
+ *  3. monthsAdd = max(0, floor((paymentDays ?? 30) / 30))
+ *  4. targetMonth = billingMonth + monthsAdd
+ *  5. fixedPaymentDay 有值 → dueDate = (targetYear, targetMonth, clamp(fixedPaymentDay, 該月最後一日))
+ *     否則 → dueDate = endOfMonth(targetYear, targetMonth, 1)
+ *
+ * Uses local time (Date getters) — caller is responsible for handing in
+ * an `orderDate` representing the intended business day. Server-side
+ * 自動分錄走 Asia/Taipei via `getBusinessDay` (見 timezone.ts) 前先 round。
+ */
+export function calculateBillingAndDueDate(
+  orderDate: Date,
+  customer: {
+    paymentDays?: number | null;
+    statementDay?: number | null;
+    fixedPaymentDay?: number | null;
+  },
+): { billingYear: number; billingMonth: number; dueDate: Date } {
+  const stmtDay = clampDay(customer.statementDay ?? 31);
+  const orderDay = orderDate.getDate();
+  let billingYear = orderDate.getFullYear();
+  let billingMonth = orderDate.getMonth() + 1; // 1-12
+  if (orderDay > stmtDay) {
+    billingMonth += 1;
+    if (billingMonth > 12) {
+      billingMonth = 1;
+      billingYear += 1;
+    }
+  }
+
+  const paymentDays = customer.paymentDays ?? 30;
+  const monthsAdd = Math.max(0, Math.floor(paymentDays / 30));
+
+  // Compute target year/month after adding monthsAdd
+  let targetYear = billingYear;
+  let targetMonth = billingMonth + monthsAdd;
+  while (targetMonth > 12) {
+    targetMonth -= 12;
+    targetYear += 1;
+  }
+
+  let dueDate: Date;
+  if (customer.fixedPaymentDay && customer.fixedPaymentDay > 0) {
+    const lastDay = new Date(targetYear, targetMonth, 0).getDate(); // day 0 of next month = last day of this month
+    const day = Math.min(clampDay(customer.fixedPaymentDay), lastDay);
+    dueDate = new Date(targetYear, targetMonth - 1, day);
+  } else {
+    dueDate = endOfMonth(new Date(targetYear, targetMonth - 1, 1));
+  }
+
+  return { billingYear, billingMonth, dueDate };
+}
+
+function clampDay(d: number): number {
+  if (!Number.isFinite(d)) return 31;
+  if (d < 1) return 1;
+  if (d > 31) return 31;
+  return Math.floor(d);
 }
 
 /**

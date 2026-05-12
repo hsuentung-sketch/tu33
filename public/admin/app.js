@@ -52,6 +52,22 @@ function toast(msg, kind) {
 
 function confirmBox(msg) { return window.confirm(msg); }
 
+// Employee 選單快取（給 customer / visit-log 等 select 共用，避免每開 modal 都打 API）
+let _employeeOptionsCache = null;
+let _employeeOptionsAt = 0;
+async function loadEmployeeOptions() {
+  const now = Date.now();
+  if (_employeeOptionsCache && (now - _employeeOptionsAt) < 60000) return _employeeOptionsCache;
+  try {
+    const list = await api.get('/employees');
+    _employeeOptionsCache = (list || []).filter((e) => e.isActive !== false);
+    _employeeOptionsAt = now;
+    return _employeeOptionsCache;
+  } catch (e) {
+    return [];
+  }
+}
+
 function openModal({ title, fields, initial = {}, onSubmit }) {
   const values = { ...initial };
   const errBox = el('div', { class: 'err' });
@@ -105,7 +121,9 @@ function buildField(f, values) {
     input.value = values[f.name] ?? '';
     input.addEventListener('input', () => { values[f.name] = input.value; });
   } else {
-    input = el('input', { type: f.type || 'text' });
+    const attrs = { type: f.type || 'text' };
+    if (f.list) attrs.list = f.list;
+    input = el('input', attrs);
     input.value = values[f.name] ?? '';
     input.addEventListener('input', () => {
       values[f.name] = f.type === 'number' ? (input.value === '' ? undefined : Number(input.value)) : input.value;
@@ -202,7 +220,11 @@ async function viewCustomers(main) {
     }
   }
 
-  function editCustomer(c, done, prefill) {
+  async function editCustomer(c, done, prefill) {
+    const employees = await loadEmployeeOptions();
+    const employeeOptions = [{ value: '', label: '— 未指定 —' }].concat(
+      employees.map((e) => ({ value: e.id, label: `${e.employeeId} ${e.name}` })),
+    );
     const initial = c
       ? { ...c }
       : {
@@ -232,12 +254,35 @@ async function viewCustomers(main) {
           { name: 'zipCode', label: '郵遞區號' },
           { name: 'paymentDays', label: '付款天數', type: 'number' },
         ]},
+        { type: 'row', fields: [
+          { name: 'statementDay', label: '結帳日（1-31）', type: 'number' },
+          { name: 'fixedPaymentDay', label: '固定付款日（1-31）', type: 'number' },
+        ]},
+        { type: 'row', fields: [
+          { name: 'paymentMethod', label: '付款方式', type: 'select', options: [
+            { value: '', label: '未指定' },
+            { value: 'check', label: '開票' },
+            { value: 'cash', label: '現金' },
+            { value: 'transfer', label: '轉帳' },
+          ] },
+          { name: 'createdByEmployeeId', label: '建立業務', type: 'select', options: employeeOptions },
+        ]},
         { name: 'address', label: '地址' },
         { name: 'grade', label: '等級', type: 'select', options: [{value:'A',label:'A'},{value:'B',label:'B'},{value:'C',label:'C'}], default: 'B' },
       ],
       onSubmit: async (v) => {
-        const body = cleanObj(v, ['name','contactName','phone','taxId','email','zipCode','address','paymentDays','grade']);
+        const body = cleanObj(v, ['name','contactName','phone','taxId','email','zipCode','address','paymentDays','statementDay','fixedPaymentDay','paymentMethod','createdByEmployeeId','grade']);
         if (!body.name) throw new Error('公司名稱必填');
+        // 空字串 select → null
+        if (body.paymentMethod === '') body.paymentMethod = null;
+        if (body.createdByEmployeeId === '') body.createdByEmployeeId = null;
+        // 數字欄位
+        for (const k of ['paymentDays','statementDay','fixedPaymentDay']) {
+          if (body[k] === '' || body[k] == null) { if (k !== 'paymentDays') body[k] = null; else delete body[k]; }
+          else body[k] = Number(body[k]);
+        }
+        if (body.statementDay != null && (body.statementDay < 1 || body.statementDay > 31)) throw new Error('結帳日須介於 1-31');
+        if (body.fixedPaymentDay != null && (body.fixedPaymentDay < 1 || body.fixedPaymentDay > 31)) throw new Error('固定付款日須介於 1-31');
         if (c) await api.put('/customers/' + c.id, body);
         else await api.post('/customers', body);
         toast(c ? '已更新' : '已新增', 'ok');
@@ -1340,6 +1385,158 @@ async function viewSalesOrders(main) {
     } catch (e) { main.append(el('div', { class: 'err' }, e.message)); }
   }
   await reload();
+}
+
+// ============================================================
+// 工作日誌（VisitLog）
+// ============================================================
+async function viewVisitLogs(main) {
+  main.innerHTML = '';
+  main.append(el('h2', {}, '工作日誌'));
+  main.append(el('div', { class: 'page-sub' }, isSales()
+    ? '業務帳號只看自己建立的拜訪紀錄；SALES 列表自動過濾。'
+    : '管理所有業務員的拜訪紀錄。'));
+
+  // Filters
+  const today = new Date(); today.setHours(0,0,0,0);
+  const thirty = new Date(today); thirty.setDate(thirty.getDate() - 30);
+  const isoOf = (d) => d.toISOString().slice(0,10);
+  const fromInput = el('input', { type: 'date', value: isoOf(thirty) });
+  const toInput = el('input', { type: 'date', value: isoOf(today) });
+  const empSelect = el('select', {});
+  empSelect.append(el('option', { value: '' }, '全部業務'));
+  if (!isSales()) {
+    const employees = await loadEmployeeOptions();
+    for (const e of employees) empSelect.append(el('option', { value: e.id }, `${e.employeeId} ${e.name}`));
+  } else {
+    empSelect.disabled = true;
+  }
+
+  const tbody = el('tbody');
+  const table = el('table', { class: 'data' },
+    el('thead', {}, el('tr', {},
+      el('th', {}, '拜訪日'),
+      el('th', {}, '客戶'),
+      el('th', {}, '內容'),
+      el('th', {}, '業務'),
+      el('th', {}, '下次行動'),
+      el('th', {}, '操作'),
+    )),
+    tbody,
+  );
+
+  async function reload() {
+    tbody.innerHTML = '';
+    try {
+      const params = new URLSearchParams();
+      if (fromInput.value) params.set('from', fromInput.value);
+      if (toInput.value) params.set('to', toInput.value);
+      if (empSelect.value) params.set('employeeId', empSelect.value);
+      params.set('limit', '300');
+      const rows = await api.get('/visit-logs?' + params.toString());
+      if (!rows || !rows.length) {
+        tbody.append(el('tr', {}, el('td', { colspan: 6, class: 'empty' }, '沒有日誌資料')));
+        return;
+      }
+      for (const r of rows) {
+        const previewContent = (r.content || '').length > 60 ? (r.content.slice(0, 60) + '…') : (r.content || '');
+        tbody.append(el('tr', {},
+          el('td', {}, fmtDate(r.visitDate)),
+          el('td', {}, r.customer?.name ?? '—'),
+          el('td', { title: r.content || '' }, previewContent),
+          el('td', {}, r.createdByEmployee ? `${r.createdByEmployee.name}` : '—'),
+          el('td', {}, r.nextActionDate ? fmtDate(r.nextActionDate) : '—'),
+          el('td', {},
+            el('button', { class: 'btn small', onClick: () => openVisitLogEditor(r, reload) }, '編輯'),
+            ' ',
+            el('button', { class: 'btn small danger', onClick: async () => {
+              if (!confirmBox('刪除此日誌？')) return;
+              try { await api.del('/visit-logs/' + r.id); toast('已刪除', 'ok'); reload(); }
+              catch (e) { toast(e.message, 'err'); }
+            } }, '刪除'),
+          ),
+        ));
+      }
+    } catch (e) { tbody.append(el('tr', {}, el('td', { colspan: 6, class: 'err' }, e.message))); }
+  }
+
+  const toolbar = el('div', { class: 'toolbar' },
+    el('label', { style: 'font-size:12px;color:var(--muted);' }, '從 ', fromInput),
+    el('label', { style: 'font-size:12px;color:var(--muted);' }, ' 至 ', toInput),
+    el('label', { style: 'font-size:12px;color:var(--muted);' }, ' 業務 ', empSelect),
+    el('button', { class: 'btn', onClick: reload }, '搜尋'),
+    el('div', { style: 'flex:1;' }),
+    el('button', { class: 'btn primary', onClick: () => openVisitLogEditor(null, reload) }, '+ 新增日誌'),
+  );
+  fromInput.addEventListener('change', reload);
+  toInput.addEventListener('change', reload);
+  empSelect.addEventListener('change', reload);
+
+  main.append(toolbar, table);
+  await reload();
+}
+
+async function openVisitLogEditor(log, onSaved) {
+  // 客戶 picker：用 customer list 做 datalist（已存在的客戶限定）
+  let customers = [];
+  try { customers = await api.get('/customers'); } catch (e) {}
+  const customerMap = new Map(customers.map((c) => [c.name, c.id]));
+
+  const initial = log
+    ? {
+      visitDate: log.visitDate ? new Date(log.visitDate).toISOString().slice(0, 10) : '',
+      customerName: log.customer?.name || '',
+      content: log.content || '',
+      nextActionDate: log.nextActionDate ? new Date(log.nextActionDate).toISOString().slice(0, 10) : '',
+    }
+    : {
+      visitDate: new Date().toISOString().slice(0, 10),
+      customerName: '',
+      content: '',
+      nextActionDate: '',
+    };
+
+  openModal({
+    title: log ? '編輯工作日誌' : '新增工作日誌',
+    initial,
+    fields: [
+      { type: 'row', fields: [
+        { name: 'visitDate', label: '拜訪日期', type: 'date', required: true },
+        { name: 'nextActionDate', label: '下次行動（選填）', type: 'date' },
+      ]},
+      { name: 'customerName', label: '客戶', required: true, list: 'customer-options' },
+      { name: 'content', label: '拜訪內容', type: 'textarea', required: true },
+    ],
+    onSubmit: async (v) => {
+      if (!v.visitDate) throw new Error('拜訪日期必填');
+      if (!v.customerName) throw new Error('客戶必填');
+      if (!v.content || !v.content.trim()) throw new Error('拜訪內容必填');
+      const customerId = customerMap.get(v.customerName);
+      if (!customerId) throw new Error('找不到客戶「' + v.customerName + '」，請從建議清單選擇');
+      const body = {
+        visitDate: v.visitDate,
+        customerId,
+        content: v.content,
+        nextActionDate: v.nextActionDate || null,
+      };
+      if (log) await api.put('/visit-logs/' + log.id, body);
+      else await api.post('/visit-logs', body);
+      toast(log ? '已更新' : '已新增', 'ok');
+      if (onSaved) onSaved();
+    },
+  });
+
+  // 補一個 datalist 到 body 提供 autocomplete
+  let dl = document.getElementById('customer-options');
+  if (dl) dl.remove();
+  dl = document.createElement('datalist');
+  dl.id = 'customer-options';
+  for (const c of customers) {
+    const opt = document.createElement('option');
+    opt.value = c.name;
+    dl.appendChild(opt);
+  }
+  document.body.appendChild(dl);
 }
 
 async function viewPurchaseOrders(main) {
@@ -3920,6 +4117,7 @@ const LEAF_VIEWS = {
   employees: viewEmployees,
   quotations: viewQuotations,
   'sales-orders': viewSalesOrders,
+  'visit-logs': viewVisitLogs,
   'purchase-orders': viewPurchaseOrders,
   receivables: viewReceivables,
   payables: viewPayables,

@@ -3,6 +3,86 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.8.0] - 2026-05-12
+
+### Added — 工作日誌 / 客戶結帳資訊 / AR 自動算付款日
+
+四項一次到位，圍繞「業務員每天用 LINE 跑外勤、後台收尾、AR 自動算」的閉環。
+
+#### 1. 工作日誌（VisitLog）
+
+業務員每次拜訪客戶留一筆紀錄。LINE chat 與後台都能填，SALES 只看自己建立的紀錄。
+
+- 新 model `VisitLog`：visitDate / customerId / content / nextActionDate / createdByEmployeeId
+- 新 API `/api/visit-logs`（GET/POST/PUT/DELETE），SALES 列表自動 filter 自己
+- LINE：輸入「日誌」或從 rich menu「管理 → 工作日誌」進入，4 步 stateful flow（日期 → 客戶模糊搜尋 carousel → 內容 → 下次行動日）
+- 後台：側欄新增「工作日誌」檢視，含日期/業務員/客戶 filter + 新增/編輯/刪除 modal
+
+#### 2. 客戶結帳資訊（4 新欄位）
+
+`Customer` 加 `statementDay`（結帳日 1-31）/ `fixedPaymentDay`（固定付款日 1-31）/ `paymentMethod`（check/cash/transfer）/ `createdByEmployeeId`（業務員 FK）。
+
+- 後台客戶 modal 加四欄位（兩列雙欄）
+- `createdByEmployeeId` 與舊欄位 `createdBy` 並存：service 寫入兩邊、讀取優先用新 FK；v2.9.x 後淘汰舊欄位
+
+#### 3. AR 自動算付款日
+
+`calculateBillingAndDueDate(orderDate, customer)` 新公式取代舊 `calculateDueDate`：
+
+```
+stmtDay = customer.statementDay ?? 31
+if orderDate.day ≤ stmtDay → 本月結；否則下月結
+monthsAdd = floor((paymentDays ?? 30) / 30)
+targetMonth = billingMonth + monthsAdd
+if fixedPaymentDay → dueDate = (targetYear, targetMonth, clamp(fixedPaymentDay))
+else                → dueDate = endOfMonth(targetMonth)   # 沿用舊行為
+```
+
+callers：`sales-order.service.create()` 與 `import-transactions.ts` 都改呼新函式。
+
+#### 4. LINE OCR 收 file 訊息
+
+以前 LINE 拍照走 `image` 會被壓縮，現在從「檔案」picker 上傳的 `file` 訊息（jpg/png/heic/webp/gif 等副檔名）走原檔 OCR。`media.handler.ts` 與 dispatch 已支援，本版確認流程。
+
+### Migration SQL
+
+```sql
+-- 1. Customer 加 4 欄
+ALTER TABLE "Customer"
+  ADD COLUMN "statementDay" INTEGER,
+  ADD COLUMN "fixedPaymentDay" INTEGER,
+  ADD COLUMN "paymentMethod" TEXT,
+  ADD COLUMN "createdByEmployeeId" TEXT;
+
+ALTER TABLE "Customer"
+  ADD CONSTRAINT "Customer_createdByEmployeeId_fkey"
+  FOREIGN KEY ("createdByEmployeeId") REFERENCES "Employee"("id")
+  ON DELETE SET NULL ON UPDATE CASCADE;
+
+CREATE INDEX "Customer_tenantId_createdByEmployeeId_idx"
+  ON "Customer"("tenantId", "createdByEmployeeId");
+
+-- 2. VisitLog
+CREATE TABLE "VisitLog" (
+  "id"                  TEXT PRIMARY KEY,
+  "tenantId"            TEXT NOT NULL,
+  "visitDate"           DATE NOT NULL,
+  "customerId"          TEXT NOT NULL,
+  "content"             TEXT NOT NULL,
+  "nextActionDate"      DATE,
+  "createdByEmployeeId" TEXT,
+  "createdAt"           TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt"           TIMESTAMP(3) NOT NULL,
+  CONSTRAINT "VisitLog_tenantId_fkey"   FOREIGN KEY ("tenantId")   REFERENCES "Tenant"("id")   ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT "VisitLog_customerId_fkey" FOREIGN KEY ("customerId") REFERENCES "Customer"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT "VisitLog_createdByEmployeeId_fkey" FOREIGN KEY ("createdByEmployeeId") REFERENCES "Employee"("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+
+CREATE INDEX "VisitLog_tenantId_visitDate_idx"           ON "VisitLog"("tenantId", "visitDate");
+CREATE INDEX "VisitLog_tenantId_customerId_idx"          ON "VisitLog"("tenantId", "customerId");
+CREATE INDEX "VisitLog_tenantId_createdByEmployeeId_idx" ON "VisitLog"("tenantId", "createdByEmployeeId");
+```
+
 ## [2.7.8] - 2026-05-10
 
 ### Added — 會計傳票編輯功能（後台 pending 才可改）

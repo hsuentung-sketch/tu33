@@ -47,6 +47,7 @@ model Tenant {
   chartOfAccounts    ChartOfAccount[]
   fiscalPeriods      FiscalPeriod[]
   journalEntries     JournalEntry[]
+  visitLogs          VisitLog[]
 }
 
 // ============================================================
@@ -72,6 +73,9 @@ model Employee {
   isActive   Boolean  @default(true)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+
+  createdCustomers Customer[] @relation("CustomerCreatedBy")
+  visitLogs        VisitLog[] @relation("VisitLogCreatedBy")
 
   @@unique([tenantId, employeeId])
   @@index([tenantId])
@@ -154,13 +158,24 @@ model Customer {
   zipCode     String?
   address     String?
   paymentDays Int      @default(30)
+  // 結帳日 1-31（31 視為月底）。決定銷貨日落在哪個結帳月：
+  //   訂單日.day ≤ statementDay → 本月結；否則下月結。
+  // null → fallback 視為 31。
+  statementDay        Int?
+  // 固定付款日 1-31。decision dueDate 的日；若 fixedPaymentDay > 該月最後一日則 clamp。
+  // null → fallback 走月底（沿用舊行為）。
+  fixedPaymentDay     Int?
+  // 'check' 開票 / 'cash' 現金 / 'transfer' 轉帳。null = 未指定。
+  paymentMethod       String?
+  // FK 至 Employee（業務員）。新欄位，與舊 `createdBy String?` 並存以避免 mixed-version；
+  // 寫入時兩邊同步，讀取優先用此 FK。v2.9.x 後可淘汰舊欄位。
+  createdByEmployeeId String?
+  createdByEmployee   Employee? @relation("CustomerCreatedBy", fields: [createdByEmployeeId], references: [id])
   lineUserId  String?
   email       String?
   grade       String?  @default("B") // A/B/C
   tags        String[] // industry tags
-  // Employee id of whoever created this customer. Used to scope SALES
-  // visibility: sales users only see customers they created; ADMIN
-  // sees all. Nullable for legacy data and system-created records.
+  // 舊欄位：Employee id 字串，無 FK。為相容暫留。
   createdBy   String?
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
@@ -169,9 +184,11 @@ model Customer {
   quotations  Quotation[]
   salesOrders SalesOrder[]
   receivables AccountReceivable[]
+  visitLogs   VisitLog[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
+  @@index([tenantId, createdByEmployeeId])
 }
 
 // ============================================================
@@ -814,4 +831,31 @@ model JournalLine {
 
   @@index([entryId])
   @@index([accountId])
+}
+
+// ============================================================
+// CRM: Visit Log (業務拜訪/工作日誌)
+// ============================================================
+//
+// 業務員每次拜訪客戶的記錄。LINE chat（手機端）與後台都能填。
+// SALES 角色只看自己 createdByEmployeeId 的紀錄；ADMIN/ACCOUNTING/VIEWER 看全租戶。
+// nextActionDate 為「下次行動 / 追蹤日」，預留給後續提醒 cron 用。
+
+model VisitLog {
+  id                  String    @id @default(cuid())
+  tenantId            String
+  tenant              Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  visitDate           DateTime  @db.Date
+  customerId          String
+  customer            Customer  @relation(fields: [customerId], references: [id])
+  content             String    @db.Text
+  nextActionDate      DateTime? @db.Date
+  createdByEmployeeId String?
+  createdByEmployee   Employee? @relation("VisitLogCreatedBy", fields: [createdByEmployeeId], references: [id])
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([tenantId, visitDate])
+  @@index([tenantId, customerId])
+  @@index([tenantId, createdByEmployeeId])
 }

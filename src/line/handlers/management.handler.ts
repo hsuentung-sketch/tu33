@@ -537,6 +537,7 @@ function rootMenu(employee?: { role?: string }) {
     items.push(btn('供應商管理', 'action=management:supplier', '#6A1B9A'));
   }
   items.push(btn('客戶管理', 'action=management:customer', '#2E7D32'));
+  items.push(btn('工作日誌', 'action=visitlog:start', '#00897B'));
   return {
     type: 'bubble' as const,
     body: {

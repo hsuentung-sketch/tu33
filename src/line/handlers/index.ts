@@ -12,6 +12,7 @@ import { handleMasterCommand, handleMasterText } from './master.handler.js';
 import { handleManagementCommand, handleManagementText } from './management.handler.js';
 import { handleVoiceMessage, handleImageMessage } from './media.handler.js';
 import { handleJeCommand, handleJeText, handleJeImage } from './je.handler.js';
+import { handleVisitLogCommand, handleVisitLogText } from './visit-log.handler.js';
 import * as session from '../session.js';
 
 type WebhookEvent = webhook.Event;
@@ -154,6 +155,8 @@ async function handlePostback(event: PostbackEvent, tenant: HandlerTenant): Prom
     await handleAccountingCommand(action, ctx);
   } else if (action.startsWith('je:')) {
     await handleJeCommand(action, ctx);
+  } else if (action.startsWith('visitlog:')) {
+    await handleVisitLogCommand(action, ctx);
   } else if (action.startsWith('master:')) {
     await handleMasterCommand(action, ctx);
   } else if (action.startsWith('management:')) {
@@ -179,6 +182,7 @@ async function routeTextCommand(text: string, ctx: TextCommandContext): Promise<
   if (await handlePurchaseText(text, ctx)) return;
   if (await handleAccountingText(text, ctx)) return;
   if (await handleJeText(text, ctx)) return;
+  if (await handleVisitLogText(text, ctx)) return;
   if (await handleMasterText(text, ctx)) return;
   if (await handleManagementText(text, ctx)) return;
 
@@ -281,6 +285,13 @@ async function routeTextCommand(text: string, ctx: TextCommandContext): Promise<
       ...ctx,
       event: pseudoEvent,
       params: new URLSearchParams(`q=${encodeURIComponent(q)}`),
+    });
+  }
+  if (text === '日誌' || text === '工作日誌') {
+    return handleVisitLogCommand('visitlog:start', {
+      ...ctx,
+      event: pseudoEvent,
+      params: new URLSearchParams(),
     });
   }
 

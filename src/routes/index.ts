@@ -5,6 +5,7 @@ import { webAuthRouter } from '../modules/core/auth/web-auth.router.js';
 import { employeeRouter } from '../modules/core/employee/employee.router.js';
 import { productRouter } from '../modules/master/product/product.router.js';
 import { customerRouter } from '../modules/master/customer/customer.router.js';
+import { visitLogRouter } from '../modules/master/visit-log/visit-log.router.js';
 import { supplierRouter } from '../modules/master/supplier/supplier.router.js';
 import { quotationRouter } from '../modules/sales/quotation/quotation.router.js';
 import { salesOrderRouter } from '../modules/sales/sales-order/sales-order.router.js';
@@ -49,6 +50,7 @@ apiRouter.get('/me', (req, res) => {
 apiRouter.use('/employees', employeeRouter);
 apiRouter.use('/products', productRouter);
 apiRouter.use('/customers', customerRouter);
+apiRouter.use('/visit-logs', visitLogRouter);
 apiRouter.use('/suppliers', supplierRouter);
 apiRouter.use('/quotations', quotationRouter);
 apiRouter.use('/sales-orders', salesOrderRouter);
