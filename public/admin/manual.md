@@ -379,6 +379,17 @@ else                   → dueDate = endOfMonth(targetMonth)
 
 ---
 
+## 月結帳單批次下載（v2.9.0+）
+
+帳款頁有兩個按鈕：
+
+- **📄 產生月結請款單**：選一個客戶 + 年/月 → 開單張 PDF（原功能）
+- **📦 批次月結帳單（ZIP）**：選年/月 → modal 列出該月有未付的客戶 + 未付金額 + 最早到期日 → 「下載全部 ZIP」一鍵抓所有 PDF
+
+ZIP 內檔名格式：`{客戶名}-YYYYMM.pdf`。
+
+「該月有未付」定義：AR 的 `billingMonth` 等於指定月、且 `isPaid=false`。
+
 ## 名片 OCR：LINE 上傳避免壓縮（v2.8.0 確認）
 
 LINE 拍照走 `image` 訊息會被 LINE 壓縮、辨識率下降。解法：
@@ -387,7 +398,41 @@ LINE 拍照走 `image` 訊息會被 LINE 壓縮、辨識率下降。解法：
 - **電腦**：後台「客戶」頁工具列「📇 名片辨識上傳」可上傳本地檔
 - **副檔名須是** `.jpg` `.jpeg` `.png` `.heic` `.webp` `.gif`
 
-機器人收到後跑 Google Vision OCR、抽公司/聯絡人/電話/Email/統編/地址 → 顯示確認卡 → 按「建立」即新增客戶。
+機器人收到後跑 Google Vision OCR、抽公司/聯絡人/電話/Email/統編/地址 → 顯示三個選項：
+
+- **✅ 直接建立**：OCR 結果直接建檔（v2.7.x 行為）
+- **✏️ 編輯後建立**（v2.9.0+）：進入逐欄問流程，每欄顯示 OCR 結果，使用者可：
+  - 回「OK」保留 OCR 值
+  - 直接輸入新值覆蓋
+  - 回「跳過」清空該欄
+  - 回「取消」結束流程
+  - 走完 6 欄後顯示摘要 → 按「建立」即新增
+- **❌ 取消**
+
+當辨識結果有空欄、錯字或要補資料時，用「編輯後建立」最方便。
+
+---
+
+## 產品備註匯入（v2.9.0+）
+
+EK 系列 14 個產品的「產品特點與摘要」與「對應產品（國外牌號）」已內建在 `src/tools/import-product-notes.ts`。
+
+### 本機跑
+
+```bash
+# Dry-run（只看會改什麼，不寫）
+npx tsx src/tools/import-product-notes.ts <tenantId>
+# 或：npm run import:product-notes -- <tenantId>
+
+# 實際寫入
+npx tsx src/tools/import-product-notes.ts <tenantId> --confirm
+```
+
+### Supabase SQL Editor 跑
+
+CHANGELOG.md v2.9.0 段有完整 14 條 `UPDATE "Product" SET note=...` 語句，把 `:TENANT` 換成實際 tenantId 後一次貼進去執行。
+
+寫入規則：**覆蓋既有 note**。原本手填的備註會被新內容取代。
 
 ---
 

@@ -10,7 +10,7 @@ import { handlePurchaseCommand, handlePurchaseText } from './purchase.handler.js
 import { handleAccountingCommand, handleAccountingText } from './accounting.handler.js';
 import { handleMasterCommand, handleMasterText } from './master.handler.js';
 import { handleManagementCommand, handleManagementText } from './management.handler.js';
-import { handleVoiceMessage, handleImageMessage } from './media.handler.js';
+import { handleVoiceMessage, handleImageMessage, handleOcrEditText } from './media.handler.js';
 import { handleJeCommand, handleJeText, handleJeImage } from './je.handler.js';
 import { handleVisitLogCommand, handleVisitLogText } from './visit-log.handler.js';
 import * as session from '../session.js';
@@ -183,6 +183,7 @@ async function routeTextCommand(text: string, ctx: TextCommandContext): Promise<
   if (await handleAccountingText(text, ctx)) return;
   if (await handleJeText(text, ctx)) return;
   if (await handleVisitLogText(text, ctx)) return;
+  if (await handleOcrEditText(text, ctx)) return;
   if (await handleMasterText(text, ctx)) return;
   if (await handleManagementText(text, ctx)) return;
 

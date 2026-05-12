@@ -6,7 +6,11 @@ import * as productService from '../../modules/master/product/product.service.js
 import * as productDocService from '../../modules/master/product/product-document.service.js';
 import * as receivableService from '../../modules/accounting/receivable/receivable.service.js';
 import * as session from '../session.js';
-import { createCustomerFromOcrSession } from './media.handler.js';
+import {
+  createCustomerFromOcrSession,
+  startOcrEditFlow,
+  finalizeOcrEditCustomer,
+} from './media.handler.js';
 
 const DOC_BUTTON_COLORS: Record<string, string> = {
   PDS: '#1565C0',
@@ -467,6 +471,25 @@ export async function handleMasterCommand(action: string, ctx: any): Promise<voi
   switch (action) {
     case 'master:ocr-create-customer': {
       const created = await createCustomerFromOcrSession({ tenantId, employee });
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{
+          type: 'text',
+          text: created ? `✅ 已建立客戶：${created.name}` : '名片資訊已失效，請重新拍攝。',
+        }],
+      });
+      return;
+    }
+
+    case 'master:ocr-edit-start': {
+      // 進入逐欄編輯名片流程（v2.9.0）
+      await startOcrEditFlow({ client, event, tenantId, employee });
+      return;
+    }
+
+    case 'master:ocr-edit-finalize': {
+      // 編輯完成 → 建客戶
+      const created = await finalizeOcrEditCustomer({ tenantId, employee });
       await client.replyMessage({
         replyToken: event.replyToken,
         messages: [{

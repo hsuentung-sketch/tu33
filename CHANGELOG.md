@@ -3,6 +3,107 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.9.0] - 2026-05-12
+
+### Added — 月結批次帳單 / LINE OCR 逐欄編輯 / EK 產品說明匯入
+
+四項一次到位：
+
+#### 1. 月結帳單只列當月有欠款的客戶
+
+新 API `GET /api/statements/monthly-invoice/unpaid-customers?year=Y&month=M`
+- 回傳該月 `billingMonth` 有 `isPaid=false` AR 的客戶清單 + 未付金額 + 最早到期日
+- 排序：未付金額降冪
+- 重用既有 `buildMonthlyInvoiceData` helper（從原本的單客戶 endpoint 抽出）
+
+#### 2. 一次列出當月全部應請款客戶 — 批次 ZIP
+
+新 API `GET /api/statements/monthly-invoice/batch.zip?year=Y&month=M`
+- 用 `archiver` 套件把所有有未付 AR 的客戶月結 PDF 打包成 ZIP
+- 檔名格式 `{客戶名}-YYYYMM.pdf`
+- 某客戶 PDF 失敗會 logger 記錄並 skip，不中斷整份 ZIP
+- 後台「應收帳款」頁新增「📦 批次月結帳單（ZIP）」按鈕 → 開 modal 預覽欠款客戶清單 → 「下載全部 ZIP」一鍵抓
+
+#### 3. LINE 新增客戶 OCR 後可逐欄修改
+
+之前流程：拍名片 → OCR → 「建立 / 取消」二擇一。OCR 漏抓欄位的話沒辦法補。
+現在流程：拍名片 → OCR → 三選一：
+- ✅ **直接建立**（保留 fast path）
+- ✏️ **編輯後建立** → 進入逐欄問流程
+- ❌ 取消
+
+逐欄問流程依序問 6 個欄位（公司／聯絡人／電話／統編／Email／地址），每欄顯示 OCR 結果，使用者可：
+- 回「OK」保留 OCR 值
+- 直接輸入新值覆蓋
+- 回「跳過」清空該欄
+- 回「取消」結束流程
+
+完成後顯示摘要 → confirm 模板 → 建立客戶。
+
+實作：新 session flow `ocr:customer-edit`、新 step 7 個、新 dispatch `master:ocr-edit-start` / `master:ocr-edit-finalize`、`startOcrEditFlow` / `handleOcrEditText` / `finalizeOcrEditCustomer` 三個 helper。
+
+#### 4. EK 產品說明匯入 Product.note
+
+新工具 `npx tsx src/tools/import-product-notes.ts <tenantId> [--confirm]`
+- 預設 dry-run（只報告會改什麼）
+- 內建 14 個 EK 系列產品的「產品特點與摘要」+「對應產品（國外牌號）」對照
+- 用 `EK-{PDF code}` 找 DB 中的 product（fallback 用 PDF code 本身）
+- 寫入格式：`{產品特點}\n對應產品：{國外牌號}`（無對應牌號則只寫前段）
+- **覆蓋既有 note**（user 決定 a/a/a/a）
+
+亦可以 SQL Editor 跑（單一 tenant 替換 `:TENANT`）：
+
+```sql
+UPDATE "Product" SET note='適用於各種材質之加工，潤滑極壓均佳。
+對應產品：MORESCO BS-6S' WHERE "tenantId"=:TENANT AND code='EK-SS-6280';
+
+UPDATE "Product" SET note='泛用型之油劑產品，適用於鐵及非鐵金屬之一般加工。'
+  WHERE "tenantId"=:TENANT AND code='EK-EW-5268';
+
+UPDATE "Product" SET note='一般泛用型之產品，適合各種材質之切削研磨。'
+  WHERE "tenantId"=:TENANT AND code='EK-SS-6336';
+
+UPDATE "Product" SET note='泛用型之油劑、潤滑、極壓、抗腐敗性均佳。'
+  WHERE "tenantId"=:TENANT AND code='EK-EW-5206';
+
+UPDATE "Product" SET note='含氯系極壓劑，潤滑、極壓、耐腐敗性佳，適用於嚴苛之切削。
+對應產品：Blaser 4000' WHERE "tenantId"=:TENANT AND code='EK-EW-5202';
+
+UPDATE "Product" SET note='在 EW-5206 中提高潤滑劑劑量，適用於要求較高的表面光澤度及延長刀具壽命。
+對應產品：Blaser 2000' WHERE "tenantId"=:TENANT AND code='EK-EW-5209';
+
+UPDATE "Product" SET note='極佳的排油性、低泡性、長壽命，提供優異的防鏽與抗菌性，提升加工精度、保護工件與機器。
+對應產品：Castrol 9930C' WHERE "tenantId"=:TENANT AND code='EK-SYN-7052';
+
+UPDATE "Product" SET note='極佳的刀具壽命以及表面精密度，很好的工件可見度極不易起泡。
+對應產品：CImcool 3200VLZ' WHERE "tenantId"=:TENANT AND code='EK-SYN-7720';
+
+UPDATE "Product" SET note='銅及鋁合金專用油劑，適合長時間的加工，優異的抗腐蝕性及清潔性。
+對應產品：福斯 7630' WHERE "tenantId"=:TENANT AND code='EK-SS-6368';
+
+UPDATE "Product" SET note='銅及鋁合金專用油劑，適用大型工件長時間加工，提供超強抗腐蝕性能及保護表面光澤度。'
+  WHERE "tenantId"=:TENANT AND code='EK-EW-5369';
+
+UPDATE "Product" SET note='鋼材之切削、鑽孔、銑削適合複合車床、多刀車床、CNC、MC 之應用。
+對應產品：ENEOS RELIACUT DH10' WHERE "tenantId"=:TENANT AND code='EK-C-215';
+
+UPDATE "Product" SET note='抗乳化多用途滑道油。' WHERE "tenantId"=:TENANT AND code='EK-AE-68';
+
+UPDATE "Product" SET note='溶劑型防鏽，鹽霧試驗 12 小時，防鏽期 3-6 個月。'
+  WHERE "tenantId"=:TENANT AND code='EK-X-324M';
+
+UPDATE "Product" SET note='溶劑型防鏽，鹽霧試驗 24 小時，防鏽期 8-12 個月。'
+  WHERE "tenantId"=:TENANT AND code='EK-X-324L';
+```
+
+### Added — npm dependency
+
+- `archiver` ^5.3.2 + `@types/archiver` ^6.0.3 — 給批次 PDF ZIP 用
+
+### No schema change
+
+本版無 DDL；純功能擴充。
+
 ## [2.8.0] - 2026-05-12
 
 ### Added — 工作日誌 / 客戶結帳資訊 / AR 自動算付款日

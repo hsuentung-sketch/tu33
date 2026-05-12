@@ -8,6 +8,7 @@ import { parseVoiceCommand, type ParsedVoiceCommand } from '../../ai/voice-parse
 import { recognizeBusinessCard } from '../../ai/ocr.js';
 import { fuzzySearch } from '../../shared/search.js';
 import * as session from '../session.js';
+import type { OcrCard } from '../session.js';
 import * as salesOrderService from '../../modules/sales/sales-order/sales-order.service.js';
 import * as purchaseOrderService from '../../modules/purchase/purchase-order/purchase-order.service.js';
 
@@ -243,10 +244,11 @@ export async function handleImageMessage(event: MessageEvent, ctx: MediaCtx): Pr
         type: 'template',
         altText: '建立客戶',
         template: {
-          type: 'confirm',
-          text: `要將「${card.companyName ?? card.contactName ?? '此名片'}」建立為客戶嗎？`,
+          type: 'buttons',
+          text: `要將「${(card.companyName ?? card.contactName ?? '此名片').slice(0, 30)}」建立為客戶嗎？`,
           actions: [
-            { type: 'postback', label: '建立', data: 'action=master:ocr-create-customer' },
+            { type: 'postback', label: '✅ 直接建立', data: 'action=master:ocr-create-customer' },
+            { type: 'postback', label: '✏️ 編輯後建立', data: 'action=master:ocr-edit-start' },
             { type: 'postback', label: '取消', data: 'action=sales:cancel' },
           ],
         },
@@ -264,6 +266,193 @@ export async function handleImageMessage(event: MessageEvent, ctx: MediaCtx): Pr
     return;
   }
 
+}
+
+/**
+ * 列表，依序問每個欄位的順序。每一步顯示 OCR 值 + 操作提示，
+ * 使用者輸入新值，或回 `OK` / `跳過` / `取消`。
+ *
+ * 進入點：master.handler `master:ocr-edit-start` postback 呼叫 startOcrEditFlow。
+ * 文字輸入消費：handleOcrEditText 由 routeTextCommand 串接。
+ */
+const OCR_EDIT_FIELDS: Array<{
+  step: 'ocr-edit-companyName' | 'ocr-edit-contactName' | 'ocr-edit-phone' |
+        'ocr-edit-taxId' | 'ocr-edit-email' | 'ocr-edit-address';
+  key: 'companyName' | 'contactName' | 'phone' | 'taxId' | 'email' | 'address';
+  label: string;
+}> = [
+  { step: 'ocr-edit-companyName', key: 'companyName', label: '公司名稱' },
+  { step: 'ocr-edit-contactName', key: 'contactName', label: '聯絡人' },
+  { step: 'ocr-edit-phone',       key: 'phone',       label: '電話' },
+  { step: 'ocr-edit-taxId',       key: 'taxId',       label: '統一編號' },
+  { step: 'ocr-edit-email',       key: 'email',       label: 'Email' },
+  { step: 'ocr-edit-address',     key: 'address',     label: '地址' },
+];
+
+function buildEditDraftSummary(draft: OcrCard): string {
+  return [
+    `公司：${draft.companyName ?? '(空)'}`,
+    `聯絡人：${draft.contactName ?? '(空)'}`,
+    `電話：${draft.phone ?? '(空)'}`,
+    `統編：${draft.taxId ?? '(空)'}`,
+    `Email：${draft.email ?? '(空)'}`,
+    `地址：${draft.address ?? '(空)'}`,
+  ].join('\n');
+}
+
+/**
+ * 由 master.handler 在使用者按「編輯後建立」時呼叫，初始化逐欄問流程，
+ * 第一個 step = ocr-edit-companyName。
+ */
+export async function startOcrEditFlow(ctx: {
+  client: any;
+  event: any;
+  tenantId: string;
+  employee: { id: string; lineUserId: string | null };
+}): Promise<void> {
+  const s = session.get(ctx.tenantId, ctx.employee.lineUserId!);
+  if (!s || !s.data.ocrCard) {
+    await ctx.client.replyMessage({
+      replyToken: ctx.event.replyToken,
+      messages: [{ type: 'text', text: '名片資訊已失效（session 過期），請重新拍照。' }],
+    });
+    return;
+  }
+  // 從 ocr:customer flow 切換到 ocr:customer-edit；保留 ocrCard 作為「OCR 原值」，
+  // 另存一份 ocrCardDraft 作為使用者編輯中的版本。
+  s.flow = 'ocr:customer-edit';
+  s.step = OCR_EDIT_FIELDS[0].step;
+  s.data.ocrCardDraft = { ...s.data.ocrCard };
+  session.set(ctx.tenantId, ctx.employee.lineUserId!, s);
+
+  const first = OCR_EDIT_FIELDS[0];
+  const cur = s.data.ocrCard[first.key] ?? '(空)';
+  await ctx.client.replyMessage({
+    replyToken: ctx.event.replyToken,
+    messages: [{
+      type: 'text',
+      text:
+        `📝 逐欄確認名片資訊（共 6 欄）\n\n` +
+        `[1/6] ${first.label}\n辨識結果：${cur}\n\n` +
+        `回覆方式：\n• 直接輸入新值\n• 回「OK」保留\n• 回「跳過」清空\n• 回「取消」結束`,
+    }],
+  });
+}
+
+/**
+ * Text consumer for the逐欄編輯 flow. Returns true if consumed.
+ */
+export async function handleOcrEditText(text: string, ctx: any): Promise<boolean> {
+  const { client, event, tenantId, employee } = ctx;
+  const lineUserId = employee.lineUserId;
+  if (!lineUserId) return false;
+  const s = session.get(tenantId, lineUserId);
+  if (!s || s.flow !== 'ocr:customer-edit') return false;
+  if (!s.data.ocrCardDraft || !s.data.ocrCard) return false;
+
+  const t = text.trim();
+  if (t === '取消' || /^cancel$/i.test(t)) {
+    session.clear(tenantId, lineUserId);
+    await client.replyMessage({ replyToken: event.replyToken, messages: [{ type: 'text', text: '已取消。' }] });
+    return true;
+  }
+
+  // Find current field
+  const idx = OCR_EDIT_FIELDS.findIndex((f) => f.step === s.step);
+  if (idx >= 0) {
+    const cur = OCR_EDIT_FIELDS[idx];
+    const draft = s.data.ocrCardDraft;
+    if (t === 'OK' || /^ok$/i.test(t)) {
+      // keep ocr value as-is
+    } else if (t === '跳過' || /^skip$/i.test(t)) {
+      draft[cur.key] = undefined;
+    } else {
+      draft[cur.key] = t;
+    }
+    // Next step
+    const next = OCR_EDIT_FIELDS[idx + 1];
+    if (next) {
+      s.step = next.step;
+      session.set(tenantId, lineUserId, s);
+      const ocrVal = s.data.ocrCard[next.key] ?? '(空)';
+      const draftVal = draft[next.key];
+      const draftHint = draftVal && draftVal !== s.data.ocrCard[next.key]
+        ? `\n目前已改：${draftVal}` : '';
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{
+          type: 'text',
+          text:
+            `[${idx + 2}/6] ${next.label}\n` +
+            `辨識結果：${ocrVal}${draftHint}\n\n` +
+            `回「OK」保留 / 輸入新值 / 「跳過」清空 / 「取消」結束`,
+        }],
+      });
+      return true;
+    }
+    // 所有欄位走完 → 顯示摘要 + 最終確認
+    s.step = 'ocr-edit-confirm';
+    session.set(tenantId, lineUserId, s);
+    await client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [
+        { type: 'text', text: `📋 確認以下資料\n\n${buildEditDraftSummary(draft)}` },
+        {
+          type: 'template',
+          altText: '建立客戶',
+          template: {
+            type: 'confirm',
+            text: '送出建立客戶？',
+            actions: [
+              { type: 'postback', label: '建立', data: 'action=master:ocr-edit-finalize' },
+              { type: 'postback', label: '取消', data: 'action=sales:cancel' },
+            ],
+          },
+        },
+      ],
+    });
+    return true;
+  }
+  return false;
+}
+
+/**
+ * 完成 ocr:customer-edit 流程後實際建客戶。
+ */
+export async function finalizeOcrEditCustomer(ctx: {
+  tenantId: string;
+  employee: { id: string; lineUserId: string | null };
+}): Promise<{ id: string; name: string } | null> {
+  const s = session.get(ctx.tenantId, ctx.employee.lineUserId!);
+  if (!s || s.flow !== 'ocr:customer-edit' || !s.data.ocrCardDraft) return null;
+  const card = s.data.ocrCardDraft;
+  const name = (card.companyName ?? card.contactName ?? '').trim();
+  if (!name) return null;
+  const created = await runWithAuditContext({ tenantId: ctx.tenantId, userId: ctx.employee.id }, () =>
+    prisma.customer.upsert({
+      where: { tenantId_name: { tenantId: ctx.tenantId, name } },
+      create: {
+        tenantId: ctx.tenantId,
+        name,
+        contactName: card.contactName,
+        phone: card.phone,
+        email: card.email,
+        taxId: card.taxId,
+        address: card.address,
+        createdBy: ctx.employee.id,
+        createdByEmployeeId: ctx.employee.id,
+      },
+      update: {
+        contactName: card.contactName ?? undefined,
+        phone: card.phone ?? undefined,
+        email: card.email ?? undefined,
+        taxId: card.taxId ?? undefined,
+        address: card.address ?? undefined,
+      },
+    }),
+  );
+  session.clear(ctx.tenantId, ctx.employee.lineUserId!);
+  return { id: created.id, name: created.name };
 }
 
 /**

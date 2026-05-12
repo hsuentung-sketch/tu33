@@ -55,6 +55,7 @@ export interface Session {
     | 'purchase:create'
     | 'quotation:create'
     | 'ocr:customer'
+    | 'ocr:customer-edit'
     | 'ar:pay'
     | 'ap:pay'
     | 'master:search'
@@ -67,7 +68,9 @@ export interface Session {
     | 'party' | 'items' | 'confirm' | 'item-await-note' | 'await-delivery-note'
     | 'je-method' | 'je-ocr-wait-image'
     | 'je-describe' | 'je-amount' | 'je-payment' | 'je-confirm'
-    | 'visitlog-date' | 'visitlog-customer' | 'visitlog-content' | 'visitlog-next' | 'visitlog-confirm';
+    | 'visitlog-date' | 'visitlog-customer' | 'visitlog-content' | 'visitlog-next' | 'visitlog-confirm'
+    | 'ocr-edit-companyName' | 'ocr-edit-contactName' | 'ocr-edit-phone'
+    | 'ocr-edit-taxId' | 'ocr-edit-email' | 'ocr-edit-address' | 'ocr-edit-confirm';
   data: {
     partyId?: string;
     partyName?: string;
@@ -86,6 +89,8 @@ export interface Session {
     /** For multi-step add flows (mgmt:emp:add, mgmt:sup:add). */
     pendingCreate?: { stage: string; draft: Record<string, any> };
     ocrCard?: OcrCard;
+    /** v2.9.0 逐欄編輯名片時，使用者編輯後的版本（與 ocrCard 並存以保留原值） */
+    ocrCardDraft?: OcrCard;
     /**
      * For 'master:product-list' flow: cached product id list so that
      * pagination postbacks don't re-query the whole table every page.

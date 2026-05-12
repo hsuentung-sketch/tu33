@@ -1588,6 +1588,7 @@ async function viewPurchaseOrders(main) {
 async function viewReceivables(main) {
   await viewAccount(main, 'receivables', '應收帳款', '客戶');
   const bar = el('div', { class: 'toolbar', style: 'justify-content:flex-end;margin-top:12px;' },
+    el('button', { class: 'btn', onClick: openBatchMonthlyInvoiceDialog }, '📦 批次月結帳單（ZIP）'),
     el('button', { class: 'btn primary', onClick: openMonthlyInvoiceDialog }, '📄 產生月結請款單'),
   );
   main.append(bar);
@@ -1636,6 +1637,94 @@ async function openMonthlyInvoiceDialog() {
       window.open(url, '_blank');
     },
   });
+}
+
+/**
+ * Modal: 列出當月有未付 AR 的客戶 + 批次下載 ZIP（內含每客戶一份 PDF）。
+ * v2.9.0+ 新增。
+ */
+async function openBatchMonthlyInvoiceDialog() {
+  const now = new Date();
+  const yearInput = el('input', { type: 'number', value: String(now.getFullYear()), style: 'width:100px;' });
+  const monthInput = el('input', { type: 'number', min: '1', max: '12', value: String(now.getMonth() + 1), style: 'width:80px;' });
+  const refreshBtn = el('button', { class: 'btn' }, '查詢');
+  const summary = el('div', { style: 'font-size:13px;color:var(--muted);margin:6px 0;' }, '請選擇年月並按「查詢」。');
+  const listBody = el('tbody');
+  const listTable = el('table', { class: 'data' },
+    el('thead', {}, el('tr', {},
+      el('th', {}, '客戶'),
+      el('th', { class: 'num' }, '未付金額'),
+      el('th', { class: 'num' }, '張數'),
+      el('th', {}, '最早到期'),
+      el('th', {}, '操作'),
+    )),
+    listBody,
+  );
+  const downloadAllBtn = el('button', { class: 'btn primary', disabled: 'true' }, '📦 下載全部 ZIP');
+
+  async function refresh() {
+    const y = Number(yearInput.value), m = Number(monthInput.value);
+    if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) {
+      summary.textContent = '年/月格式錯誤';
+      return;
+    }
+    listBody.innerHTML = '';
+    summary.textContent = '載入中…';
+    downloadAllBtn.disabled = true;
+    try {
+      const data = await api.get(`/statements/monthly-invoice/unpaid-customers?year=${y}&month=${m}`);
+      summary.textContent = data.customerCount > 0
+        ? `${y}/${m} 共 ${data.customerCount} 位客戶有未付，合計 NT$ ${fmtMoney(data.totalUnpaid)}`
+        : `${y}/${m} 沒有任何未付請款。`;
+      if (data.customerCount > 0) downloadAllBtn.disabled = false;
+      for (const it of (data.items || [])) {
+        listBody.append(el('tr', {},
+          el('td', {}, it.customerName),
+          el('td', { class: 'num' }, fmtMoney(it.unpaidAmount)),
+          el('td', { class: 'num' }, String(it.arCount)),
+          el('td', {}, fmtDate(it.oldestDueDate)),
+          el('td', {},
+            el('button', { class: 'btn small', onClick: () => {
+              window.open(`/api/statements/monthly-invoice/${it.customerId}/${y}/${m}`, '_blank');
+            } }, '單張 PDF'),
+          ),
+        ));
+      }
+      if (data.customerCount === 0) {
+        listBody.append(el('tr', {}, el('td', { colspan: 5, class: 'empty' }, '無資料')));
+      }
+    } catch (e) {
+      summary.textContent = '查詢失敗：' + e.message;
+    }
+  }
+
+  refreshBtn.addEventListener('click', refresh);
+  downloadAllBtn.addEventListener('click', () => {
+    const y = Number(yearInput.value), m = Number(monthInput.value);
+    if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) return;
+    window.location.href = `/api/statements/monthly-invoice/batch.zip?year=${y}&month=${m}`;
+  });
+
+  // Custom modal — openModal 不夠彈性，我們手刻一個。
+  const backdrop = el('div', { class: 'modal-backdrop' });
+  const modal = el('div', { class: 'modal', style: 'max-width:680px;' },
+    el('h3', {}, '批次月結帳單（當月有未付的客戶）'),
+    el('div', { class: 'field row', style: 'align-items:flex-end;' },
+      el('div', { class: 'field' }, el('label', {}, '年'), yearInput),
+      el('div', { class: 'field' }, el('label', {}, '月'), monthInput),
+      refreshBtn,
+    ),
+    summary,
+    listTable,
+    el('div', { class: 'actions' },
+      el('button', { class: 'btn', onClick: () => backdrop.remove() }, '關閉'),
+      downloadAllBtn,
+    ),
+  );
+  backdrop.append(modal);
+  backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
+  document.body.append(backdrop);
+  await refresh();
 }
 
 /**
