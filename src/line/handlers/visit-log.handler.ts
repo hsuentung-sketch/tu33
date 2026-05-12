@@ -37,7 +37,14 @@ function parseDateInput(input: string): string | null {
   return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 }
 
-function customerCarousel(hits: { id: string; name: string }[]): any {
+/**
+ * 客戶選擇 carousel；postbackAction 決定點下後走「新增」或「查詢」分支。
+ */
+function buildCustomerCarousel(
+  hits: { id: string; name: string }[],
+  postbackAction: 'visitlog:pick-customer' | 'visitlog:pick-search-customer',
+  buttonColor: string,
+): any {
   return {
     type: 'flex',
     altText: '選擇客戶',
@@ -60,17 +67,35 @@ function customerCarousel(hits: { id: string; name: string }[]): any {
           contents: [{
             type: 'button',
             style: 'primary',
-            color: '#00BFA5',
+            color: buttonColor,
             height: 'sm',
             action: {
               type: 'postback',
               label: '選擇',
-              data: `action=visitlog:pick-customer&id=${encodeURIComponent(c.id)}&name=${encodeURIComponent(c.name)}`,
+              data: `action=${postbackAction}&id=${encodeURIComponent(c.id)}&name=${encodeURIComponent(c.name)}`,
             },
           }],
         },
       })),
     },
+  };
+}
+
+function customerCarousel(hits: { id: string; name: string }[]): any {
+  return buildCustomerCarousel(hits, 'visitlog:pick-customer', '#00BFA5');
+}
+
+function searchCustomerCarousel(hits: { id: string; name: string }[]): any {
+  return buildCustomerCarousel(hits, 'visitlog:pick-search-customer', '#1565C0');
+}
+
+function btn(label: string, data: string, color: string): any {
+  return {
+    type: 'button',
+    style: 'primary',
+    color,
+    height: 'sm',
+    action: { type: 'postback', label, data },
   };
 }
 
@@ -80,7 +105,32 @@ export async function handleVisitLogCommand(action: string, ctx: any): Promise<v
   if (!lineUserId) return;
 
   switch (action) {
-    case 'visitlog:menu':
+    case 'visitlog:menu': {
+      // 顯示「新增 / 查詢」子選單
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{
+          type: 'flex',
+          altText: '工作日誌',
+          contents: {
+            type: 'bubble',
+            body: {
+              type: 'box',
+              layout: 'vertical',
+              spacing: 'md',
+              contents: [
+                { type: 'text', text: '工作日誌', weight: 'bold', size: 'lg' },
+                { type: 'separator' },
+                btn('📝 新增日誌', 'action=visitlog:start', '#00897B'),
+                btn('🔍 查詢日誌', 'action=visitlog:search', '#1565C0'),
+              ],
+            },
+          },
+        }],
+      });
+      return;
+    }
+
     case 'visitlog:start': {
       const s = session.start(tenantId, lineUserId, 'visitlog:create');
       s.step = 'visitlog-date';
@@ -93,6 +143,29 @@ export async function handleVisitLogCommand(action: string, ctx: any): Promise<v
           text: '📝 新增工作日誌\n\n請輸入拜訪日期（YYYY-MM-DD），\n或輸入「今天」「昨天」。',
         }],
       });
+      return;
+    }
+
+    case 'visitlog:search': {
+      const s = session.start(tenantId, lineUserId, 'visitlog:search');
+      s.step = 'visitlog-search-customer';
+      session.set(tenantId, lineUserId, s);
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{
+          type: 'text',
+          text: '🔍 查詢工作日誌\n\n請輸入要查詢的公司關鍵字。',
+        }],
+      });
+      return;
+    }
+
+    case 'visitlog:pick-search-customer': {
+      const customerId = params.get('id');
+      const customerName = params.get('name');
+      if (!customerId || !customerName) return;
+      await replyVisitLogList(ctx, customerId, customerName);
+      session.clear(tenantId, lineUserId);
       return;
     }
 
@@ -176,6 +249,54 @@ export async function handleVisitLogCommand(action: string, ctx: any): Promise<v
 }
 
 /**
+ * 取出該客戶最近 10 筆 visit log 並以純文字回覆。
+ * SALES 角色自動過濾自己建的；ADMIN/ACCOUNTING/VIEWER 看全租戶。
+ */
+async function replyVisitLogList(ctx: any, customerId: string, customerName: string): Promise<void> {
+  const { client, event, tenantId, employee } = ctx;
+  const isSales = employee?.role === 'SALES';
+  try {
+    const logs = await visitLogService.list(tenantId, {
+      customerId,
+      employeeId: isSales ? employee.id : undefined,
+      limit: 10,
+    });
+    if (logs.length === 0) {
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: `「${customerName}」沒有任何工作日誌${isSales ? '（由您建立）' : ''}。` }],
+      });
+      return;
+    }
+    const lines = logs.map((l, i) => {
+      const d = new Date(l.visitDate).toISOString().slice(0, 10);
+      const next = l.nextActionDate
+        ? `\n  下次：${new Date(l.nextActionDate).toISOString().slice(0, 10)}`
+        : '';
+      const author = (l as any).createdByEmployee?.name
+        ? ` (${(l as any).createdByEmployee.name})`
+        : '';
+      const content = (l.content || '').length > 100
+        ? l.content.slice(0, 100) + '…'
+        : (l.content || '');
+      return `${i + 1}. [${d}]${author}\n  ${content}${next}`;
+    });
+    const head = `📋 ${customerName}\n最近 ${logs.length} 筆工作日誌${isSales ? '（由您建立）' : ''}\n\n`;
+    // LINE text 上限 5000 字；10 筆 *200 字 = 2000 安全範圍
+    await client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [{ type: 'text', text: head + lines.join('\n\n') }],
+    });
+  } catch (err) {
+    logger.error('visitlog search failed', { error: (err as Error).message });
+    await client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [{ type: 'text', text: `查詢失敗：${(err as Error).message}` }],
+    });
+  }
+}
+
+/**
  * Text consumer for the visitlog multi-step flow.
  * Returns true if the text was consumed.
  */
@@ -184,7 +305,34 @@ export async function handleVisitLogText(text: string, ctx: any): Promise<boolea
   const lineUserId = employee.lineUserId;
   if (!lineUserId) return false;
   const s = session.get(tenantId, lineUserId);
-  if (!s || s.flow !== 'visitlog:create') return false;
+  if (!s) return false;
+
+  // 查詢流程：visitlog:search → 輸入公司關鍵字
+  if (s.flow === 'visitlog:search' && s.step === 'visitlog-search-customer') {
+    const hits = await fuzzySearch(tenantId, text, { types: ['customer'] });
+    const customers = hits.filter((h) => h.type === 'customer').slice(0, 10);
+    if (customers.length === 0) {
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: `找不到客戶「${text}」，請換個關鍵字（回「取消」結束）。` }],
+      });
+      return true;
+    }
+    if (customers.length === 1) {
+      const c = customers[0];
+      await replyVisitLogList(ctx, c.id, c.name);
+      session.clear(tenantId, lineUserId);
+      return true;
+    }
+    // 多筆 → carousel 讓使用者選；使用者選後走 visitlog:pick-search-customer postback
+    await client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [searchCustomerCarousel(customers.map((c) => ({ id: c.id, name: c.name })))],
+    });
+    return true;
+  }
+
+  if (s.flow !== 'visitlog:create') return false;
 
   if (s.step === 'visitlog-date') {
     const iso = parseDateInput(text);

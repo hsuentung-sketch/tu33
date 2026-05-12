@@ -289,7 +289,8 @@ async function routeTextCommand(text: string, ctx: TextCommandContext): Promise<
     });
   }
   if (text === '日誌' || text === '工作日誌') {
-    return handleVisitLogCommand('visitlog:start', {
+    // 改走子選單（v2.10.0+），讓使用者選新增 / 查詢
+    return handleVisitLogCommand('visitlog:menu', {
       ...ctx,
       event: pseudoEvent,
       params: new URLSearchParams(),

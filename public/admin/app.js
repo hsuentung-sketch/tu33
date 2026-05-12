@@ -1707,20 +1707,29 @@ async function openBatchMonthlyInvoiceDialog() {
 
   // Custom modal — openModal 不夠彈性，我們手刻一個。
   const backdrop = el('div', { class: 'modal-backdrop' });
-  const modal = el('div', { class: 'modal', style: 'max-width:680px;' },
+  const modal = el('div', { class: 'modal', style: 'width:680px;max-width:calc(100vw - 32px);' },
     el('h3', {}, '批次月結帳單（當月有未付的客戶）'),
-    el('div', { class: 'field row', style: 'align-items:flex-end;' },
-      el('div', { class: 'field' }, el('label', {}, '年'), yearInput),
-      el('div', { class: 'field' }, el('label', {}, '月'), monthInput),
-      refreshBtn,
+    el('div', { class: 'body' },
+      el('div', { style: 'display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:8px;' },
+        el('div', { class: 'field', style: 'margin:0;flex:0 0 110px;' },
+          el('label', {}, '年'), yearInput,
+        ),
+        el('div', { class: 'field', style: 'margin:0;flex:0 0 80px;' },
+          el('label', {}, '月'), monthInput,
+        ),
+        refreshBtn,
+      ),
+      summary,
+      listTable,
     ),
-    summary,
-    listTable,
     el('div', { class: 'actions' },
       el('button', { class: 'btn', onClick: () => backdrop.remove() }, '關閉'),
       downloadAllBtn,
     ),
   );
+  // 讓 yearInput / monthInput 撐滿其 wrapper 寬度（不再覆寫成 100px / 80px）
+  yearInput.style.width = '100%';
+  monthInput.style.width = '100%';
   backdrop.append(modal);
   backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
   document.body.append(backdrop);

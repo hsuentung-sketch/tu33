@@ -63,12 +63,14 @@ export interface Session {
     | 'mgmt:emp:add'
     | 'mgmt:sup:add'
     | 'je:create'
-    | 'visitlog:create';
+    | 'visitlog:create'
+    | 'visitlog:search';
   step:
     | 'party' | 'items' | 'confirm' | 'item-await-note' | 'await-delivery-note'
     | 'je-method' | 'je-ocr-wait-image'
     | 'je-describe' | 'je-amount' | 'je-payment' | 'je-confirm'
     | 'visitlog-date' | 'visitlog-customer' | 'visitlog-content' | 'visitlog-next' | 'visitlog-confirm'
+    | 'visitlog-search-customer'
     | 'ocr-edit-companyName' | 'ocr-edit-contactName' | 'ocr-edit-phone'
     | 'ocr-edit-taxId' | 'ocr-edit-email' | 'ocr-edit-address' | 'ocr-edit-confirm';
   data: {

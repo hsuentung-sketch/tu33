@@ -3,6 +3,31 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.9.1] - 2026-05-12
+
+### Fixed — 批次月結帳單 modal 切版
+
+之前用 `.field.row`（CSS `grid-template-columns: 1fr 1fr`）放年/月/查詢三個元素，第三個會被擠到第二列且年份標籤被切到看不見；外層也漏掉 `.body` 包裝缺 padding。改寫為 inline flex 容器 + 顯式包 `.body`，加 `width:680px;max-width:calc(100vw - 32px)`。
+
+### Added — LINE 工作日誌查詢
+
+之前 LINE 輸入「日誌」直接進新增流程。現在改顯示子選單兩擇一：
+- **📝 新增日誌**（原流程）
+- **🔍 查詢日誌**（新功能）
+
+查詢流程：
+1. 輸入公司關鍵字
+2. 模糊搜尋 → 多筆顯示 Flex carousel 選一張、一筆自動進入
+3. 列出該客戶最近 10 筆日誌（日期 + 業務員 + 內容摘要 + 下次行動日）
+
+SALES 角色只看自己建的；其他角色看全租戶。
+
+實作：
+- 新 session flow `visitlog:search`、step `visitlog-search-customer`
+- 新 postback `action=visitlog:menu` / `action=visitlog:search` / `action=visitlog:pick-search-customer`
+- `replyVisitLogList` helper（重用 `visitLogService.list`）
+- 抽出 `buildCustomerCarousel(hits, postbackAction, buttonColor)` 給新增/查詢 carousel 共用
+
 ## [2.9.0] - 2026-05-12
 
 ### Added — 月結批次帳單 / LINE OCR 逐欄編輯 / EK 產品說明匯入
