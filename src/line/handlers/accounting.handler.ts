@@ -78,9 +78,11 @@ export async function handleAccountingCommand(action: string, ctx: any): Promise
       const overdue = action === 'accounting:ar-overdue';
       const where: any = { tenantId, isPaid: false };
       if (overdue) where.dueDate = { lt: new Date() };
+      // SALES 自我過濾：只看自己銷貨單的 AR（v2.9.2+）
+      if (isSalesRole) where.salesOrder = { createdBy: employee.id };
       const rows = await prisma.accountReceivable.findMany({
         where,
-        include: { customer: { select: { name: true } }, salesOrder: { select: { orderNo: true } } },
+        include: { customer: { select: { name: true } }, salesOrder: { select: { orderNo: true, createdBy: true } } },
         orderBy: { dueDate: 'asc' },
         take: 10,
       });
@@ -91,12 +93,22 @@ export async function handleAccountingCommand(action: string, ctx: any): Promise
         });
         return;
       }
-      const header = overdue ? '🚨 逾期應收（最多 10 筆）' : '📋 未收應收（最多 10 筆）';
+      const header = overdue
+        ? `🚨 ${isSalesRole ? '我的' : ''}逾期應收（最多 10 筆）`
+        : `📋 ${isSalesRole ? '我的' : ''}未收應收（最多 10 筆）`;
       const text = rows.map((r, i) => {
         const days = Math.floor((Date.now() - r.dueDate.getTime()) / 86400000);
         const badge = days > 0 ? `逾期 ${days} 天` : `${-days} 天到期`;
         return `${i + 1}. ${r.salesOrder.orderNo} ${r.customer.name} $${Number(r.amount).toLocaleString('zh-TW')} [${badge}]`;
       }).join('\n');
+      // SALES 無入帳權限，不顯示入帳按鈕（v2.9.2+）
+      if (isSalesRole) {
+        await client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: `${header}\n${text}` }],
+        });
+        return;
+      }
       const actions = rows.slice(0, 4).map((r) => ({
         type: 'postback' as const,
         label: `入帳 ${r.salesOrder.orderNo}`.slice(0, 20),
@@ -168,10 +180,10 @@ export async function handleAccountingCommand(action: string, ctx: any): Promise
 
     case 'accounting:ar-pay':
     case 'accounting:ap-pay': {
-      if (action === 'accounting:ap-pay' && isSalesRole) {
+      if (isSalesRole) {
         await client.replyMessage({
           replyToken: event.replyToken,
-          messages: [{ type: 'text', text: '⛔ 業務無應付帳款入帳權限。' }],
+          messages: [{ type: 'text', text: '⛔ 業務無入帳權限。' }],
         });
         return;
       }

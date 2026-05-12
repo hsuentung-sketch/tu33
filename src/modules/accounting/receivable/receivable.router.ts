@@ -29,7 +29,9 @@ receivableRouter.get('/', async (req: Request, res: Response, next: NextFunction
     const isPaidParam = req.query.isPaid as string | undefined;
     const isPaid = isPaidParam === undefined ? undefined : isPaidParam === 'true';
     const customerId = req.query.customerId as string | undefined;
-    const result = await receivableService.list(req.tenantId, { isPaid, customerId });
+    // SALES 自動過濾：只能看自己建立的銷貨單對應的 AR（v2.9.2+）
+    const createdBy = req.employee?.role === 'SALES' ? req.employee.id : undefined;
+    const result = await receivableService.list(req.tenantId, { isPaid, customerId, createdBy });
     res.json(result);
   } catch (err) {
     next(err);
@@ -38,7 +40,8 @@ receivableRouter.get('/', async (req: Request, res: Response, next: NextFunction
 
 receivableRouter.get('/overdue', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const result = await receivableService.getOverdue(req.tenantId);
+    const createdBy = req.employee?.role === 'SALES' ? req.employee.id : undefined;
+    const result = await receivableService.getOverdue(req.tenantId, { createdBy });
     res.json(result);
   } catch (err) {
     next(err);
@@ -48,6 +51,10 @@ receivableRouter.get('/overdue', async (req: Request, res: Response, next: NextF
 receivableRouter.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const result = await receivableService.getById(req.tenantId, String(req.params.id));
+    // SALES 只能看自己銷貨單對應的 AR
+    if (req.employee?.role === 'SALES' && result.salesOrder?.createdBy !== req.employee.id) {
+      throw new ForbiddenError('沒權限：只能查看自己建立銷貨單的應收帳款');
+    }
     res.json(result);
   } catch (err) {
     next(err);

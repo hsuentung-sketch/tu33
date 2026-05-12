@@ -1587,6 +1587,8 @@ async function viewPurchaseOrders(main) {
 
 async function viewReceivables(main) {
   await viewAccount(main, 'receivables', '應收帳款', '客戶');
+  // SALES 只能查自己銷貨單的 AR，且月結帳單 API 限 ADMIN/ACCOUNTING，故藏起按鈕。
+  if (isSales()) return;
   const bar = el('div', { class: 'toolbar', style: 'justify-content:flex-end;margin-top:12px;' },
     el('button', { class: 'btn', onClick: openBatchMonthlyInvoiceDialog }, '📦 批次月結帳單（ZIP）'),
     el('button', { class: 'btn primary', onClick: openMonthlyInvoiceDialog }, '📄 產生月結請款單'),

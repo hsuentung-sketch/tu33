@@ -3,6 +3,29 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.9.2] - 2026-05-12
+
+### Changed — SALES 角色資料可見範圍收緊
+
+之前 SALES 在後台帳款頁與 LINE 帳務查詢能看到整個 tenant 的應收。現在 SALES 只能看「自己建立的銷貨單對應的 AR」。
+
+| 入口 | 之前 | 現在 |
+|---|---|---|
+| `GET /api/receivables` | 全租戶 | 自動加 `salesOrder.createdBy = self` filter |
+| `GET /api/receivables/overdue` | 全租戶 | 同上 |
+| `GET /api/receivables/:id` | 任意 | 非自己銷貨單 → 403 |
+| LINE 帳務「應收-未收/逾期」 | 全租戶 | 同上 + 不顯示「入帳」按鈕（無權限） |
+| LINE `accounting:ar-pay` | SALES 可進 step | 直接擋 |
+| 後台「📦 批次月結帳單 / 📄 月結請款單」按鈕 | 顯示但 API 403 | SALES 看不到按鈕 |
+
+銷貨單部分本來就有 SALES 過濾（v2.x），本版確認不影響其他角色。
+
+### 設計選擇
+
+「自己的 AR」採用 **自己銷貨單對應的 AR**（透過 `salesOrder.createdBy = self` filter）而非「自己建客戶的 AR」。理由：銷貨單的 createdBy 是「實際開單者」，跟 AR 收款責任歸屬一致；客戶可能由 A 建但 B 開單，責任在 B。
+
+### No schema change
+
 ## [2.9.1] - 2026-05-12
 
 ### Fixed — 批次月結帳單 modal 切版

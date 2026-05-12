@@ -5,7 +5,7 @@ import { getOverdueStatus, getTenantSettings } from '../../../shared/utils.js';
 
 export async function list(
   tenantId: string,
-  filters: { isPaid?: boolean; customerId?: string } = {},
+  filters: { isPaid?: boolean; customerId?: string; createdBy?: string } = {},
 ) {
   const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
   const settings = getTenantSettings(tenant?.settings);
@@ -15,6 +15,9 @@ export async function list(
       tenantId,
       ...(filters.isPaid !== undefined ? { isPaid: filters.isPaid } : {}),
       ...(filters.customerId ? { customerId: filters.customerId } : {}),
+      // SALES 自我過濾：AR 關聯的 SO 必須由自己建立。AR.salesOrderId 是必填，
+      // 所以透過 relation filter 過濾不會排除合法 AR。
+      ...(filters.createdBy ? { salesOrder: { createdBy: filters.createdBy } } : {}),
     },
     include: { customer: true, salesOrder: true },
     orderBy: { dueDate: 'asc' },
@@ -136,7 +139,10 @@ export async function issueEinvoice(tenantId: string, id: string) {
   };
 }
 
-export async function getOverdue(tenantId: string) {
+export async function getOverdue(
+  tenantId: string,
+  filters: { createdBy?: string } = {},
+) {
   const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
   const settings = getTenantSettings(tenant?.settings);
 
@@ -144,7 +150,12 @@ export async function getOverdue(tenantId: string) {
   cutoff.setDate(cutoff.getDate() + settings.overdueAlertDays);
 
   const rows = await prisma.accountReceivable.findMany({
-    where: { tenantId, isPaid: false, dueDate: { lte: cutoff } },
+    where: {
+      tenantId,
+      isPaid: false,
+      dueDate: { lte: cutoff },
+      ...(filters.createdBy ? { salesOrder: { createdBy: filters.createdBy } } : {}),
+    },
     include: { customer: true, salesOrder: true },
     orderBy: { dueDate: 'asc' },
   });
