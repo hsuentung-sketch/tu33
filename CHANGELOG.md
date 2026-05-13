@@ -3,6 +3,23 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.9.3] - 2026-05-13
+
+### Fixed — 客戶 / 主檔儲存 500 變友善訊息
+
+使用者在客戶 modal 把名稱改成跟另一筆相同 → Prisma 回 P2002（unique 違反），但全域 error handler 把它視為 unknown → 前端只看到「Internal server error」。
+
+加 Prisma known-error → 4xx mapper：
+
+| Prisma code | HTTP | 訊息 |
+|---|---|---|
+| P2002 unique violation | 409 | `重複的資料（欄位：xxx）。請改用其他值。` |
+| P2003 FK violation | 400 | 關聯資料不存在或被引用 |
+| P2025 record not found | 404 | 找不到此筆紀錄 |
+| P2022 column missing (schema drift) | 503 | DB 欄位不一致，請執行升級 SQL |
+
+效果：用戶會看到具體錯誤而不是「Internal server error」。
+
 ## [2.9.2] - 2026-05-12
 
 ### Changed — SALES 角色資料可見範圍收緊

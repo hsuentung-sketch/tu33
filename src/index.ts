@@ -60,12 +60,62 @@ app.use('/s', shortLinkRouter);
 // API routes
 app.use('/api', apiRouter);
 
+// Map Prisma known-request errors to friendly 4xx responses so the
+// frontend / LINE chat can show meaningful messages instead of a
+// generic "Internal server error" (v2.9.3+).
+function mapPrismaError(err: unknown):
+  | { statusCode: number; code: string; message: string }
+  | null {
+  if (!err || typeof err !== 'object') return null;
+  const e = err as { name?: string; code?: string; meta?: Record<string, unknown> };
+  if (e.name !== 'PrismaClientKnownRequestError' || typeof e.code !== 'string') return null;
+  const meta = e.meta ?? {};
+  const target = Array.isArray(meta.target)
+    ? meta.target.join(', ')
+    : typeof meta.target === 'string' ? meta.target : '';
+  switch (e.code) {
+    case 'P2002':
+      return {
+        statusCode: 409,
+        code: 'CONFLICT',
+        message: target
+          ? `重複的資料（欄位：${target}）。請改用其他值。`
+          : '資料重複，請改用其他值。',
+      };
+    case 'P2003':
+      return {
+        statusCode: 400,
+        code: 'FK_VIOLATION',
+        message: '關聯資料不存在或被其他紀錄引用，無法完成此動作。',
+      };
+    case 'P2025':
+      return { statusCode: 404, code: 'NOT_FOUND', message: '找不到此筆紀錄。' };
+    case 'P2022':
+      return {
+        statusCode: 503,
+        code: 'SCHEMA_DRIFT',
+        message: '資料庫欄位不一致，請聯絡管理員執行升級 SQL。',
+      };
+    default:
+      return null;
+  }
+}
+
 // Global error handler
 app.use((err: Error, req: express.Request, res: express.Response, _next: express.NextFunction) => {
   if (err instanceof AppError) {
     // Expected validation / not-found errors — don't persist, just return.
     res.status(err.statusCode).json({
       error: { code: err.code, message: err.message },
+    });
+    return;
+  }
+
+  // Recognise Prisma known errors → friendly 4xx instead of generic 500.
+  const prismaMapped = mapPrismaError(err);
+  if (prismaMapped) {
+    res.status(prismaMapped.statusCode).json({
+      error: { code: prismaMapped.code, message: prismaMapped.message },
     });
     return;
   }
