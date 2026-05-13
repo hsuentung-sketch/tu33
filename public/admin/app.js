@@ -178,6 +178,7 @@ async function viewCustomers(main) {
     el('thead', {}, el('tr', {},
       el('th', {}, '公司'),
       el('th', {}, '聯絡人'),
+      el('th', {}, '職稱'),
       el('th', {}, '電話'),
       el('th', {}, 'Email'),
       el('th', {}, '統編'),
@@ -194,11 +195,12 @@ async function viewCustomers(main) {
     const url = q ? `/customers?q=${encodeURIComponent(q)}` : `/customers${includeInactive.checked ? '?includeInactive=true' : ''}`;
     const list = await api.get(url);
     tbody.innerHTML = '';
-    if (!list.length) tbody.append(el('tr', {}, el('td', { colspan: '9', style: 'text-align:center;color:var(--muted);padding:24px;' }, '無資料')));
+    if (!list.length) tbody.append(el('tr', {}, el('td', { colspan: '10', style: 'text-align:center;color:var(--muted);padding:24px;' }, '無資料')));
     for (const c of list) {
       tbody.append(el('tr', {},
         el('td', {}, c.name),
         el('td', {}, c.contactName || ''),
+        el('td', {}, c.title || ''),
         el('td', {}, c.phone || ''),
         el('td', { style: 'font-size:12px;color:#555;' }, c.email || ''),
         el('td', {}, c.taxId || ''),
@@ -232,6 +234,7 @@ async function viewCustomers(main) {
         grade: 'B',
         name: prefill?.companyName || '',
         contactName: prefill?.contactName || '',
+        title: prefill?.title || '',
         phone: prefill?.phone || '',
         taxId: prefill?.taxId || '',
         email: prefill?.email || '',
@@ -244,19 +247,23 @@ async function viewCustomers(main) {
         { name: 'name', label: '公司名稱', required: true },
         { type: 'row', fields: [
           { name: 'contactName', label: '聯絡人' },
+          { name: 'title', label: '職稱' },
+        ]},
+        { type: 'row', fields: [
           { name: 'phone', label: '電話' },
-        ]},
-        { type: 'row', fields: [
           { name: 'taxId', label: '統一編號' },
+        ]},
+        { type: 'row', fields: [
           { name: 'email', label: 'Email', type: 'email' },
-        ]},
-        { type: 'row', fields: [
           { name: 'zipCode', label: '郵遞區號' },
-          { name: 'paymentDays', label: '付款天數', type: 'number' },
         ]},
         { type: 'row', fields: [
+          { name: 'paymentDays', label: '付款天數', type: 'number' },
           { name: 'statementDay', label: '結帳日（1-31）', type: 'number' },
+        ]},
+        { type: 'row', fields: [
           { name: 'fixedPaymentDay', label: '固定付款日（1-31）', type: 'number' },
+          { name: 'grade', label: '等級', type: 'select', options: [{value:'A',label:'A'},{value:'B',label:'B'},{value:'C',label:'C'}], default: 'B' },
         ]},
         { type: 'row', fields: [
           { name: 'paymentMethod', label: '付款方式', type: 'select', options: [
@@ -268,10 +275,9 @@ async function viewCustomers(main) {
           { name: 'createdByEmployeeId', label: '建立業務', type: 'select', options: employeeOptions },
         ]},
         { name: 'address', label: '地址' },
-        { name: 'grade', label: '等級', type: 'select', options: [{value:'A',label:'A'},{value:'B',label:'B'},{value:'C',label:'C'}], default: 'B' },
       ],
       onSubmit: async (v) => {
-        const body = cleanObj(v, ['name','contactName','phone','taxId','email','zipCode','address','paymentDays','statementDay','fixedPaymentDay','paymentMethod','createdByEmployeeId','grade']);
+        const body = cleanObj(v, ['name','contactName','title','phone','taxId','email','zipCode','address','paymentDays','statementDay','fixedPaymentDay','paymentMethod','createdByEmployeeId','grade']);
         if (!body.name) throw new Error('公司名稱必填');
         // 空字串 select → null
         if (body.paymentMethod === '') body.paymentMethod = null;
@@ -312,6 +318,7 @@ async function viewCustomers(main) {
       const fields = [];
       if (data.companyName) fields.push(`公司：${data.companyName}`);
       if (data.contactName) fields.push(`聯絡人：${data.contactName}`);
+      if (data.title) fields.push(`職稱：${data.title}`);
       if (data.phone) fields.push(`電話：${data.phone}`);
       if (data.taxId) fields.push(`統編：${data.taxId}`);
       toast(`📇 已辨識：${fields.join('；') || '欄位皆空，請手動輸入'}`, fields.length ? 'ok' : 'warn');

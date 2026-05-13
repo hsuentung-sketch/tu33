@@ -153,6 +153,9 @@ model Customer {
   tenant      Tenant   @relation(fields: [tenantId], references: [id])
   name        String
   contactName String?
+  // 聯絡人職稱（如「業務經理」「總經理」「研發專員」），v2.10.0+
+  // 從名片抽出避免跟姓名搞混；空字串 / null 視為未填。
+  title       String?
   taxId       String?
   phone       String?
   zipCode     String?

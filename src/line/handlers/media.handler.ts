@@ -222,6 +222,7 @@ export async function handleImageMessage(event: MessageEvent, ctx: MediaCtx): Pr
     s.data.ocrCard = {
       companyName: card.companyName,
       contactName: card.contactName,
+      title: card.title,
       phone: card.phone,
       email: card.email,
       address: card.address,
@@ -233,6 +234,7 @@ export async function handleImageMessage(event: MessageEvent, ctx: MediaCtx): Pr
       `辨識結果：\n` +
       `公司：${card.companyName ?? '-'}\n` +
       `聯絡人：${card.contactName ?? '-'}\n` +
+      `職稱：${card.title ?? '-'}\n` +
       `電話：${card.phone ?? '-'}\n` +
       `Email：${card.email ?? '-'}\n` +
       `統編：${card.taxId ?? '-'}\n` +
@@ -276,13 +278,14 @@ export async function handleImageMessage(event: MessageEvent, ctx: MediaCtx): Pr
  * 文字輸入消費：handleOcrEditText 由 routeTextCommand 串接。
  */
 const OCR_EDIT_FIELDS: Array<{
-  step: 'ocr-edit-companyName' | 'ocr-edit-contactName' | 'ocr-edit-phone' |
-        'ocr-edit-taxId' | 'ocr-edit-email' | 'ocr-edit-address';
-  key: 'companyName' | 'contactName' | 'phone' | 'taxId' | 'email' | 'address';
+  step: 'ocr-edit-companyName' | 'ocr-edit-contactName' | 'ocr-edit-title' |
+        'ocr-edit-phone' | 'ocr-edit-taxId' | 'ocr-edit-email' | 'ocr-edit-address';
+  key: 'companyName' | 'contactName' | 'title' | 'phone' | 'taxId' | 'email' | 'address';
   label: string;
 }> = [
   { step: 'ocr-edit-companyName', key: 'companyName', label: '公司名稱' },
   { step: 'ocr-edit-contactName', key: 'contactName', label: '聯絡人' },
+  { step: 'ocr-edit-title',       key: 'title',       label: '職稱' },
   { step: 'ocr-edit-phone',       key: 'phone',       label: '電話' },
   { step: 'ocr-edit-taxId',       key: 'taxId',       label: '統一編號' },
   { step: 'ocr-edit-email',       key: 'email',       label: 'Email' },
@@ -293,6 +296,7 @@ function buildEditDraftSummary(draft: OcrCard): string {
   return [
     `公司：${draft.companyName ?? '(空)'}`,
     `聯絡人：${draft.contactName ?? '(空)'}`,
+    `職稱：${draft.title ?? '(空)'}`,
     `電話：${draft.phone ?? '(空)'}`,
     `統編：${draft.taxId ?? '(空)'}`,
     `Email：${draft.email ?? '(空)'}`,
@@ -435,6 +439,7 @@ export async function finalizeOcrEditCustomer(ctx: {
         tenantId: ctx.tenantId,
         name,
         contactName: card.contactName,
+        title: card.title,
         phone: card.phone,
         email: card.email,
         taxId: card.taxId,
@@ -444,6 +449,7 @@ export async function finalizeOcrEditCustomer(ctx: {
       },
       update: {
         contactName: card.contactName ?? undefined,
+        title: card.title ?? undefined,
         phone: card.phone ?? undefined,
         email: card.email ?? undefined,
         taxId: card.taxId ?? undefined,
@@ -475,6 +481,7 @@ export async function createCustomerFromOcrSession(ctx: {
     tenantId: ctx.tenantId,
     name,
     contactName: card.contactName,
+    title: card.title,
     phone: card.phone,
     email: card.email,
     taxId: card.taxId,
@@ -482,6 +489,7 @@ export async function createCustomerFromOcrSession(ctx: {
   };
   const baseUpdate = {
     contactName: card.contactName ?? undefined,
+    title: card.title ?? undefined,
     phone: card.phone ?? undefined,
     email: card.email ?? undefined,
     taxId: card.taxId ?? undefined,

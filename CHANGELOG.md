@@ -3,6 +3,42 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.10.0] - 2026-05-13
+
+### Added — 客戶「職稱」欄位 + LINE 名片辨識
+
+之前名片辨識把「業務經理 王小明」這種行誤抓進「聯絡人」，姓名跟職稱混為一談。新加 `Customer.title` 欄位，OCR 與後台 / LINE 流程都同步支援。
+
+#### Schema 變更
+
+```sql
+ALTER TABLE "Customer" ADD COLUMN "title" TEXT;
+```
+
+#### 程式
+
+| 入口 | 改動 |
+|---|---|
+| `Customer.title` | 新欄位（nullable Text） |
+| `customer.service.ts` | create / list select / findByName select 都加 title |
+| `customer.router.ts` zod | create / update schema 加 `title: z.string().optional()` |
+| `customer.router.ts` POST `/customers/ocr` | response 加 `title` 欄位 |
+| `src/ai/ocr.ts` `extractFields` | 加 `titleKeyword` 正則（董事長 / 總經理 / 副總 / 經理 / 副理 / 主任 / 課長 / 專員 / 工程師 / 助理 / 業務 / 採購 / 研發 / 品保 / 行政 / 財務 / Director / Manager / Engineer / Specialist 等），同行可拆「業務經理 王小明」分別填 title / contactName |
+| 後台客戶 modal | 「聯絡人」旁加「職稱」欄位；OCR 上傳預填會帶 title |
+| 後台客戶列表 | 加「職稱」欄 |
+| LINE OCR session `OcrCard` | 加 `title` 欄位 |
+| LINE OCR 摘要訊息 | 增加「職稱：XXX」一行 |
+| LINE 逐欄編輯流程 | 7 步（原 6 步加職稱），步驟 `ocr-edit-title` 在聯絡人之後 |
+| `createCustomerFromOcrSession` / `finalizeOcrEditCustomer` | upsert 寫入 title |
+
+### Migration
+
+在 Supabase SQL Editor 跑：
+
+```sql
+ALTER TABLE "Customer" ADD COLUMN "title" TEXT;
+```
+
 ## [2.9.3] - 2026-05-13
 
 ### Fixed — 客戶 / 主檔儲存 500 變友善訊息

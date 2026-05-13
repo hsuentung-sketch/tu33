@@ -18,6 +18,7 @@ const paymentMethodEnum = z.enum(['check', 'cash', 'transfer']).nullable().optio
 const createSchema = z.object({
   name: z.string().min(1),
   contactName: z.string().optional(),
+  title: z.string().optional(),
   taxId: z.string().optional(),
   phone: z.string().optional(),
   zipCode: z.string().optional(),
@@ -36,6 +37,7 @@ const createSchema = z.object({
 const updateSchema = z.object({
   name: z.string().min(1).optional(),
   contactName: z.string().optional(),
+  title: z.string().optional(),
   taxId: z.string().optional(),
   phone: z.string().optional(),
   zipCode: z.string().optional(),
@@ -132,6 +134,7 @@ customerRouter.post('/ocr',
       res.json({
         companyName: card.companyName ?? null,
         contactName: card.contactName ?? null,
+        title: card.title ?? null,
         phone: card.phone ?? null,
         email: card.email ?? null,
         address: card.address ?? null,

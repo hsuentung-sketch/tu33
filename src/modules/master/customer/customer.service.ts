@@ -26,6 +26,7 @@ export async function list(
       id: true,
       name: true,
       contactName: true,
+      title: true,
       phone: true,
       email: true,
       taxId: true,
@@ -73,6 +74,7 @@ export async function create(
   data: {
     name: string;
     contactName?: string;
+    title?: string;
     taxId?: string;
     phone?: string;
     zipCode?: string;
@@ -101,6 +103,7 @@ export async function create(
       tenantId,
       name: data.name,
       contactName: data.contactName,
+      title: data.title,
       taxId: data.taxId,
       phone: data.phone,
       zipCode: data.zipCode,
@@ -175,6 +178,7 @@ export async function findByName(
       id: true,
       name: true,
       contactName: true,
+      title: true,
       phone: true,
       email: true,
       taxId: true,

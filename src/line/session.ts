@@ -14,6 +14,8 @@ export interface SessionItem {
 export interface OcrCard {
   companyName?: string;
   contactName?: string;
+  /** 職稱（v2.10.0+） */
+  title?: string;
   phone?: string;
   email?: string;
   address?: string;
@@ -71,8 +73,9 @@ export interface Session {
     | 'je-describe' | 'je-amount' | 'je-payment' | 'je-confirm'
     | 'visitlog-date' | 'visitlog-customer' | 'visitlog-content' | 'visitlog-next' | 'visitlog-confirm'
     | 'visitlog-search-customer'
-    | 'ocr-edit-companyName' | 'ocr-edit-contactName' | 'ocr-edit-phone'
-    | 'ocr-edit-taxId' | 'ocr-edit-email' | 'ocr-edit-address' | 'ocr-edit-confirm';
+    | 'ocr-edit-companyName' | 'ocr-edit-contactName' | 'ocr-edit-title'
+    | 'ocr-edit-phone' | 'ocr-edit-taxId' | 'ocr-edit-email' | 'ocr-edit-address'
+    | 'ocr-edit-confirm';
   data: {
     partyId?: string;
     partyName?: string;
