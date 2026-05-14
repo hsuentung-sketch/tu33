@@ -3,6 +3,18 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.10.1] - 2026-05-14
+
+### Fixed — 新增產品撞 code 時錯誤訊息含糊
+
+之前在後台新增產品，若「產品編號」撞到既有資料（特別是已停用品項），錯誤訊息只顯示「資料重複，請改用其他值。」使用者在列表上看不到那筆（預設隱藏停用），會以為系統壞掉。
+
+`product.service.create` catch P2002 後回查同 code 的產品，丟出帶名稱 + 狀態的訊息：
+
+> 產品編號「XXX」已被使用（產品「YYY」，狀態：已停用）。請改用其他編號；若要重新啟用該品項，請勾「含停用」後編輯。
+
+無 schema 變更，純 service 層補強。
+
 ## [2.10.0] - 2026-05-13
 
 ### Added — 客戶「職稱」欄位 + LINE 名片辨識
