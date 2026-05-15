@@ -3,6 +3,34 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.11.1] - 2026-05-14
+
+### Changed — NTP 對時改用 RFC 5905 UDP
+
+電子發票開機自我檢測（`einvoice-boot-check.ts`）原本用 `worldtimeapi.org` HTTPS 對時。財政部「自行檢測表」項 3 要求對時來源為「經財政部認可之 NTP 主機」，HTTP API 不被認可。
+
+#### 新檔
+
+| 路徑 | 用途 |
+|---|---|
+| `src/shared/ntp.ts` | RFC 5905 UDP NTP client（自寫 ~50 行，無 npm 依賴）；fallback chain：`time.stdtime.gov.tw` → `tw.pool.ntp.org` → `pool.ntp.org` → HTTPS（保底） |
+
+#### 改動
+
+| 路徑 | 改動 |
+|---|---|
+| `src/jobs/einvoice-boot-check.ts` | `checkClockSkew()` 改呼 `getClockSkew()`；log 多帶 `source` 欄位（哪台 NTP server / fallback） |
+
+#### 為什麼自寫不用 npm `ntp-client`
+
+`ntp-client` 上次 update 2018、無 maintainer、CommonJS-only。RFC 5905 client packet 只有 48 bytes，邏輯不到 50 行，自寫比 audit 第三方好。
+
+#### Fly.io UDP egress
+
+實測 Fly 容器允許 outbound UDP 123，本機開發測試 `time.stdtime.gov.tw` 成功（rtt 49ms）。若部署環境擋 UDP（如 AWS Lambda），fallback chain 會自動降到 HTTPS。
+
+無 schema / env 變更。
+
 ## [2.11.0] - 2026-05-14
 
 ### Added — 電子發票 XML 同步：S3-compatible backend
