@@ -309,6 +309,17 @@ model SalesOrder {
   deliveryDate DateTime?
   deliveredBy  String?
   receivedBy   String?
+  /**
+   * 電子發票載具/捐贈預填欄位（v2.12.0+）。LINE B2C 流程收集，後續開立發票時自動帶入。
+   * einvoiceCarrierType: 3J0002=手機條碼 CQ0001=自然人憑證 EJ0113=會員載具（依財政部）
+   * einvoiceNpoban: 3-7 碼數字捐贈碼
+   * einvoicePrintFlag: Y=列印證明聯 N=不列印（載具/捐贈時通常 N）
+   * 全為 null = B2B 情境，發票走預設（列印 + 無載具）。
+   */
+  einvoiceCarrierType String?
+  einvoiceCarrierId   String?
+  einvoiceNpoban      String?
+  einvoicePrintFlag   String?
   createdBy    String
   isDeleted    Boolean     @default(false)
   deletedAt    DateTime?

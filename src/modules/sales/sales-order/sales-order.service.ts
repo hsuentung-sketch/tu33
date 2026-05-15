@@ -25,6 +25,11 @@ export interface SalesOrderCreateInput {
   deliveryNote?: string;
   createdBy: string;
   items: SalesItemInput[];
+  /** v2.12.0+：電子發票載具/捐贈預填（B2C 流程收集，B2B 留空） */
+  einvoiceCarrierType?: string;
+  einvoiceCarrierId?: string;
+  einvoiceNpoban?: string;
+  einvoicePrintFlag?: 'Y' | 'N';
 }
 
 export async function list(
@@ -93,6 +98,10 @@ export async function create(tenantId: string, data: SalesOrderCreateInput) {
         subtotal,
         taxAmount,
         totalAmount,
+        einvoiceCarrierType: data.einvoiceCarrierType,
+        einvoiceCarrierId: data.einvoiceCarrierId,
+        einvoiceNpoban: data.einvoiceNpoban,
+        einvoicePrintFlag: data.einvoicePrintFlag,
         createdBy: data.createdBy,
         items: {
           create: data.items.map((i, idx) => ({

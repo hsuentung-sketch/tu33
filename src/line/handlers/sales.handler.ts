@@ -8,6 +8,7 @@ import { runWithAuditContext } from '../../shared/audit.js';
 import { buildPdfShortUrl } from '../../documents/pdf-shortlink.js';
 import { sendItemConfirmCard } from './item-confirm.js';
 import { makeSafeSend } from '../safe-send.js';
+import { getTenantSettings } from '../../shared/utils.js';
 
 /**
  * Small helper: a "label: value" baseline row inside a Flex bubble.
@@ -24,6 +25,73 @@ function infoRow(label: string, value: string): any {
       { type: 'text', text: value, size: 'sm', align: 'end', flex: 3 },
     ],
   };
+}
+
+/**
+ * v2.12.0：判斷銷貨流程在送貨備註後是否要詢問電子發票載具。
+ * 條件全部滿足才出 menu：
+ *  1. tenant.settings.einvoice.enabled = true
+ *  2. tenant.settings.einvoice.enableCarrier = true（多數 B2B tenant 會關掉）
+ *  3. customer.taxId 為空（B2C 情境）
+ */
+async function needCarrierStep(tenantId: string, customerId: string): Promise<boolean> {
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    select: { settings: true },
+  });
+  if (!tenant) return false;
+  const cfg = getTenantSettings(tenant.settings).einvoice;
+  if (!cfg.enabled || !cfg.enableCarrier) return false;
+  const c = await prisma.customer.findFirst({
+    where: { id: customerId, tenantId },
+    select: { taxId: true },
+  });
+  if (!c) return false;
+  return !c.taxId || !/^\d{8}$/.test(c.taxId);
+}
+
+async function replySalesConfirmSummary(
+  client: any,
+  replyToken: string,
+  s: ReturnType<typeof session.get> & object,
+): Promise<void> {
+  const subtotal = s.data.items.reduce((sum, it) => sum + it.quantity * it.unitPrice, 0);
+  const tax = Math.round(subtotal * 0.05);
+  const total = subtotal + tax;
+  const summary = s.data.items
+    .map((it, i) => `${i + 1}. ${it.productName} × ${it.quantity} @ $${it.unitPrice}`)
+    .join('\n');
+  const draft = s.data.einvoiceDraft;
+  const carrierLine = draft
+    ? draft.carrierType === '3J0002'
+      ? `\n發票載具：手機條碼 ${draft.carrierId}`
+      : draft.npoban
+        ? `\n發票捐贈碼：${draft.npoban}`
+        : draft.printFlag === 'Y'
+          ? '\n發票：列印紙本'
+          : '\n發票：跳過'
+    : '';
+  const body =
+    `客戶：${s.data.partyName}\n${summary}\n` +
+    (s.data.deliveryNote ? `送貨備註：${s.data.deliveryNote}\n` : '') +
+    `小計：$${subtotal.toLocaleString('zh-TW')}\n` +
+    `稅：$${tax.toLocaleString('zh-TW')}\n` +
+    `總計：$${total.toLocaleString('zh-TW')}${carrierLine}`;
+  await client.replyMessage({
+    replyToken,
+    messages: [{
+      type: 'template',
+      altText: '確認銷貨單',
+      template: {
+        type: 'confirm',
+        text: body.slice(0, 240),
+        actions: [
+          { type: 'postback', label: '送出', data: 'action=sales:confirm' },
+          { type: 'postback', label: '取消', data: 'action=sales:cancel' },
+        ],
+      },
+    }],
+  });
 }
 
 
@@ -139,6 +207,10 @@ export async function handleSalesCommand(action: string, ctx: any): Promise<void
               unitPrice: it.unitPrice,
               note: it.note,
             })),
+            einvoiceCarrierType: s.data.einvoiceDraft?.carrierType,
+            einvoiceCarrierId: s.data.einvoiceDraft?.carrierId,
+            einvoiceNpoban: s.data.einvoiceDraft?.npoban,
+            einvoicePrintFlag: s.data.einvoiceDraft?.printFlag,
           }),
         );
         session.clear(tenantId, lineUserId);
@@ -166,6 +238,51 @@ export async function handleSalesCommand(action: string, ctx: any): Promise<void
         replyToken: event.replyToken,
         messages: [{ type: 'text', text: '已取消。' }],
       });
+      return;
+    }
+
+    case 'sales:einvoice-print': {
+      const s = session.get(tenantId, lineUserId);
+      if (!s || s.flow !== 'sales:create') return;
+      s.data.einvoiceDraft = { printFlag: 'Y' };
+      s.step = 'confirm';
+      session.set(tenantId, lineUserId, s);
+      await replySalesConfirmSummary(client, event.replyToken, s);
+      return;
+    }
+
+    case 'sales:einvoice-mobile': {
+      const s = session.get(tenantId, lineUserId);
+      if (!s || s.flow !== 'sales:create') return;
+      s.step = 'einvoice-carrier-mobile';
+      session.set(tenantId, lineUserId, s);
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: '請輸入手機條碼（/ 開頭，共 8 碼，例：/ABC1234）：' }],
+      });
+      return;
+    }
+
+    case 'sales:einvoice-donate': {
+      const s = session.get(tenantId, lineUserId);
+      if (!s || s.flow !== 'sales:create') return;
+      s.step = 'einvoice-donation';
+      session.set(tenantId, lineUserId, s);
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: '請輸入捐贈碼（3-7 位數字，例：25885）：' }],
+      });
+      return;
+    }
+
+    case 'sales:einvoice-skip': {
+      const s = session.get(tenantId, lineUserId);
+      if (!s || s.flow !== 'sales:create') return;
+      // 不開發票：先標記，但 sales-order create 不會生 einvoice — 後台仍可手動補
+      s.data.einvoiceDraft = undefined;
+      s.step = 'confirm';
+      session.set(tenantId, lineUserId, s);
+      await replySalesConfirmSummary(client, event.replyToken, s);
       return;
     }
 
@@ -382,35 +499,69 @@ export async function handleSalesText(text: string, ctx: any): Promise<boolean> 
     const trimmed = text.trim();
     const skip = ['無', '跳過', 'skip', 'none'].includes(trimmed.toLowerCase());
     s.data.deliveryNote = skip ? undefined : trimmed;
+
+    // v2.12.0：若 tenant 啟用 einvoice + enableCarrier，且客戶無統編（B2C）
+    // → 插入「載具/捐贈/列印」step，再進 confirm。
+    const shouldAskCarrier = await needCarrierStep(tenantId, s.data.partyId!);
+    if (shouldAskCarrier) {
+      s.step = 'einvoice-carrier-menu';
+      session.set(tenantId, lineUserId, s);
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{
+          type: 'template',
+          altText: '電子發票載具',
+          template: {
+            type: 'buttons',
+            title: '電子發票載具',
+            text: '請選擇開立方式',
+            actions: [
+              { type: 'postback', label: '列印（紙本）', data: 'action=sales:einvoice-print' },
+              { type: 'postback', label: '手機條碼', data: 'action=sales:einvoice-mobile' },
+              { type: 'postback', label: '捐贈', data: 'action=sales:einvoice-donate' },
+              { type: 'postback', label: '不開發票', data: 'action=sales:einvoice-skip' },
+            ],
+          },
+        }],
+      });
+      return true;
+    }
+
+    await replySalesConfirmSummary(client, event.replyToken, s);
     s.step = 'confirm';
     session.set(tenantId, lineUserId, s);
-    const subtotal = s.data.items.reduce((sum, it) => sum + it.quantity * it.unitPrice, 0);
-    const tax = Math.round(subtotal * 0.05);
-    const total = subtotal + tax;
-    const summary = s.data.items
-      .map((it, i) => `${i + 1}. ${it.productName} × ${it.quantity} @ $${it.unitPrice}`)
-      .join('\n');
-    const body =
-      `客戶：${s.data.partyName}\n${summary}\n` +
-      (s.data.deliveryNote ? `送貨備註：${s.data.deliveryNote}\n` : '') +
-      `小計：$${subtotal.toLocaleString('zh-TW')}\n` +
-      `稅：$${tax.toLocaleString('zh-TW')}\n` +
-      `總計：$${total.toLocaleString('zh-TW')}`;
-    await client.replyMessage({
-      replyToken: event.replyToken,
-      messages: [{
-        type: 'template',
-        altText: '確認銷貨單',
-        template: {
-          type: 'confirm',
-          text: body.slice(0, 240),
-          actions: [
-            { type: 'postback', label: '送出', data: 'action=sales:confirm' },
-            { type: 'postback', label: '取消', data: 'action=sales:cancel' },
-          ],
-        },
-      }],
-    });
+    return true;
+  }
+
+  if (s.step === 'einvoice-carrier-mobile') {
+    const code = text.trim().toUpperCase();
+    if (!/^\/[0-9A-Z.\-+]{7}$/.test(code)) {
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: '手機條碼格式錯誤（需以 / 開頭，共 8 碼，例：/ABC1234）。請重新輸入或輸入「取消」結束。' }],
+      });
+      return true;
+    }
+    s.data.einvoiceDraft = { carrierType: '3J0002', carrierId: code, printFlag: 'N' };
+    s.step = 'confirm';
+    session.set(tenantId, lineUserId, s);
+    await replySalesConfirmSummary(client, event.replyToken, s);
+    return true;
+  }
+
+  if (s.step === 'einvoice-donation') {
+    const code = text.trim();
+    if (!/^\d{3,7}$/.test(code)) {
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: '捐贈碼格式錯誤（3-7 位數字，例：25885）。請重新輸入或輸入「取消」結束。' }],
+      });
+      return true;
+    }
+    s.data.einvoiceDraft = { npoban: code, printFlag: 'N' };
+    s.step = 'confirm';
+    session.set(tenantId, lineUserId, s);
+    await replySalesConfirmSummary(client, event.replyToken, s);
     return true;
   }
 

@@ -3,6 +3,49 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.12.0] - 2026-05-14
+
+### Added — LINE 銷貨流程：B2C 載具/捐贈 step
+
+業務員用 LINE 開銷貨單時，若客戶為 B2C（無統編）且 tenant 啟用 `einvoice.enableCarrier`，會在「送貨備註」後插入一個「電子發票」step：
+
+- 列印（紙本）→ printFlag=Y
+- 手機條碼 → 問 `/ABC1234` 8 碼 → carrierType=3J0002
+- 捐贈 → 問 3-7 碼數字 → npoban
+- 不開發票 → 跳過
+
+收集的資料寫進 SalesOrder 新增 4 欄；之後「開立電子發票」動作可自動帶入。
+
+#### Schema 變更（v2.12.0 上線前必跑）
+
+```sql
+ALTER TABLE "SalesOrder" ADD COLUMN "einvoiceCarrierType" TEXT;
+ALTER TABLE "SalesOrder" ADD COLUMN "einvoiceCarrierId" TEXT;
+ALTER TABLE "SalesOrder" ADD COLUMN "einvoiceNpoban" TEXT;
+ALTER TABLE "SalesOrder" ADD COLUMN "einvoicePrintFlag" TEXT;
+```
+
+> 4 個都是 nullable add，無 lock，秒級完成。在 Supabase SQL Editor 直接貼。
+
+#### 觸發條件（全部滿足才出 carrier step）
+
+1. `tenant.settings.einvoice.enabled = true`
+2. `tenant.settings.einvoice.enableCarrier = true`
+3. `customer.taxId` 為空或非 8 碼數字（B2C 情境）
+
+潤樋客戶全是 B2B（有統編）→ 條件 3 不滿足 → 不影響現有銷貨流程。
+
+#### 改動
+
+| 路徑 | 改動 |
+|---|---|
+| `prisma/schema.prisma` | SalesOrder + `einvoiceCarrierType` / `einvoiceCarrierId` / `einvoiceNpoban` / `einvoicePrintFlag` 4 個 nullable column |
+| `sales-order.service.ts` | `SalesOrderCreateInput` 加 4 欄；`create()` 寫入 |
+| `line/session.ts` | step union 加 `einvoice-carrier-menu` / `einvoice-carrier-mobile` / `einvoice-donation`；`data.einvoiceDraft` 暫存 |
+| `line/handlers/sales.handler.ts` | 新 helper `needCarrierStep()` / `replySalesConfirmSummary()`；4 個 postback handler（print / mobile / donate / skip） |
+
+未動：發票實際開立（issue）— 仍走後台或 API，service 端 carrier 驗證沿用 `einvoice.service.ts` 既有 `validateCarrier()`。
+
 ## [2.11.1] - 2026-05-14
 
 ### Changed — NTP 對時改用 RFC 5905 UDP

@@ -75,7 +75,8 @@ export interface Session {
     | 'visitlog-search-customer'
     | 'ocr-edit-companyName' | 'ocr-edit-contactName' | 'ocr-edit-title'
     | 'ocr-edit-phone' | 'ocr-edit-taxId' | 'ocr-edit-email' | 'ocr-edit-address'
-    | 'ocr-edit-confirm';
+    | 'ocr-edit-confirm'
+    | 'einvoice-carrier-menu' | 'einvoice-carrier-mobile' | 'einvoice-donation';
   data: {
     partyId?: string;
     partyName?: string;
@@ -106,6 +107,16 @@ export interface Session {
     jeDraft?: JeDraft;
     /** v2.8.0: 工作日誌草稿 */
     visitDraft?: VisitLogDraft;
+    /**
+     * v2.12.0: 電子發票載具/捐贈暫存（銷貨流程 B2C 收集）。
+     * 確認銷貨時寫進 SalesOrder.einvoice* 欄位，由後續發票開立步驟讀取。
+     */
+    einvoiceDraft?: {
+      carrierType?: string;       // '3J0002' | 'CQ0001' | 'EJ0113'
+      carrierId?: string;
+      npoban?: string;
+      printFlag?: 'Y' | 'N';
+    };
   };
   updatedAt: number;
 }
