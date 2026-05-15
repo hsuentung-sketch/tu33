@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>開立電子發票</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; margin: 0; padding: 16px; background: #f5f5f5; color: #222; }
+    h1 { font-size: 18px; margin: 0 0 12px; }
+    label { display: block; font-size: 12px; color: #555; margin-top: 12px; }
+    input, textarea, select { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; box-sizing: border-box; }
+    .card { background: #fff; border-radius: 8px; padding: 12px; margin-bottom: 12px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+    button { padding: 10px 16px; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; }
+    .btn-primary { background: #06c755; color: white; }
+    .btn-secondary { background: #ddd; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .totals { text-align: right; }
+    .total { font-size: 18px; font-weight: bold; }
+    .order-item { padding: 10px; border: 1px solid #ddd; border-radius: 6px; margin-bottom: 6px; cursor: pointer; }
+    .order-item:hover, .order-item.selected { border-color: #06c755; background: #ecfdf5; }
+    .order-item .no { font-weight: bold; }
+    .order-item .meta { font-size: 12px; color: #666; margin-top: 4px; }
+    .seg-group { display: flex; gap: 4px; margin-top: 4px; }
+    .seg-group button { flex: 1; padding: 8px; background: #eee; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; }
+    .seg-group button.active { background: #06c755; color: white; border-color: #06c755; }
+    .err { color: #c0392b; font-size: 13px; margin-top: 6px; }
+    .ok { color: #06c755; font-size: 13px; margin-top: 6px; }
+    .empty { color: #888; font-size: 13px; text-align: center; padding: 24px; }
+    .hint { font-size: 12px; color: #888; margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <h1>開立電子發票</h1>
+
+  <div class="card">
+    <label>選擇銷貨單（尚未開立發票）</label>
+    <div id="orders" class="empty">載入中…</div>
+  </div>
+
+  <div class="card" id="invoice-card" style="display:none;">
+    <label>買受人</label>
+    <input id="buyer-name" />
+    <label>統一編號（B2B 必填，B2C 留空）</label>
+    <input id="buyer-tax-id" maxlength="8" inputmode="numeric" />
+    <div class="hint">8 碼數字 = B2B 三聯式；空白 = B2C 二聯式（走載具/捐贈）</div>
+
+    <label>開立方式</label>
+    <div class="seg-group" id="mode-group">
+      <button data-mode="print" class="active">列印（紙本）</button>
+      <button data-mode="mobile">手機條碼</button>
+      <button data-mode="donate">捐贈</button>
+    </div>
+
+    <div id="carrier-row" style="display:none;">
+      <label>手機條碼（/ 開頭共 8 碼）</label>
+      <input id="carrier-id" placeholder="/ABC1234" />
+    </div>
+
+    <div id="donate-row" style="display:none;">
+      <label>捐贈碼（3-7 位數字）</label>
+      <input id="npoban" placeholder="25885" inputmode="numeric" />
+    </div>
+
+    <div class="totals" style="margin-top:12px;">
+      <div>小計: $<span id="subtotal">0</span></div>
+      <div>營業稅: $<span id="tax">0</span></div>
+      <div class="total">總計: $<span id="total">0</span></div>
+    </div>
+
+    <div id="status-msg"></div>
+    <button class="btn-primary" id="submit" style="width:100%; margin-top:12px;">送出開立發票</button>
+  </div>
+
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <script>
+    const liffId = new URLSearchParams(location.search).get('liffId') || '2009797959-uDVN0eGQ';
+    let idToken = null;
+    let selectedOrder = null;
+    let mode = 'print';
+
+    async function init() {
+      try {
+        await liff.init({ liffId });
+        if (!liff.isLoggedIn()) { liff.login(); return; }
+        // 與 quotation.html 相同：強制 logout + relogin 取新 id-token
+        try { idToken = liff.getIDToken(); } catch (e) { idToken = null; }
+        if (!idToken) { liff.logout(); liff.login(); return; }
+        loadOrders();
+      } catch (e) {
+        document.getElementById('orders').innerHTML =
+          '<div class="err">LIFF 初始化失敗：' + (e.message || e) + '</div>';
+      }
+    }
+
+    async function api(path, opts = {}) {
+      const res = await fetch(path, {
+        ...opts,
+        headers: {
+          'content-type': 'application/json',
+          'authorization': 'Bearer ' + idToken,
+          ...(opts.headers || {}),
+        },
+      });
+      const text = await res.text();
+      let data = null;
+      try { data = text ? JSON.parse(text) : null; } catch { /* leave null */ }
+      if (!res.ok) {
+        const msg = data?.error?.message || data?.error || text || ('HTTP ' + res.status);
+        throw new Error(msg);
+      }
+      return data;
+    }
+
+    async function loadOrders() {
+      try {
+        const list = await api('/api/sales-orders?withoutEinvoice=true');
+        const box = document.getElementById('orders');
+        if (!list.length) {
+          box.className = 'empty';
+          box.textContent = '沒有可開立發票的銷貨單。';
+          return;
+        }
+        box.className = '';
+        box.innerHTML = '';
+        for (const o of list.slice(0, 30)) {
+          const div = document.createElement('div');
+          div.className = 'order-item';
+          div.innerHTML =
+            '<div class="no">' + o.orderNo + '</div>' +
+            '<div class="meta">' + (o.customer?.name || '') +
+            ' · ' + new Date(o.orderDate).toISOString().slice(0,10) +
+            ' · $' + Number(o.totalAmount).toLocaleString('zh-TW') + '</div>';
+          div.addEventListener('click', () => selectOrder(o, div));
+          box.appendChild(div);
+        }
+      } catch (e) {
+        document.getElementById('orders').innerHTML =
+          '<div class="err">載入失敗：' + e.message + '</div>';
+      }
+    }
+
+    function selectOrder(o, el) {
+      document.querySelectorAll('.order-item').forEach((n) => n.classList.remove('selected'));
+      el.classList.add('selected');
+      selectedOrder = o;
+      document.getElementById('invoice-card').style.display = '';
+      document.getElementById('buyer-name').value = o.customer?.name || '';
+      document.getElementById('buyer-tax-id').value = o.customer?.taxId || '';
+      const sub = Number(o.subtotal);
+      const tax = Number(o.taxAmount);
+      const total = Number(o.totalAmount);
+      document.getElementById('subtotal').textContent = sub.toLocaleString('zh-TW');
+      document.getElementById('tax').textContent = tax.toLocaleString('zh-TW');
+      document.getElementById('total').textContent = total.toLocaleString('zh-TW');
+      // 若銷貨單有預收 carrier/npoban，預填
+      if (o.einvoiceCarrierType === '3J0002' && o.einvoiceCarrierId) {
+        setMode('mobile');
+        document.getElementById('carrier-id').value = o.einvoiceCarrierId;
+      } else if (o.einvoiceNpoban) {
+        setMode('donate');
+        document.getElementById('npoban').value = o.einvoiceNpoban;
+      } else {
+        setMode('print');
+      }
+    }
+
+    function setMode(m) {
+      mode = m;
+      document.querySelectorAll('#mode-group button').forEach((b) => {
+        b.classList.toggle('active', b.dataset.mode === m);
+      });
+      document.getElementById('carrier-row').style.display = m === 'mobile' ? '' : 'none';
+      document.getElementById('donate-row').style.display = m === 'donate' ? '' : 'none';
+    }
+
+    document.querySelectorAll('#mode-group button').forEach((b) => {
+      b.addEventListener('click', () => setMode(b.dataset.mode));
+    });
+
+    document.getElementById('submit').addEventListener('click', async () => {
+      const msg = document.getElementById('status-msg');
+      msg.innerHTML = '';
+      if (!selectedOrder) { msg.innerHTML = '<div class="err">請先選擇銷貨單</div>'; return; }
+      const buyerName = document.getElementById('buyer-name').value.trim();
+      const buyerTaxId = document.getElementById('buyer-tax-id').value.trim();
+      if (!buyerName) { msg.innerHTML = '<div class="err">買受人不可空白</div>'; return; }
+      if (buyerTaxId && !/^\d{8}$/.test(buyerTaxId)) {
+        msg.innerHTML = '<div class="err">統編需為 8 碼數字（B2C 請留空）</div>';
+        return;
+      }
+      const body = {
+        salesOrderId: selectedOrder.id,
+        buyerName,
+        buyerTaxId: buyerTaxId || null,
+        items: (selectedOrder.items || []).map((it, i) => ({
+          sequence: i + 1,
+          description: it.productName,
+          quantity: Number(it.quantity),
+          unitPrice: Number(it.unitPrice),
+        })),
+      };
+      if (mode === 'mobile') {
+        const cid = document.getElementById('carrier-id').value.trim();
+        if (!/^\/[0-9A-Z.\-+]{7}$/i.test(cid)) {
+          msg.innerHTML = '<div class="err">手機條碼格式錯誤（/ 開頭共 8 碼）</div>';
+          return;
+        }
+        body.carrierType = '3J0002';
+        body.carrierId = cid.toUpperCase();
+        body.printFlag = 'N';
+      } else if (mode === 'donate') {
+        const npo = document.getElementById('npoban').value.trim();
+        if (!/^\d{3,7}$/.test(npo)) {
+          msg.innerHTML = '<div class="err">捐贈碼需為 3-7 位數字</div>';
+          return;
+        }
+        body.npoban = npo;
+        body.printFlag = 'N';
+      } else {
+        body.printFlag = 'Y';
+      }
+      const btn = document.getElementById('submit');
+      btn.disabled = true; btn.textContent = '送出中…';
+      try {
+        const inv = await api('/api/einvoices/issue', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        });
+        msg.innerHTML = '<div class="ok">已開立：' + inv.invoiceNo + '</div>';
+        if (liff.isInClient()) {
+          await liff.sendMessages([{
+            type: 'text',
+            text: '✅ 已開立電子發票：' + inv.invoiceNo +
+                  '\n買受人：' + buyerName +
+                  '\n總計：$' + Number(selectedOrder.totalAmount).toLocaleString('zh-TW'),
+          }]);
+          setTimeout(() => liff.closeWindow(), 1200);
+        }
+        // 重新載入清單（這張已不在 withoutEinvoice 範圍）
+        setTimeout(loadOrders, 500);
+        selectedOrder = null;
+        document.getElementById('invoice-card').style.display = 'none';
+      } catch (e) {
+        msg.innerHTML = '<div class="err">開立失敗：' + e.message + '</div>';
+      } finally {
+        btn.disabled = false; btn.textContent = '送出開立發票';
+      }
+    });
+
+    init();
+  </script>
+</body>
+</html>

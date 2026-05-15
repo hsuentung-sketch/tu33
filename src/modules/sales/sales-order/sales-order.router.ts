@@ -55,7 +55,10 @@ salesOrderRouter.get('/', async (req: Request, res: Response, next: NextFunction
     const status = req.query.status as 'PENDING' | 'DELIVERED' | 'COMPLETED' | undefined;
     const customerId = req.query.customerId as string | undefined;
     const createdBy = req.employee?.role === 'SALES' ? req.employee.id : undefined;
-    const result = await salesOrderService.list(req.tenantId, { status, customerId, createdBy });
+    const withoutEinvoice = req.query.withoutEinvoice === 'true';
+    const result = await salesOrderService.list(req.tenantId, {
+      status, customerId, createdBy, withoutEinvoice,
+    });
     res.json(result);
   } catch (err) {
     next(err);

@@ -34,7 +34,14 @@ export interface SalesOrderCreateInput {
 
 export async function list(
   tenantId: string,
-  filters: { status?: SalesStatus; customerId?: string; includeDeleted?: boolean; createdBy?: string } = {},
+  filters: {
+    status?: SalesStatus;
+    customerId?: string;
+    includeDeleted?: boolean;
+    createdBy?: string;
+    /** v2.13.0+：只回未開發票（einvoices empty）的銷貨單。給電子發票 LIFF 用。 */
+    withoutEinvoice?: boolean;
+  } = {},
 ) {
   return prisma.salesOrder.findMany({
     where: {
@@ -43,6 +50,12 @@ export async function list(
       ...(filters.status ? { status: filters.status } : {}),
       ...(filters.customerId ? { customerId: filters.customerId } : {}),
       ...(filters.createdBy ? { createdBy: filters.createdBy } : {}),
+      ...(filters.withoutEinvoice
+        ? {
+            // 排除「已有任一張非作廢電子發票」的銷貨單
+            einvoices: { none: { status: { not: 'voided' } } },
+          }
+        : {}),
     },
     include: { items: true, customer: true },
     orderBy: { createdAt: 'desc' },

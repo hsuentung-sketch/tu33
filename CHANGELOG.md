@@ -3,6 +3,48 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.13.0] - 2026-05-14
+
+### Added — 電子發票 LIFF（手機/平板開立）
+
+新增 `public/liff/einvoice.html`：手機端開立電子發票的簡化表單。
+
+#### 流程
+
+1. 開啟 LIFF（rich menu 或 LINE chat URL）
+2. 自動列出**未開發票的銷貨單**（呼叫 `GET /api/sales-orders?withoutEinvoice=true`）
+3. 點一張 → 預填客戶 / 統編 / 品項 / 金額
+4. 選開立方式：
+   - 列印（紙本）：B2B 三聯式或 B2C 二聯式都可
+   - 手機條碼：問 `/ABC1234`
+   - 捐贈：問 3-7 碼
+5. 送出 → `POST /api/einvoices/issue`（ADMIN-only）
+6. 成功 → `liff.sendMessages` 推一則確認到聊天，自動關閉視窗
+
+> 銷貨單若 v2.12.0 已在 LINE 預收載具/捐贈，LIFF 開啟時會自動帶入。
+
+#### 改動
+
+| 路徑 | 改動 |
+|---|---|
+| `public/liff/einvoice.html` | 新檔，純 HTML + LIFF SDK |
+| `sales-order.service.ts` `list()` | 加 `withoutEinvoice` filter，排除「已有任一張非作廢電子發票」的銷貨單 |
+| `sales-order.router.ts` | GET `/` 支援 `?withoutEinvoice=true` query |
+
+#### 部署 / 啟用步驟
+
+LIFF 共用 quotation 同個 LINE Login channel（`2009797959`），路徑：
+
+```
+https://erp-line-bot.fly.dev/liff/einvoice.html
+```
+
+若要獨立 LIFF endpoint：在 LINE Developers Console 新增一條 LIFF URL 指向上面，拿到新 `liffId`，用 `?liffId=...` query 覆寫。後台 manual 可掛連結，rich menu 可加按鈕。
+
+權限：`POST /api/einvoices/issue` 仍是 ADMIN-only —— LIFF 使用者必須是 ADMIN role 的員工。會計帳號可，業務員不可。若要放寬，後續另開議題。
+
+無 schema 變更。
+
 ## [2.12.0] - 2026-05-14
 
 ### Added — LINE 銷貨流程：B2C 載具/捐贈 step
