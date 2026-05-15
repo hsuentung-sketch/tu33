@@ -36,10 +36,9 @@
 
 ## Phase B — 電子發票擴充
 
-- [ ] **Fly ↔ 公司主機 XML 同步機制決策**：SFTP / S3 / sidecar relay 三選一；`turnkey-writer.ts` 抽象已就緒，待換實作
-- [ ] **NTP 對時改用 RFC 5905**：目前 boot-check 用 worldtimeapi.org HTTP，正式應走 UDP NTP server
-- [ ] **載具/捐贈 LINE 流程**：B2C 客戶在 LINE 上選載具 / 輸入捐贈碼
-- [ ] **電子發票 LIFF**：手機/平板開立發票流程
+- [ ] 🚧 **NTP 對時改用 RFC 5905**：目前 boot-check 用 worldtimeapi.org HTTP，正式應走 UDP NTP server
+- [ ] 🚧 **載具/捐贈 LINE 流程**：B2C 客戶在 LINE 上選載具 / 輸入捐贈碼
+- [ ] 🚧 **電子發票 LIFF**：手機/平板開立發票流程
 
 ---
 

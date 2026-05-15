@@ -48,6 +48,7 @@ const einvoiceSettingsSchema = z.object({
   sellerName: z.string().optional(),
   sellerAddress: z.string().optional(),
   taxRegistrationNo: z.string().optional(),
+  turnkeyBackend: z.enum(['local', 's3']).optional(),
   turnkeyInboundDir: z.string().optional(),
   turnkeyOutboundDir: z.string().optional(),
   turnkeyOnlineCode: z.string().optional(),

@@ -210,6 +210,7 @@ const einvoiceDefaults: EinvoiceSettings = {
   sellerName: '',
   sellerAddress: '',
   taxRegistrationNo: '',
+  turnkeyBackend: 'local',
   turnkeyInboundDir: '',
   turnkeyOutboundDir: '',
   turnkeyOnlineCode: '',
@@ -228,7 +229,17 @@ export interface EinvoiceSettings {
   sellerAddress: string;
   /** 稅籍編號（字軌申請書欄位） */
   taxRegistrationNo: string;
+  /**
+   * Turnkey XML 同步 backend（v2.11.0+）：
+   *  - `'local'`：本機 FS（dev / single-machine 部署）
+   *  - `'s3'`：S3-compatible（Cloudflare R2 / Fly Tigris / MinIO）。
+   *    Access key 走 process.env，per-tenant 用 prefix 隔離。
+   *    詳見 `docs/einvoice-storage.md`。
+   */
+  turnkeyBackend: 'local' | 's3';
+  /** Inbound：local 是絕對路徑；s3 是 bucket 內 prefix（含尾 `/`） */
   turnkeyInboundDir: string;
+  /** Outbound：同上 */
   turnkeyOutboundDir: string;
   /** Turnkey 整合服務平台上線通行碼 */
   turnkeyOnlineCode: string;

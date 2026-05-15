@@ -13,11 +13,11 @@
  */
 import cron from 'node-cron';
 import { promises as fs } from 'node:fs';
-import { isAbsolute, resolve, join } from 'node:path';
 import { prisma } from '../shared/prisma.js';
 import { logger } from '../shared/logger.js';
 import { getTenantSettings } from '../shared/utils.js';
 import { syncAllTenants } from '../modules/accounting/einvoice/turnkey-reader.js';
+import { buildStorageEnv, putXml } from '../modules/accounting/einvoice/turnkey-storage.js';
 
 interface RetryResult {
   tenantId: string;
@@ -35,29 +35,35 @@ async function retryUnconfirmed(now: Date = new Date()): Promise<RetryResult[]> 
   for (const t of tenants) {
     const result: RetryResult = { tenantId: t.id, retried: 0, errors: 0 };
     const cfg = getTenantSettings(t.settings).einvoice;
-    if (!cfg.enabled || !cfg.turnkeyInboundDir || !isAbsolute(cfg.turnkeyInboundDir)) {
+    if (!cfg.enabled || !cfg.turnkeyInboundDir) {
       out.push(result);
       continue;
     }
+    const env = buildStorageEnv({
+      turnkeyBackend: cfg.turnkeyBackend,
+      turnkeyInboundDir: cfg.turnkeyInboundDir,
+      turnkeyOutboundDir: cfg.turnkeyOutboundDir,
+    });
     const stuck = await prisma.einvoice.findMany({
       where: {
         tenantId: t.id,
         status: 'issued',
         createdAt: { lt: cutoff },
       },
-      select: { id: true, invoiceNo: true, xmlPath: true },
+      select: { id: true, invoiceNo: true, xmlPath: true, xmlBody: true },
     });
     for (const inv of stuck) {
-      if (!inv.xmlPath) { result.errors++; continue; }
       try {
-        const xml = await fs.readFile(inv.xmlPath, 'utf8').catch(() => null);
+        // 優先用 DB 內 xmlBody；fallback 從 xmlPath 讀檔（local backend）
+        let xml: string | null = inv.xmlBody ?? null;
+        if (!xml && inv.xmlPath) {
+          xml = await fs.readFile(inv.xmlPath, 'utf8').catch(() => null);
+        }
         if (!xml) { result.errors++; continue; }
-        const ts = Date.now();
-        const target = join(resolve(cfg.turnkeyInboundDir), `C0401_${inv.invoiceNo}_retry-${ts}.xml`);
-        await fs.writeFile(target, xml, 'utf8');
+        const wrote = await putXml(env, 'C0401', `${inv.invoiceNo}_retry`, xml);
         result.retried++;
         logger.info('einvoice retry: re-wrote XML', {
-          tenantId: t.id, invoiceNo: inv.invoiceNo, target,
+          tenantId: t.id, invoiceNo: inv.invoiceNo, locator: wrote.locator,
         });
       } catch (err) {
         result.errors++;

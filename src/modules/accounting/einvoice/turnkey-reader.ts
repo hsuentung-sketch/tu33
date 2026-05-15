@@ -1,23 +1,20 @@
-import { promises as fs } from 'node:fs';
-import { resolve, isAbsolute, join } from 'node:path';
 import { prisma } from '../../../shared/prisma.js';
 import { logger } from '../../../shared/logger.js';
+import { getTenantSettings } from '../../../shared/utils.js';
+import { buildStorageEnv, listOutbound, readOutbound, markProcessed } from './turnkey-storage.js';
 
 /**
- * Turnkey outbound reader. Scans the configured tenant's outbound
- * directory for reply files, matches each to an Einvoice by invoice
- * number, and updates the row's status.
+ * Turnkey outbound reader（v2.11.0+）。
  *
- * Expected filename forms (kept liberal so different Turnkey versions
- * plug in cleanly):
- *   - `<invoiceNo>.xml` (any marker file is treated as `confirmed`)
- *   - `<invoiceNo>_CONFIRMED.xml`
- *   - `<invoiceNo>_REJECTED.xml` → status=rejected; file body (if present)
- *      is saved into rejectReason (truncated to 400 chars).
+ * 透過 `turnkey-storage.ts` 介面從本機 FS 或 S3-compatible bucket 拉
+ * Turnkey 回執，更新對應 Einvoice row 的 status。
  *
- * Processed files are renamed to `<original>.processed-<epoch>` so the
- * next run doesn't re-handle them. Failures are logged but do not abort
- * the whole batch.
+ * 檔名規格（與舊版相同，允許 Turnkey 不同版本插）：
+ *   - `<invoiceNo>.xml` → confirmed
+ *   - `<invoiceNo>_CONFIRMED.xml` → confirmed
+ *   - `<invoiceNo>_REJECTED.xml` → rejected；檔身（若可讀）截到 400 字寫 rejectReason
+ *
+ * 處理過的檔加 `.processed-<ts>` 後綴避免重複處理。
  */
 
 export interface SyncSummary {
@@ -33,29 +30,29 @@ export async function syncTenant(tenantId: string): Promise<SyncSummary> {
 
   const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
   if (!tenant) return summary;
-  const settings = (tenant.settings ?? {}) as Record<string, unknown>;
-  const einvoice = (settings.einvoice ?? {}) as Record<string, unknown>;
-  const dir = String(einvoice.turnkeyOutboundDir ?? '');
-  if (!dir || !isAbsolute(dir)) return summary;
+  const cfg = getTenantSettings(tenant.settings).einvoice;
+  if (!cfg.enabled || !cfg.turnkeyOutboundDir) return summary;
 
-  let entries: string[];
+  const env = buildStorageEnv({
+    turnkeyBackend: cfg.turnkeyBackend,
+    turnkeyInboundDir: cfg.turnkeyInboundDir,
+    turnkeyOutboundDir: cfg.turnkeyOutboundDir,
+  });
+
+  let entries;
   try {
-    entries = await fs.readdir(resolve(dir));
+    entries = await listOutbound(env);
   } catch (err) {
-    logger.warn('einvoice sync: cannot read outbound dir', { tenantId, dir, err });
+    logger.warn('einvoice sync: cannot list outbound', { tenantId, backend: env.backend, err });
     return summary;
   }
 
-  for (const name of entries) {
-    if (!/\.xml$/i.test(name)) continue;
-    if (/\.processed-\d+$/i.test(name)) continue;
+  for (const entry of entries) {
     summary.scanned++;
-    const full = join(resolve(dir), name);
-
-    const invoiceNoMatch = name.match(/^([A-Z]{2}\d{8})/);
+    const invoiceNoMatch = entry.filename.match(/^([A-Z]{2}\d{8})/);
     if (!invoiceNoMatch) { summary.skipped++; continue; }
     const invoiceNo = invoiceNoMatch[1];
-    const rejected = /REJECT/i.test(name);
+    const rejected = /REJECT/i.test(entry.filename);
 
     try {
       const inv = await prisma.einvoice.findUnique({
@@ -65,7 +62,7 @@ export async function syncTenant(tenantId: string): Promise<SyncSummary> {
       let reason: string | null = null;
       if (rejected) {
         try {
-          const body = await fs.readFile(full, 'utf8');
+          const body = await readOutbound(env, entry.key);
           reason = body.length > 400 ? body.slice(0, 400) : body;
         } catch { /* ignore */ }
       }
@@ -75,11 +72,11 @@ export async function syncTenant(tenantId: string): Promise<SyncSummary> {
           ? { status: 'rejected', rejectReason: reason }
           : { status: 'confirmed', confirmedAt: new Date() },
       });
-      await fs.rename(full, `${full}.processed-${Date.now()}`).catch(() => { /* non-fatal */ });
+      await markProcessed(env, entry.key);
       summary.updated++;
     } catch (err) {
       summary.errors++;
-      logger.warn('einvoice sync: failed entry', { name, err });
+      logger.warn('einvoice sync: failed entry', { name: entry.filename, err });
     }
   }
   return summary;

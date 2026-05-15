@@ -3,6 +3,48 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.11.0] - 2026-05-14
+
+### Added — 電子發票 XML 同步：S3-compatible backend
+
+之前 `turnkey-writer.ts` / `turnkey-reader.ts` 寫死本機 FS，Fly 容器 FS 是 ephemeral（重啟丟失），所以發票模組無法在 Fly 正式啟用。新版加抽象 storage 層，支援兩個 backend：
+
+- **`local`**（預設）：原本的本機 FS 行為，dev / 公司內單機部署用。
+- **`s3`**：S3-compatible 物件儲存（Cloudflare R2 / Fly Tigris / MinIO / AWS S3）。Fly 寫 XML 到 bucket，公司主機跑 rclone 拉檔到 Turnkey inbound；回執反向。Access key 走 `process.env`、per-tenant 用 prefix 隔離。
+
+#### 新檔
+
+| 路徑 | 用途 |
+|---|---|
+| `src/modules/accounting/einvoice/turnkey-storage.ts` | 統一介面 `putXml` / `listOutbound` / `readOutbound` / `markProcessed`；local + s3 backend 實作 |
+| `docs/einvoice-storage.md` | 兩種 backend 比較、Fly secrets 設定、公司主機端 rclone cron 範例、故障排除 |
+
+#### 改動
+
+| 路徑 | 改動 |
+|---|---|
+| `turnkey-writer.ts` | 改成包 `turnkey-storage.ts`；外部介面 `writeIssueXml` / `writeVoidXml` 保持向後相容，新增 `writeAllowanceXml(kind: 'D0401' \| 'D0501')` |
+| `turnkey-reader.ts` | 改用 `listOutbound` / `readOutbound` / `markProcessed`，原本 fs 直呼移除 |
+| `jobs/einvoice-sync.ts` retry 路徑 | 改用 `putXml`；retry XML 優先取 `einvoice.xmlBody`（DB 第二份備援），fallback 從 `xmlPath` 讀 |
+| `shared/utils.ts` `EinvoiceSettings` | 加 `turnkeyBackend: 'local' \| 's3'` 欄位，預設 `'local'` |
+| `tenant.router.ts` zod | 加 `turnkeyBackend: z.enum(['local','s3']).optional()` |
+
+#### 環境變數（S3 backend 啟用時）
+
+- `TURNKEY_S3_ENDPOINT`（如 `https://xxx.r2.cloudflarestorage.com`）
+- `TURNKEY_S3_REGION`（R2 / Tigris 用 `auto`）
+- `TURNKEY_S3_BUCKET`
+- `TURNKEY_S3_ACCESS_KEY`
+- `TURNKEY_S3_SECRET`
+
+沒設 S3 env vars 不影響現有 local backend 運作（lazy load）。
+
+#### 依賴
+
+- 新增 `aws4fetch ^1.0.20`（純 fetch 的 AWS Signature V4 簽章，4kb，無 SDK 包袱）
+
+無 schema 變更。
+
 ## [2.10.1] - 2026-05-14
 
 ### Fixed — 新增產品撞 code 時錯誤訊息含糊
