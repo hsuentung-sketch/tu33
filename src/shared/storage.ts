@@ -66,3 +66,28 @@ export async function createProductDocSignedUrl(
   }
   return data.signedUrl;
 }
+
+/**
+ * 泛用文件儲存（v2.14.0+）。供應商文件與產品文件共用同一個 bucket
+ * （`config.supabase.productDocsBucket`），靠 storagePath 的 prefix 區隔
+ * （產品：`{tenantId}/{productId}/...`；供應商：`supplier/{tenantId}/...`）。
+ * 不另開 bucket，省一個 Supabase ops 步驟。
+ */
+export async function uploadDoc(
+  storagePath: string,
+  bytes: Buffer,
+  mimeType: string,
+): Promise<void> {
+  return uploadProductDoc(storagePath, bytes, mimeType);
+}
+
+export async function deleteDoc(storagePath: string): Promise<void> {
+  return deleteProductDoc(storagePath);
+}
+
+export async function createDocSignedUrl(
+  storagePath: string,
+  ttlSeconds: number,
+): Promise<string> {
+  return createProductDocSignedUrl(storagePath, ttlSeconds);
+}

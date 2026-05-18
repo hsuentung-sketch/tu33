@@ -4,6 +4,7 @@ import multer from 'multer';
 import { ForbiddenError, ValidationError } from '../../../shared/errors.js';
 import { recognizeBusinessCard } from '../../../ai/ocr.js';
 import * as supplierService from './supplier.service.js';
+import * as supplierDocService from './supplier-document.service.js';
 
 export const supplierRouter = Router();
 
@@ -11,6 +12,23 @@ const ocrUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
 });
+
+// 文件上傳（銀行存摺等）：記憶體緩衝，上限 10 MB。
+const docUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
+
+const SUPPLIER_DOC_TYPES = ['BANKBOOK', 'CONTRACT', 'OTHER'] as const;
+
+// 匯款帳戶欄位（v2.14.0+），create / update 共用。
+const bankFields = {
+  bankCode: z.string().optional(),
+  bankName: z.string().optional(),
+  bankBranch: z.string().optional(),
+  bankAccount: z.string().optional(),
+  bankAccountName: z.string().optional(),
+};
 
 // SALES 完全沒供應商權限（讀寫都擋）。
 supplierRouter.use((req: Request, _res: Response, next: NextFunction) => {
@@ -28,6 +46,7 @@ const createSchema = z.object({
   address: z.string().optional(),
   paymentDays: z.number().int().nonnegative().optional(),
   email: z.string().email().optional(),
+  ...bankFields,
 });
 
 const updateSchema = z.object({
@@ -40,6 +59,7 @@ const updateSchema = z.object({
   address: z.string().optional(),
   paymentDays: z.number().int().nonnegative().optional(),
   email: z.string().email().optional(),
+  ...bankFields,
 });
 
 supplierRouter.get('/', async (req: Request, res: Response, next: NextFunction) => {
@@ -122,3 +142,56 @@ supplierRouter.delete('/:id', async (req: Request, res: Response, next: NextFunc
     next(err);
   }
 });
+
+// -------- Supplier documents (銀行存摺 / 合約 / 其他) --------
+
+supplierRouter.get(
+  '/:id/documents',
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const docs = await supplierDocService.list(req.tenantId, String(req.params.id));
+      res.json(docs);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+supplierRouter.post(
+  '/:id/documents',
+  docUpload.single('file'),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const file = (req as Request & { file?: Express.Multer.File }).file;
+      if (!file) throw new ValidationError('缺少 file 欄位');
+      const type = String(req.body?.type || '').toUpperCase();
+      if (!SUPPLIER_DOC_TYPES.includes(type as (typeof SUPPLIER_DOC_TYPES)[number])) {
+        throw new ValidationError(`type 必須為 ${SUPPLIER_DOC_TYPES.join(' / ')}`);
+      }
+      const doc = await supplierDocService.upload({
+        tenantId: req.tenantId,
+        supplierId: String(req.params.id),
+        type: type as supplierDocService.SupplierDocumentType,
+        fileName: file.originalname,
+        mimeType: file.mimetype,
+        bytes: file.buffer,
+        uploadedBy: req.employee.id,
+      });
+      res.status(201).json(doc);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+supplierRouter.delete(
+  '/:id/documents/:docId',
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await supplierDocService.remove(req.tenantId, String(req.params.docId));
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  },
+);

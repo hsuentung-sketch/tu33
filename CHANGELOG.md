@@ -3,6 +3,69 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.14.0] - 2026-05-16
+
+### Added — 供應商 / 客戶 匯款銀行資料
+
+兩個方向的銀行欄位，對應台灣財務實務的不對稱需求：
+
+- **供應商（付款出去）**：需完整匯款資訊 + 存摺憑證。Supplier 加 `bankCode`（銀行代號）/ `bankName`（銀行名稱）/ `bankBranch`（分行）/ `bankAccount`（完整帳號）/ `bankAccountName`（戶名）；新增 `SupplierDocument` 表存銀行存摺 PDF / 合約等文件。
+- **客戶（收款進來）**：只需對帳識別。Customer 加 `bankCode` / `bankName` / `bankAccountLast5`（匯款帳號末五碼）—— 銀行對帳單只顯示匯入帳號末五碼，財務用代號+末五碼比對是哪個客戶匯的款，不需完整帳號。
+
+#### Schema 變更（v2.14.0 上線前必跑）
+
+```sql
+-- Supplier 匯款帳戶
+ALTER TABLE "Supplier" ADD COLUMN "bankCode" TEXT;
+ALTER TABLE "Supplier" ADD COLUMN "bankName" TEXT;
+ALTER TABLE "Supplier" ADD COLUMN "bankBranch" TEXT;
+ALTER TABLE "Supplier" ADD COLUMN "bankAccount" TEXT;
+ALTER TABLE "Supplier" ADD COLUMN "bankAccountName" TEXT;
+
+-- Customer 匯款銀行資料
+ALTER TABLE "Customer" ADD COLUMN "bankCode" TEXT;
+ALTER TABLE "Customer" ADD COLUMN "bankName" TEXT;
+ALTER TABLE "Customer" ADD COLUMN "bankAccountLast5" TEXT;
+
+-- SupplierDocument 表
+CREATE TYPE "SupplierDocumentType" AS ENUM ('BANKBOOK', 'CONTRACT', 'OTHER');
+
+CREATE TABLE "SupplierDocument" (
+  "id" TEXT NOT NULL,
+  "tenantId" TEXT NOT NULL,
+  "supplierId" TEXT NOT NULL,
+  "type" "SupplierDocumentType" NOT NULL,
+  "fileName" TEXT NOT NULL,
+  "storagePath" TEXT NOT NULL,
+  "fileSize" INTEGER NOT NULL,
+  "mimeType" TEXT NOT NULL,
+  "uploadedBy" TEXT,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "SupplierDocument_pkey" PRIMARY KEY ("id")
+);
+
+CREATE INDEX "SupplierDocument_tenantId_idx" ON "SupplierDocument"("tenantId");
+CREATE INDEX "SupplierDocument_supplierId_type_idx" ON "SupplierDocument"("supplierId", "type");
+
+ALTER TABLE "SupplierDocument" ADD CONSTRAINT "SupplierDocument_supplierId_fkey"
+  FOREIGN KEY ("supplierId") REFERENCES "Supplier"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+```
+
+> 8 個 ADD COLUMN 都是 nullable，無 lock；CREATE TABLE / TYPE 為新增物件。在 Supabase SQL Editor 直接貼。**必須先跑 DDL 再 deploy**。
+
+#### 改動
+
+| 路徑 | 改動 |
+|---|---|
+| `prisma/schema.prisma` | Supplier +5 銀行欄、Customer +3 銀行欄、新 `SupplierDocument` model + `SupplierDocumentType` enum |
+| `shared/storage.ts` | 加泛用 `uploadDoc` / `deleteDoc` / `createDocSignedUrl`（與產品文件共用 bucket，prefix 區隔） |
+| `supplier-document.service.ts` | **新檔**，仿 product-document：upload / list / remove；path `supplier/{tenantId}/{supplierId}/{type}/...` |
+| `supplier.service.ts` / `supplier.router.ts` | create/update + zod 加 5 銀行欄；router 加 `GET/POST/DELETE /:id/documents` |
+| `customer.service.ts` / `customer.router.ts` | create + list select + zod 加 3 銀行欄 |
+| `public/admin/app.js` | 供應商 modal 加 5 銀行欄 + 列表「文件」按鈕 + `openSupplierDocs` 文件管理 modal；客戶 modal 加 3 銀行欄 |
+
+存摺 PDF 走 Supabase Storage（與產品文件共用 bucket），上限 10 MB，支援 PDF / 圖片。
+
 ## [2.13.2] - 2026-05-16
 
 ### Fixed — B2B 電子發票證明聯中文大寫金額多餘「零」

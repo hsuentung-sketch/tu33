@@ -176,6 +176,11 @@ model Customer {
   createdByEmployee   Employee? @relation("CustomerCreatedBy", fields: [createdByEmployeeId], references: [id])
   lineUserId  String?
   email       String?
+  // 匯款銀行資料（客戶付款進來，僅供入帳對帳識別），v2.14.0+
+  // 只存末五碼：銀行對帳單僅顯示匯入帳號末五碼，不需完整帳號。
+  bankCode         String?  // 銀行代號 3 碼
+  bankName         String?  // 銀行名稱
+  bankAccountLast5 String?  // 匯款帳號末五碼
   grade       String?  @default("B") // A/B/C
   tags        String[] // industry tags
   // 舊欄位：Employee id 字串，無 FK。為相容暫留。
@@ -211,15 +216,49 @@ model Supplier {
   address     String?
   paymentDays Int      @default(60)
   email       String?
+  // 匯款帳戶（付款給供應商用，需完整資訊），v2.14.0+
+  bankCode        String?  // 銀行代號 3 碼
+  bankName        String?  // 銀行名稱
+  bankBranch      String?  // 分行名稱
+  bankAccount     String?  // 完整匯款帳號
+  bankAccountName String?  // 戶名
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   purchaseOrders PurchaseOrder[]
   payables       AccountPayable[]
+  documents      SupplierDocument[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
+}
+
+// ============================================================
+// Master: Supplier Documents (銀行存摺 / 合約 / 其他)
+// ============================================================
+
+enum SupplierDocumentType {
+  BANKBOOK // 銀行存摺
+  CONTRACT // 合約
+  OTHER
+}
+
+model SupplierDocument {
+  id          String               @id @default(cuid())
+  tenantId    String
+  supplierId  String
+  supplier    Supplier             @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  type        SupplierDocumentType
+  fileName    String               // 顯示用原始檔名
+  storagePath String               // storage bucket 內路徑
+  fileSize    Int                  // bytes
+  mimeType    String
+  uploadedBy  String?              // employee id
+  createdAt   DateTime             @default(now())
+
+  @@index([tenantId])
+  @@index([supplierId, type])
 }
 
 // ============================================================

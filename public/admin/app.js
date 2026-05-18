@@ -275,9 +275,14 @@ async function viewCustomers(main) {
           { name: 'createdByEmployeeId', label: '建立業務', type: 'select', options: employeeOptions },
         ]},
         { name: 'address', label: '地址' },
+        { type: 'row', fields: [
+          { name: 'bankCode', label: '匯款銀行代號' },
+          { name: 'bankName', label: '匯款銀行名稱' },
+        ]},
+        { name: 'bankAccountLast5', label: '匯款帳號末五碼' },
       ],
       onSubmit: async (v) => {
-        const body = cleanObj(v, ['name','contactName','title','phone','taxId','email','zipCode','address','paymentDays','statementDay','fixedPaymentDay','paymentMethod','createdByEmployeeId','grade']);
+        const body = cleanObj(v, ['name','contactName','title','phone','taxId','email','zipCode','address','paymentDays','statementDay','fixedPaymentDay','paymentMethod','createdByEmployeeId','grade','bankCode','bankName','bankAccountLast5']);
         if (!body.name) throw new Error('公司名稱必填');
         // 空字串 select → null
         if (body.paymentMethod === '') body.paymentMethod = null;
@@ -588,6 +593,8 @@ async function viewSuppliers(main) {
         el('td', { class: 'actions' },
           el('button', { class: 'btn small', onClick: () => edit(s) }, '編輯'),
           ' ',
+          el('button', { class: 'btn small', onClick: () => openSupplierDocs(s) }, '文件'),
+          ' ',
           s.isActive !== false ? el('button', { class: 'btn small danger', onClick: async () => {
             if (!confirmBox(`停用供應商「${s.name}」？`)) return;
             try { await api.del('/suppliers/' + s.id); toast('已停用', 'ok'); reload(); } catch (e) { toast(e.message, 'err'); }
@@ -628,10 +635,19 @@ async function viewSuppliers(main) {
         ]},
         { name: 'zipCode', label: '郵遞區號' },
         { name: 'address', label: '地址' },
+        { type: 'row', fields: [
+          { name: 'bankCode', label: '銀行代號' },
+          { name: 'bankName', label: '銀行名稱' },
+        ]},
+        { type: 'row', fields: [
+          { name: 'bankBranch', label: '分行' },
+          { name: 'bankAccountName', label: '戶名' },
+        ]},
+        { name: 'bankAccount', label: '匯款帳號' },
       ],
       onSubmit: async (v) => {
         if (!v.name) throw new Error('名稱必填');
-        const body = cleanObj(v, ['name','type','contactName','phone','taxId','email','zipCode','address','paymentDays']);
+        const body = cleanObj(v, ['name','type','contactName','phone','taxId','email','zipCode','address','paymentDays','bankCode','bankName','bankBranch','bankAccount','bankAccountName']);
         if (s) await api.put('/suppliers/' + s.id, body);
         else await api.post('/suppliers', body);
         toast(s ? '已更新' : '已新增', 'ok');
@@ -678,6 +694,123 @@ async function viewSuppliers(main) {
     ocrFile,
   ), table);
   reload();
+}
+
+// -------- Supplier documents modal（銀行存摺 / 合約 / 其他）--------
+
+const SUPPLIER_DOC_TYPE_LABEL = { BANKBOOK: '銀行存摺', CONTRACT: '合約', OTHER: '其他' };
+
+function openSupplierDocs(supplier) {
+  const backdrop = el('div', { class: 'modal-backdrop' });
+  const listBox = el('div', {});
+  const errBox = el('div', { class: 'err' });
+
+  const typeSelect = el('select', {});
+  for (const t of ['BANKBOOK', 'CONTRACT', 'OTHER']) {
+    typeSelect.append(el('option', { value: t }, SUPPLIER_DOC_TYPE_LABEL[t]));
+  }
+  const fileInput = el('input', { type: 'file', accept: 'application/pdf,image/*' });
+  const uploadBtn = el('button', { class: 'btn primary' }, '上傳');
+
+  const modal = el('div', { class: 'modal' },
+    el('h3', {}, `文件管理：${supplier.name}`),
+    el('div', { class: 'body' },
+      el('div', { style: 'font-size:12px;color:var(--muted);margin-bottom:10px;' },
+        '銀行存摺等文件，供匯款核對用。支援 PDF 或圖片（≤ 10MB）。'),
+      el('div', { class: 'toolbar' }, typeSelect, fileInput, uploadBtn),
+      el('div', { style: 'font-weight:600;font-size:13px;margin:14px 0 6px;' }, '已上傳文件'),
+      listBox,
+      errBox,
+    ),
+    el('div', { class: 'actions' },
+      el('button', { class: 'btn', onClick: () => backdrop.remove() }, '關閉'),
+    ),
+  );
+  backdrop.append(modal);
+  backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
+  document.body.append(backdrop);
+
+  async function refresh() {
+    errBox.textContent = '';
+    listBox.innerHTML = '載入中…';
+    try {
+      const docs = await api.get(`/suppliers/${supplier.id}/documents`);
+      listBox.innerHTML = '';
+      if (!docs.length) {
+        listBox.append(el('div', { class: 'empty', style: 'padding:16px;font-size:13px;' }, '尚未上傳任何文件'));
+        return;
+      }
+      const tbl = el('table', { class: 'data' },
+        el('thead', {}, el('tr', {},
+          el('th', {}, '類別'),
+          el('th', {}, '檔名'),
+          el('th', { class: 'num' }, '大小'),
+          el('th', {}, '上傳時間'),
+          el('th', {}, ''),
+        )),
+      );
+      const tb = el('tbody');
+      for (const d of docs) {
+        const kb = (d.fileSize / 1024).toFixed(0);
+        const sizeLabel = d.fileSize > 1024 * 1024
+          ? `${(d.fileSize / 1024 / 1024).toFixed(1)} MB`
+          : `${kb} KB`;
+        tb.append(el('tr', {},
+          el('td', {}, el('span', { class: 'badge ok' }, SUPPLIER_DOC_TYPE_LABEL[d.type] || d.type)),
+          el('td', { style: 'font-size:12px;word-break:break-all;' }, d.fileName),
+          el('td', { class: 'num' }, sizeLabel),
+          el('td', { style: 'font-size:12px;' }, fmtDate(d.createdAt)),
+          el('td', { class: 'actions' },
+            el('button', { class: 'btn small danger', onClick: async () => {
+              if (!confirmBox(`刪除「${d.fileName}」？`)) return;
+              try {
+                await api.del(`/suppliers/${supplier.id}/documents/${d.id}`);
+                toast('已刪除', 'ok');
+                refresh();
+              } catch (e) { toast(e.message, 'err'); }
+            } }, '刪除'),
+          ),
+        ));
+      }
+      tbl.append(tb);
+      listBox.append(tbl);
+    } catch (e) {
+      listBox.innerHTML = '';
+      errBox.textContent = e.message;
+    }
+  }
+
+  uploadBtn.addEventListener('click', async () => {
+    errBox.textContent = '';
+    const f = fileInput.files?.[0];
+    if (!f) { errBox.textContent = '請先選擇檔案'; return; }
+    if (f.size > 10 * 1024 * 1024) { errBox.textContent = '檔案超過 10 MB'; return; }
+    uploadBtn.disabled = true;
+    uploadBtn.textContent = '上傳中…';
+    try {
+      const fd = new FormData();
+      fd.append('file', f);
+      fd.append('type', typeSelect.value);
+      const res = await fetch(`/api/suppliers/${supplier.id}/documents`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        body: fd,
+      });
+      if (res.status === 401) { location.href = './login.html'; return; }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error?.message || '上傳失敗');
+      toast('上傳完成', 'ok');
+      fileInput.value = '';
+      refresh();
+    } catch (e) {
+      errBox.textContent = e.message;
+    } finally {
+      uploadBtn.disabled = false;
+      uploadBtn.textContent = '上傳';
+    }
+  });
+
+  refresh();
 }
 
 // Employees + binding-code action

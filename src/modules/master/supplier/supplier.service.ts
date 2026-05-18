@@ -37,6 +37,11 @@ export async function create(
     address?: string;
     paymentDays?: number;
     email?: string;
+    bankCode?: string;
+    bankName?: string;
+    bankBranch?: string;
+    bankAccount?: string;
+    bankAccountName?: string;
   },
 ) {
   return prisma.supplier.create({
@@ -51,6 +56,11 @@ export async function create(
       address: data.address,
       paymentDays: data.paymentDays ?? 60,
       email: data.email,
+      bankCode: data.bankCode,
+      bankName: data.bankName,
+      bankBranch: data.bankBranch,
+      bankAccount: data.bankAccount,
+      bankAccountName: data.bankAccountName,
     },
   });
 }

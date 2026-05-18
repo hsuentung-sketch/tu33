@@ -36,6 +36,9 @@ export async function list(
       statementDay: true,
       fixedPaymentDay: true,
       paymentMethod: true,
+      bankCode: true,
+      bankName: true,
+      bankAccountLast5: true,
       createdByEmployeeId: true,
       createdBy: true,
       grade: true,
@@ -83,6 +86,9 @@ export async function create(
     statementDay?: number | null;
     fixedPaymentDay?: number | null;
     paymentMethod?: 'check' | 'cash' | 'transfer' | null;
+    bankCode?: string;
+    bankName?: string;
+    bankAccountLast5?: string;
     createdByEmployeeId?: string | null;
     lineUserId?: string;
     email?: string;
@@ -112,6 +118,9 @@ export async function create(
       statementDay: data.statementDay ?? null,
       fixedPaymentDay: data.fixedPaymentDay ?? null,
       paymentMethod: data.paymentMethod ?? null,
+      bankCode: data.bankCode,
+      bankName: data.bankName,
+      bankAccountLast5: data.bankAccountLast5,
       createdByEmployeeId: ownerId,
       createdBy: ownerId,
       lineUserId: data.lineUserId,

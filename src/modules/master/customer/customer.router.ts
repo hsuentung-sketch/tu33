@@ -15,6 +15,13 @@ const ocrUpload = multer({
 const dayOfMonth = z.number().int().min(1).max(31).nullable().optional();
 const paymentMethodEnum = z.enum(['check', 'cash', 'transfer']).nullable().optional();
 
+// 匯款銀行資料（v2.14.0+）：客戶付款進來，僅供入帳對帳識別，存末五碼。
+const bankFields = {
+  bankCode: z.string().optional(),
+  bankName: z.string().optional(),
+  bankAccountLast5: z.string().optional(),
+};
+
 const createSchema = z.object({
   name: z.string().min(1),
   contactName: z.string().optional(),
@@ -32,6 +39,7 @@ const createSchema = z.object({
   email: z.string().email().optional(),
   grade: z.enum(['A', 'B', 'C']).optional(),
   tags: z.array(z.string()).optional(),
+  ...bankFields,
 });
 
 const updateSchema = z.object({
@@ -51,6 +59,7 @@ const updateSchema = z.object({
   email: z.string().email().optional(),
   grade: z.enum(['A', 'B', 'C']).optional(),
   tags: z.array(z.string()).optional(),
+  ...bankFields,
 });
 
 customerRouter.get('/', async (req: Request, res: Response, next: NextFunction) => {
