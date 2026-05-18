@@ -114,7 +114,9 @@ function intToChineseUpper(n: number): string {
       if (d === 0) {
         zeroFlag = true;
       } else {
-        if (zeroFlag) { str += '零'; zeroFlag = false; }
+        // 只有「節內已輸出過非零數字」時，夾在中間的 0 才補「零」。
+        // 節開頭（str 仍為空）的高位 0 不補，否則會出現「零貳萬…」。
+        if (zeroFlag) { if (str !== '') str += '零'; zeroFlag = false; }
         str += CN_DIGITS[d] + CN_UNITS_SMALL[pos];
       }
     }

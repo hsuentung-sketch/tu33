@@ -231,6 +231,18 @@ bump `package.json` 的 version 時必須**同步**以下：
 3. `manual.md` 裡的版號顯示用 `{{APP_VERSION}}` / `{{APP_COMMIT}}` / `{{APP_DEPLOYED_AT}}` placeholder，由 `viewHelp()` 載入時 inject 當前 `/api/version` — 不用手改版號字串
 4. commit + `./scripts/fly-deploy.ps1`（或 `fly deploy --build-arg GIT_COMMIT=<sha>`）→ curl `/api/version` 驗證
 
+## 開發流程紀律（workflow-before-code）
+
+本專案遵循全域原則 4「作業流程確認後才開始設計」，套 `workflow-before-code` skill：
+
+- 新功能 / 新業務模組（master / sales / purchase / accounting / inventory 等）動程式前**必須**先在 `docs/modules/<name>.md` 寫流程文件
+- 流程文件至少含：**Trigger**（誰在何時觸發）、**Scope**（涵蓋哪些步驟）、**Acceptance**（驗收條件）、**Out of scope**（明確不做的事）
+- 文件未確認**不得**寫業務邏輯（service 層）；可先預留 router 骨架回 `501`
+- 既有模組（master / sales-order / quotation / purchase-order / receivable / payable 等）docs/modules 補完追溯流程，屬技術債（見 fde-core S5 後續 sprint）
+- 純 typo / rename / 單行 hotfix 豁免
+
+新功能 PR 必須同 commit 帶 `docs/modules/<name>.md` 或更新既有文件。
+
 ## 多租戶模板紀律（必讀）
 
 本 repo 是 **SaaS 模板**，所有客戶跑**同一個 main branch**。客戶差異只能走 `Tenant.settings` / `Tenant.modules` / `FeatureFlag`。

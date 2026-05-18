@@ -3,6 +3,18 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.13.2] - 2026-05-16
+
+### Fixed — B2B 電子發票證明聯中文大寫金額多餘「零」
+
+`einvoice-b2b-pdf.ts` 的 `intToChineseUpper()` 在每節（4 位一節）開頭、高位為 0 時，遇到該節第一個非零數字會誤補「零」。例：22050 印成「**零**貳萬貳仟零伍拾元整」，正確應為「貳萬貳仟零伍拾元整」。
+
+修正：節內尚未輸出任何字（`str === ''`）時，高位的 0 不補「零」；只有夾在非零數字之間的 0 才補。影響所有 B2B 三聯式證明聯。
+
+驗證：22050→貳萬貳仟零伍拾、1050→壹仟零伍拾、100→壹佰、10000→壹萬、105→壹佰零伍。
+
+無 schema 變更。
+
 ## [2.13.1] - 2026-05-16
 
 ### Fixed — 電子發票自行檢測表合規修正
