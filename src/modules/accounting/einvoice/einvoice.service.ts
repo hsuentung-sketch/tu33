@@ -36,6 +36,8 @@ export interface IssueInput {
   customsClearanceMark?: string;
   /** MIG 4.1：零稅率原因（搭配 taxType=2 ） */
   zeroTaxRateReason?: string;
+  /** 分支機構 id；總公司 = null/undefined。決定從哪個分支的字軌池配號（項 9(3)）。 */
+  branchId?: string | null;
   createdBy?: string;
 }
 
@@ -78,6 +80,8 @@ export async function listPools(tenantId: string, opts: { includeInactive?: bool
 
 export async function createPool(tenantId: string, data: {
   yearMonth: string; trackAlpha: string; rangeStart: number; rangeEnd: number;
+  /** 分支機構 id；總公司 = null。多分店字軌隔離用（自行檢測表項 9(3)）。 */
+  branchId?: string | null;
   note?: string; createdBy?: string;
 }) {
   if (!/^[A-Z]{2}$/.test(data.trackAlpha)) {
@@ -105,6 +109,7 @@ export async function createPool(tenantId: string, data: {
       rangeStart: data.rangeStart,
       rangeEnd: data.rangeEnd,
       nextNumber: data.rangeStart,
+      branchId: data.branchId ?? null,
       note: data.note,
       createdBy: data.createdBy,
     },
@@ -140,6 +145,8 @@ export async function importPoolsCsv(
   tenantId: string,
   csvText: string,
   createdBy?: string,
+  /** 這批 CSV 屬於哪個分支；總公司 = null。CSV 本身不含分支概念，由匯入時指定。 */
+  branchId: string | null = null,
 ): Promise<ImportPoolsCsvResult> {
   const result: ImportPoolsCsvResult = { inserted: 0, skipped: 0, errors: [] };
   const stripped = csvText.replace(/^﻿/, '').replace(/\r\n?/g, '\n').trim();
@@ -177,14 +184,14 @@ export async function importPoolsCsv(
       if (!Number.isInteger(rangeEnd) || rangeEnd <= rangeStart) throw new Error(`迄號 ${cells[iE]} 不合法`);
 
       const exists = await prisma.einvoiceNumberPool.findFirst({
-        where: { tenantId, yearMonth, trackAlpha, rangeStart },
+        where: { tenantId, yearMonth, trackAlpha, rangeStart, branchId },
       });
       if (exists) { result.skipped++; continue; }
 
       await prisma.einvoiceNumberPool.create({
         data: {
           tenantId, yearMonth, trackAlpha, rangeStart, rangeEnd,
-          nextNumber: rangeStart, createdBy,
+          nextNumber: rangeStart, branchId, createdBy,
           note: 'imported via CSV',
         },
       });
@@ -236,19 +243,22 @@ export function periodOfDate(d: Date): string {
 /**
  * Allocate the next invoice number from a pool whose 期別 covers `invoiceDate`.
  * 依財政部「自行檢測表」項 2(2)：依交易時間其發票號碼必須為當期所屬字軌號碼。
+ * 依項 9(3)：分支機構不可誤用其他分支的字軌號碼 —— pool 以 branchId 隔離，
+ *           總公司開單 branchId=null 只抓 branchId=null 的 pool。
  *
- * Pool 必須 isActive=true 且 yearMonth === periodOfDate(invoiceDate)。
+ * Pool 必須 isActive=true、yearMonth === periodOfDate(invoiceDate) 且 branchId 相符。
  * 同期若有多 pool 用 FIFO（createdAt asc）；耗盡則自動停用後再 retry。
  * Optimistic concurrency: UPDATE ... WHERE nextNumber = expected。
  */
 async function allocateNumber(
   tenantId: string,
   invoiceDate: Date,
+  branchId: string | null = null,
 ): Promise<{ poolId: string; trackAlpha: string; number: number }> {
   const wantedPeriod = periodOfDate(invoiceDate);
   for (let attempt = 0; attempt < 8; attempt++) {
     const pool = await prisma.einvoiceNumberPool.findFirst({
-      where: { tenantId, isActive: true, yearMonth: wantedPeriod },
+      where: { tenantId, isActive: true, yearMonth: wantedPeriod, branchId },
       orderBy: { createdAt: 'asc' },
     });
     if (!pool) break;
@@ -273,7 +283,8 @@ async function allocateNumber(
     // Race lost → retry.
   }
   throw new ValidationError(
-    `無可用配號：交易日 ${invoiceDate.toISOString().slice(0, 10)} 對應期別 ${wantedPeriod}，請先新增該期配號`,
+    `無可用配號：交易日 ${invoiceDate.toISOString().slice(0, 10)} 對應期別 ${wantedPeriod}`
+    + `${branchId ? `（分支 ${branchId}）` : '（總公司）'}，請先新增該期配號`,
   );
 }
 
@@ -367,7 +378,9 @@ export async function issue(tenantId: string, input: IssueInput) {
   const totalAmount = salesAmount + taxAmount;
 
   // Allocate BEFORE creating XML so filename / XML use the real number.
-  const allocated = await allocateNumber(tenantId, invoiceDate);
+  // branchId 隔離：總公司開單抓 branchId=null 的 pool，分支抓自己的（項 9(3)）。
+  const branchId = input.branchId ?? null;
+  const allocated = await allocateNumber(tenantId, invoiceDate, branchId);
   const invoiceNo = formatInvoiceNo(allocated.trackAlpha, allocated.number);
 
   // MIG 4.1：零稅率必填通關方式，前端未帶則拒絕。
@@ -424,6 +437,7 @@ export async function issue(tenantId: string, input: IssueInput) {
       totalAmount,
       taxType,
       status: 'issued',
+      branchId,
       xmlPath,
       // 二份備份：XML 內容直接存 DB，Turnkey 主機毀損仍可從 DB 重建（項 11）
       xmlBody: xml,

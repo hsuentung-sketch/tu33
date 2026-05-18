@@ -38,6 +38,8 @@ const issueSchema = z.object({
   mainRemark: z.string().max(200).optional(),
   customsClearanceMark: z.enum(['1', '2']).optional(),
   zeroTaxRateReason: z.string().max(60).optional(),
+  // 分支機構字軌隔離（自行檢測表項 9(3)）；總公司省略或填 null
+  branchId: z.string().nullable().optional(),
 });
 
 const voidSchema = z.object({

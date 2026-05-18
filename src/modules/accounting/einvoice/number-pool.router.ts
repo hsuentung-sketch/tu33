@@ -18,6 +18,8 @@ const createSchema = z.object({
   trackAlpha: z.string().length(2),
   rangeStart: z.number().int().nonnegative(),
   rangeEnd: z.number().int().positive(),
+  // 分支機構 id；總公司省略或填 null（自行檢測表項 9(3) 分支字軌隔離）
+  branchId: z.string().nullable().optional(),
   note: z.string().optional(),
 });
 
@@ -61,7 +63,11 @@ einvoicePoolRouter.post(
       const f = (req as Request & { file?: Express.Multer.File }).file;
       if (!f) throw new ValidationError('未收到檔案（field name 必須是 file）');
       const text = f.buffer.toString('utf8');
-      const result = await einvoiceService.importPoolsCsv(req.tenantId, text, req.employee.id);
+      // 多分支：可在 multipart form 帶 branchId 指定這批 CSV 屬哪個分支；省略=總公司
+      const branchId = typeof req.body?.branchId === 'string' && req.body.branchId.trim()
+        ? req.body.branchId.trim()
+        : null;
+      const result = await einvoiceService.importPoolsCsv(req.tenantId, text, req.employee.id, branchId);
       res.json(result);
     } catch (err) { next(err); }
   },

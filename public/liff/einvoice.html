@@ -200,13 +200,15 @@
         })),
       };
       if (mode === 'mobile') {
+        // 財政部自行檢測表項 7(1)：載具碼勿做大小寫轉換 —— 原樣保留，
+        // 正則大小寫敏感（只接受大寫），不符直接擋。
         const cid = document.getElementById('carrier-id').value.trim();
-        if (!/^\/[0-9A-Z.\-+]{7}$/i.test(cid)) {
-          msg.innerHTML = '<div class="err">手機條碼格式錯誤（/ 開頭共 8 碼）</div>';
+        if (!/^\/[0-9A-Z.\-+]{7}$/.test(cid)) {
+          msg.innerHTML = '<div class="err">手機條碼格式錯誤（/ 開頭共 8 碼，僅大寫英數與 .-+）</div>';
           return;
         }
         body.carrierType = '3J0002';
-        body.carrierId = cid.toUpperCase();
+        body.carrierId = cid;
         body.printFlag = 'N';
       } else if (mode === 'donate') {
         const npo = document.getElementById('npoban').value.trim();

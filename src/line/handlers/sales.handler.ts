@@ -534,11 +534,13 @@ export async function handleSalesText(text: string, ctx: any): Promise<boolean> 
   }
 
   if (s.step === 'einvoice-carrier-mobile') {
-    const code = text.trim().toUpperCase();
+    // 財政部自行檢測表項 7(1)：載具碼勿做英文大小寫轉換 —— 原樣保留，
+    // 只 trim 前後空白；不符規格直接 reject 並要求重打。
+    const code = text.trim();
     if (!/^\/[0-9A-Z.\-+]{7}$/.test(code)) {
       await client.replyMessage({
         replyToken: event.replyToken,
-        messages: [{ type: 'text', text: '手機條碼格式錯誤（需以 / 開頭，共 8 碼，例：/ABC1234）。請重新輸入或輸入「取消」結束。' }],
+        messages: [{ type: 'text', text: '手機條碼格式錯誤（需以 / 開頭，共 8 碼，僅大寫英數與 .-+，例：/ABC1234）。請重新輸入或輸入「取消」結束。' }],
       });
       return true;
     }

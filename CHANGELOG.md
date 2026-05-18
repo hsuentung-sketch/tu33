@@ -3,6 +3,40 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.13.1] - 2026-05-16
+
+### Fixed — 電子發票自行檢測表合規修正
+
+比對財政部「電子發票字軌號碼申請書」附帶的自行檢測表（11 項）後修正兩處：
+
+#### GAP 1 — 載具碼大小寫被竄改（檢測表項 7）
+
+項 7 明文「勿將英文大寫轉換成小寫」（精神＝系統不可改動使用者輸入的載具碼字元）。v2.12.0 / v2.13.0 兩個前端入口做了 `toUpperCase()`：
+
+| 路徑 | 修正 |
+|---|---|
+| `sales.handler.ts` `einvoice-carrier-mobile` | 移除 `.toUpperCase()`，輸入原樣保留，正則大小寫敏感 reject |
+| `liff/einvoice.html` 手機條碼 | 移除 `cid.toUpperCase()`，正則移除 `/i` flag |
+
+service 層 `validateCarrier` 本來就用 `id.trim()` 不轉換 —— 未受影響。
+
+#### GAP 2 — 分支機構字軌未隔離（檢測表項 9(3)）
+
+項 9(3) 要求「各分支機構營業系統不可誤用其他分支的發票字軌號碼」。`EinvoiceNumberPool` / `Einvoice` 早有 `branchId` 欄位，但 `allocateNumber()` 查詢未帶 branchId，多分支時會誤抓其他分支字軌池。
+
+| 函式 | 修正 |
+|---|---|
+| `allocateNumber()` | 加 `branchId` 參數，pool 查詢條件加 `branchId`（總公司 = null 只抓 null pool） |
+| `issue()` `IssueInput` | 加 `branchId`，配號 + `Einvoice.create` 都帶 |
+| `createPool()` | 加 `branchId` 參數寫入 |
+| `importPoolsCsv()` | 加 `branchId` 參數（CSV 無分支概念，匯入時指定） |
+| `einvoice.router.ts` issueSchema | 加 `branchId: z.string().nullable().optional()` |
+| `number-pool.router.ts` createSchema / import-csv | 加 `branchId` |
+
+向後相容：現有 pool 的 `branchId` 全為 null，總公司開單 `branchId=null` 仍精確命中。**無 schema 變更**（branchId 為既有預留欄位）。
+
+潤樋目前單一公司無分支，GAP 2 修正不改變現行行為，是為多分店上線預備。
+
 ## [2.13.0] - 2026-05-14
 
 ### Added — 電子發票 LIFF（手機/平板開立）
