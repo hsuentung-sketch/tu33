@@ -1616,6 +1616,119 @@ async function viewVisitLogs(main) {
   await reload();
 }
 
+// -------- 業績獎金報表（v2.15.0）--------
+async function viewBonusReport(main) {
+  main.innerHTML = '';
+  main.append(el('h2', {}, '業績獎金'));
+  main.append(el('div', { class: 'page-sub' }, isSales()
+    ? '只看自己當月業績獎金。獎金 =（成交價 − 產品售價）× 數量。'
+    : '業務業績獎金月結。獎金 =（成交價 − 產品售價）× 數量，累計後扣代開發票 % 為實發。'));
+
+  const now = new Date();
+  const yearSel = el('select', {});
+  for (let y = now.getFullYear(); y >= now.getFullYear() - 3; y--) {
+    yearSel.append(el('option', { value: String(y) }, String(y)));
+  }
+  const monthSel = el('select', {});
+  for (let m = 1; m <= 12; m++) monthSel.append(el('option', { value: String(m) }, m + ' 月'));
+  monthSel.value = String(now.getMonth() + 1);
+
+  const empSelect = el('select', {});
+  if (!isSales()) {
+    empSelect.append(el('option', { value: '' }, '全部業務'));
+    const employees = await loadEmployeeOptions();
+    for (const e of employees.filter((x) => x.role === 'SALES')) {
+      empSelect.append(el('option', { value: e.id }, `${e.employeeId} ${e.name}`));
+    }
+  } else {
+    empSelect.append(el('option', { value: '' }, '本人'));
+    empSelect.disabled = true;
+  }
+
+  const deductSel = el('select', {});
+  for (const p of [0, 8, 10, 13]) {
+    deductSel.append(el('option', { value: String(p) }, p === 0 ? '不扣除' : p + '%'));
+  }
+  deductSel.value = '8';
+
+  const resultBox = el('div', {});
+
+  function renderReport(rep) {
+    resultBox.innerHTML = '';
+    if (!rep.rows.length) {
+      resultBox.append(el('div', { class: 'empty', style: 'padding:24px;' }, '本月無銷貨單'));
+      return;
+    }
+    for (const o of rep.rows) {
+      const tb = el('tbody');
+      for (const it of o.items) {
+        tb.append(el('tr', {},
+          el('td', {}, it.productName + (it.isFallback ? ' *' : '')),
+          el('td', { class: 'num' }, String(it.quantity)),
+          el('td', { class: 'num' }, fmtMoney(it.unitPrice)),
+          el('td', { class: 'num' }, fmtMoney(it.salePrice)),
+          el('td', { class: 'num' }, fmtMoney(it.bonus)),
+        ));
+      }
+      const itemTbl = el('table', { class: 'data', style: 'margin:4px 0;' },
+        el('thead', {}, el('tr', {},
+          el('th', {}, '品名'),
+          el('th', { class: 'num' }, '數量'),
+          el('th', { class: 'num' }, '成交價'),
+          el('th', { class: 'num' }, '售價'),
+          el('th', { class: 'num' }, '獎金'),
+        )),
+        tb,
+      );
+      resultBox.append(el('div', { class: 'card', style: 'padding:12px;margin-bottom:10px;' },
+        el('div', { style: 'display:flex;justify-content:space-between;font-weight:600;flex-wrap:wrap;gap:4px;' },
+          el('span', {}, `${o.orderNo} · ${o.customerName}`),
+          el('span', { style: 'color:var(--muted);font-weight:400;font-size:12px;' }, `${o.orderDate} · 業務 ${o.salesPersonName}`),
+        ),
+        itemTbl,
+        el('div', { style: 'text-align:right;font-weight:600;' }, `單筆獎金：${fmtMoney(o.orderBonus)}`),
+      ));
+    }
+    const deducted = rep.totalBonus - rep.netAmount;
+    resultBox.append(el('div', { class: 'card', style: 'padding:16px;margin-top:8px;background:#f0f7ff;border:1px solid #b6d4fe;' },
+      el('div', { style: 'display:flex;justify-content:space-between;margin-bottom:6px;' },
+        el('span', {}, '累計獎金'), el('strong', {}, fmtMoney(rep.totalBonus))),
+      el('div', { style: 'display:flex;justify-content:space-between;margin-bottom:6px;' },
+        el('span', {}, `扣除代開發票 ${rep.deductPct}%`), el('span', {}, '− ' + fmtMoney(deducted))),
+      el('div', { style: 'display:flex;justify-content:space-between;font-size:18px;font-weight:700;color:#0a4d99;' },
+        el('span', {}, '實發金額'), el('span', {}, fmtMoney(rep.netAmount))),
+    ));
+    resultBox.append(el('div', { style: 'font-size:12px;color:var(--muted);margin-top:6px;' },
+      '標「*」的品項無成交當下售價快照，以目前產品售價估算（產品調價後數字可能變動）。'));
+  }
+
+  async function reload() {
+    resultBox.innerHTML = '載入中…';
+    try {
+      const params = new URLSearchParams();
+      params.set('year', yearSel.value);
+      params.set('month', monthSel.value);
+      if (empSelect.value) params.set('employeeId', empSelect.value);
+      params.set('deductPct', deductSel.value);
+      const rep = await api.get('/commission/monthly?' + params.toString());
+      renderReport(rep);
+    } catch (e) {
+      resultBox.innerHTML = '';
+      resultBox.append(el('div', { class: 'err' }, e.message));
+    }
+  }
+
+  const toolbar = el('div', { class: 'toolbar' },
+    yearSel, monthSel,
+    el('label', { style: 'font-size:12px;color:var(--muted);' }, ' 業務 ', empSelect),
+    el('label', { style: 'font-size:12px;color:var(--muted);' }, ' 代開發票 ', deductSel),
+    el('button', { class: 'btn', onClick: reload }, '查詢'),
+  );
+  [yearSel, monthSel, empSelect, deductSel].forEach((s) => s.addEventListener('change', reload));
+  main.append(toolbar, resultBox);
+  await reload();
+}
+
 async function openVisitLogEditor(log, onSaved) {
   // 客戶 picker：用 customer list 做 datalist（已存在的客戶限定）
   let customers = [];
@@ -4255,6 +4368,13 @@ const GROUPS = {
       { key: 'employees',  label: '員工',   view: 'employees', adminOnly: true },
     ],
   },
+  sales: {
+    title: '業務功能',
+    tabs: [
+      { key: 'visit-logs',   label: '工作日誌', view: 'visit-logs' },
+      { key: 'bonus-report', label: '業績獎金', view: 'bonus-report', roles: ['ADMIN', 'ACCOUNTING', 'SALES'] },
+    ],
+  },
   accounts: {
     title: '帳款',
     tabs: [
@@ -4300,14 +4420,18 @@ const LEGACY_REDIRECT = {
   payables: 'accounts/payables',
   einvoices: 'invoices/einvoices',
   'einvoice-pools': 'invoices/einvoice-pools',
+  'visit-logs': 'sales/visit-logs',
+  'bonus-report': 'sales/bonus-report',
   'audit-logs': 'logs/audit-logs',
   'error-logs': 'logs/error-logs',
 };
 
 function visibleTabs(group) {
+  const role = window.__session?.employee?.role;
   return group.tabs.filter((t) => {
     if (t.adminOnly && !isAdmin()) return false;
     if (t.denySales && isSales()) return false;
+    if (t.roles && !t.roles.includes(role)) return false;
     return true;
   });
 }
@@ -4358,6 +4482,7 @@ const LEAF_VIEWS = {
   quotations: viewQuotations,
   'sales-orders': viewSalesOrders,
   'visit-logs': viewVisitLogs,
+  'bonus-report': viewBonusReport,
   'purchase-orders': viewPurchaseOrders,
   receivables: viewReceivables,
   payables: viewPayables,

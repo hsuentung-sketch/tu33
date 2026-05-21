@@ -3,6 +3,55 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.15.0] - 2026-05-21
+
+### Added — 業務功能分組 + 業績獎金計算
+
+後台側欄新增「業務功能」分組，把「工作日誌」移入，並新增「業績獎金」報表。業務薪酬走「超賣分潤」：產品 `salePrice` 是給業務的底價，成交價高出底價的部分 × 數量為業績獎金。
+
+#### 業績獎金公式
+
+- 單筆獎金 =（銷貨成交單價 `unitPrice` − 成交時產品售價 `salePriceAtSale`）× 數量
+- 月結（選年/月）、逐張銷貨單列出品項明細與獎金、累計後扣代開發票 %（8/10/13 可選）得實發金額
+- 業務歸屬：`SalesOrder.createdBy`
+
+#### 新驗證：成交價不得低於產品售價
+
+建立 / 編輯銷貨單時，若任一品項成交價 < 該產品售價 → 拒絕（`sales-order.service.resolveItemSalePrices`）。自由輸入品名（無對應產品）不受限。因此業績獎金恆 ≥ 0。
+
+#### 售價快照
+
+`SalesItem` 新增 `salePriceAtSale`：建單時記錄成交當下產品售價。報表優先用快照，產品日後調價不影響已結算獎金；歷史資料無快照者 fallback 用當前售價（報表標 `*`）。
+
+#### Schema 變更（v2.15.0 上線前必跑）
+
+```sql
+ALTER TABLE "SalesItem" ADD COLUMN "salePriceAtSale" DECIMAL(12,2);
+```
+
+> nullable add，無 lock。`sales-order` 的 `include: { items: true }` 會 SELECT 全欄 → **必須先跑 DDL 再 deploy**。
+
+#### 權限
+
+- 主管（ADMIN）/ 會計（ACCOUNTING）：看全部、可切換業務
+- 業務（SALES）：只看自己（後端強制 `employeeId`）
+- 其他角色：403
+
+#### 改動
+
+| 路徑 | 改動 |
+|---|---|
+| `prisma/schema.prisma` | SalesItem +`salePriceAtSale` |
+| `sales-order.service.ts` | 新 `resolveItemSalePrices`（驗證 + 售價對照）；create/edit 寫快照 |
+| `src/modules/sales/commission/commission.service.ts` | **新檔** 月結獎金計算 |
+| `src/modules/sales/commission/commission.router.ts` | **新檔** `GET /commission/monthly` + 權限 |
+| `src/routes/index.ts` | 掛 `/commission` |
+| `docs/modules/commission.md` | **新檔** 流程文件 |
+| `public/admin/app.js` | GROUPS 加「業務功能」分組、工作日誌移入、`viewBonusReport`、LEAF_VIEWS、`visibleTabs` 加 `roles` 白名單、legacy redirect |
+| `public/admin/index.html` | 側欄「工作日誌」改為「業務功能」群組入口 |
+
+舊書籤 `#visit-logs` 自動轉到 `#sales/visit-logs`。
+
 ## [2.14.0] - 2026-05-16
 
 ### Added — 供應商 / 客戶 匯款銀行資料

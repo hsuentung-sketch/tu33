@@ -32,6 +32,38 @@ export interface SalesOrderCreateInput {
   einvoicePrintFlag?: 'Y' | 'N';
 }
 
+/**
+ * v2.15.0：查 items 對應的產品售價（productName → Product.name），
+ * 驗證成交價不得低於產品售價（業績獎金「超賣分潤」的前提），
+ * 並回傳 productName → salePrice 對照表供寫成交時售價快照。
+ * 自由輸入品名（無對應產品）→ 不驗證、不在 map 內（快照寫 null）。
+ */
+async function resolveItemSalePrices(
+  tenantId: string,
+  items: SalesItemInput[],
+): Promise<Map<string, number>> {
+  const names = [...new Set(items.map((i) => i.productName))];
+  const products = await prisma.product.findMany({
+    where: { tenantId, name: { in: names } },
+    select: { name: true, salePrice: true },
+  });
+  const priceByName = new Map<string, number>();
+  for (const p of products) priceByName.set(p.name, Number(p.salePrice));
+
+  const violations: string[] = [];
+  for (const it of items) {
+    const sp = priceByName.get(it.productName);
+    if (sp == null) continue; // 無對應產品 → 跳過驗證
+    if (it.unitPrice < sp) {
+      violations.push(`${it.productName}（成交 $${it.unitPrice} < 售價 $${sp}）`);
+    }
+  }
+  if (violations.length) {
+    throw new ValidationError(`成交價不得低於產品售價，無法開立：${violations.join('、')}`);
+  }
+  return priceByName;
+}
+
 export async function list(
   tenantId: string,
   filters: {
@@ -85,6 +117,9 @@ export async function create(tenantId: string, data: SalesOrderCreateInput) {
   if (!tenant) throw new NotFoundError('Tenant', tenantId);
   const settings = getTenantSettings(tenant.settings);
 
+  // v2.15.0：驗證成交價不得低於產品售價 + 取售價對照表寫快照。
+  const salePriceMap = await resolveItemSalePrices(tenantId, data.items);
+
   const { subtotal, taxAmount, totalAmount } = calculateTotals(
     data.items.map((i) => ({ quantity: i.quantity, unitPrice: i.unitPrice })),
     settings.taxRate,
@@ -122,6 +157,7 @@ export async function create(tenantId: string, data: SalesOrderCreateInput) {
             quantity: i.quantity,
             unitPrice: i.unitPrice,
             amount: i.quantity * i.unitPrice,
+            salePriceAtSale: salePriceMap.get(i.productName) ?? null,
             note: i.note,
             sortOrder: i.sortOrder ?? idx,
           })),
@@ -215,6 +251,9 @@ export async function edit(tenantId: string, id: string, input: SalesOrderEditIn
   if (!tenant) throw new NotFoundError('Tenant', tenantId);
   const settings = getTenantSettings(tenant.settings);
 
+  // v2.15.0：改價也要重新驗證成交價 ≥ 售價 + 更新快照。
+  const salePriceMap = await resolveItemSalePrices(tenantId, input.items);
+
   const { subtotal, taxAmount, totalAmount } = calculateTotals(
     input.items.map((i) => ({ quantity: i.quantity, unitPrice: i.unitPrice })),
     settings.taxRate,
@@ -244,6 +283,7 @@ export async function edit(tenantId: string, id: string, input: SalesOrderEditIn
             quantity: i.quantity,
             unitPrice: i.unitPrice,
             amount: i.quantity * i.unitPrice,
+            salePriceAtSale: salePriceMap.get(i.productName) ?? null,
             note: i.note,
             sortOrder: i.sortOrder ?? idx,
           })),

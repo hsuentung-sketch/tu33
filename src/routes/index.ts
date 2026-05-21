@@ -9,6 +9,7 @@ import { visitLogRouter } from '../modules/master/visit-log/visit-log.router.js'
 import { supplierRouter } from '../modules/master/supplier/supplier.router.js';
 import { quotationRouter } from '../modules/sales/quotation/quotation.router.js';
 import { salesOrderRouter } from '../modules/sales/sales-order/sales-order.router.js';
+import { commissionRouter } from '../modules/sales/commission/commission.router.js';
 import { purchaseOrderRouter } from '../modules/purchase/purchase-order/purchase-order.router.js';
 import { receivableRouter } from '../modules/accounting/receivable/receivable.router.js';
 import { payableRouter } from '../modules/accounting/payable/payable.router.js';
@@ -54,6 +55,7 @@ apiRouter.use('/visit-logs', visitLogRouter);
 apiRouter.use('/suppliers', supplierRouter);
 apiRouter.use('/quotations', quotationRouter);
 apiRouter.use('/sales-orders', salesOrderRouter);
+apiRouter.use('/commission', commissionRouter);
 apiRouter.use('/purchase-orders', purchaseOrderRouter);
 apiRouter.use('/receivables', receivableRouter);
 apiRouter.use('/payables', payableRouter);

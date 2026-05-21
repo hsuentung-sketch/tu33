@@ -385,6 +385,9 @@ model SalesItem {
   quantity     Int
   unitPrice    Decimal    @db.Decimal(12, 2)
   amount       Decimal    @db.Decimal(12, 2)
+  // 成交當下的產品售價快照（v2.15.0+）。業績獎金 =（unitPrice − salePriceAtSale）× quantity。
+  // 歷史資料或自由輸入品名（無對應產品）為 null → 報表 fallback 用當前 Product.salePrice。
+  salePriceAtSale Decimal? @db.Decimal(12, 2)
   note         String?
   sortOrder    Int        @default(0)
 }
