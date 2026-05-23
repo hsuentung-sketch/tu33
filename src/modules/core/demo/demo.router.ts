@@ -249,6 +249,3 @@ demoRouter.get('/seed-config', (_req: Request, res: Response) => {
     },
   });
 });
-,
-  });
-});
