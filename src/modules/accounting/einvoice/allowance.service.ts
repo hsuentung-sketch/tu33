@@ -4,6 +4,7 @@ import { getTenantSettings, generateDocumentNo } from '../../../shared/utils.js'
 import { writeAudit } from '../../../shared/audit.js';
 import { buildD0401, buildD0501 } from './xml-builder.js';
 import { writeIssueXml, writeVoidXml } from './turnkey-writer.js';
+import { assertTenantIsolation } from "../../../shared/tenant-isolation.js";
 
 export interface AllowanceItemInput {
   sequence?: number;
@@ -40,6 +41,7 @@ async function nextAllowanceNo(tenantId: string, date: Date): Promise<string> {
 }
 
 export async function issueAllowance(tenantId: string, input: IssueAllowanceInput) {
+  assertTenantIsolation(tenantId, 'accounting');
   if (!input.items?.length) throw new ValidationError('至少需要一個折讓品項');
   const inv = await prisma.einvoice.findFirst({
     where: { id: input.invoiceId, tenantId },
@@ -147,6 +149,7 @@ export async function issueAllowance(tenantId: string, input: IssueAllowanceInpu
 }
 
 export async function voidAllowance(tenantId: string, id: string, reason: string, voidedBy?: string) {
+  assertTenantIsolation(tenantId, 'accounting');
   if (!reason?.trim()) throw new ValidationError('請填寫作廢原因');
   const row = await prisma.einvoiceAllowance.findFirst({
     where: { id, tenantId },
@@ -199,6 +202,7 @@ export async function voidAllowance(tenantId: string, id: string, reason: string
 }
 
 export async function listAllowances(tenantId: string, filters: { invoiceId?: string; status?: string } = {}) {
+  assertTenantIsolation(tenantId, 'accounting');
   return prisma.einvoiceAllowance.findMany({
     where: {
       tenantId,
@@ -214,6 +218,7 @@ export async function listAllowances(tenantId: string, filters: { invoiceId?: st
 }
 
 export async function getAllowance(tenantId: string, id: string) {
+  assertTenantIsolation(tenantId, 'accounting');
   const row = await prisma.einvoiceAllowance.findFirst({
     where: { id, tenantId },
     include: {
@@ -226,6 +231,7 @@ export async function getAllowance(tenantId: string, id: string) {
 }
 
 export async function readAllowanceXml(tenantId: string, id: string, kind: 'issue' | 'void'): Promise<string | null> {
+  assertTenantIsolation(tenantId, 'accounting');
   const row = await prisma.einvoiceAllowance.findFirst({ where: { id, tenantId } });
   if (!row) throw new NotFoundError('EinvoiceAllowance', id);
   const p = kind === 'issue' ? row.xmlPath : row.voidXmlPath;

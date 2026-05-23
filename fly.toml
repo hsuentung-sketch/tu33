@@ -8,6 +8,11 @@ primary_region = 'nrt'
 
 [build]
 
+[deploy]
+  # Run Prisma migrations before starting the new release.
+  # Fly runs this on a temporary VM; if it fails the deploy is aborted.
+  release_command = 'npx prisma migrate deploy'
+
 [env]
   NODE_ENV = 'production'
   PORT = '3000'

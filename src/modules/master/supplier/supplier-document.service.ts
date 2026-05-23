@@ -13,6 +13,7 @@ import { uploadDoc, deleteDoc, createDocSignedUrl } from '../../../shared/storag
 import { createShortLink } from '../../core/shortlink/shortlink.service.js';
 import { NotFoundError, ValidationError } from '../../../shared/errors.js';
 import { config } from '../../../config/index.js';
+import { assertTenantIsolation } from "../../../shared/tenant-isolation.js";
 
 export type SupplierDocumentType = 'BANKBOOK' | 'CONTRACT' | 'OTHER';
 
@@ -40,7 +41,8 @@ export interface UploadInput {
   uploadedBy?: string;
 }
 
-export async function upload(input: UploadInput) {
+export async function upload(input: UploadInput & { tenantId: string }) {
+  assertTenantIsolation(input.tenantId, 'base_erp');
   if (input.bytes.length === 0) throw new ValidationError('檔案為空');
   if (input.bytes.length > MAX_FILE_BYTES) {
     throw new ValidationError(`檔案太大（上限 ${MAX_FILE_BYTES / 1024 / 1024} MB）`);
@@ -80,6 +82,7 @@ export async function upload(input: UploadInput) {
 }
 
 export async function list(tenantId: string, supplierId: string) {
+  assertTenantIsolation(tenantId, 'base_erp');
   return prisma.supplierDocument.findMany({
     where: { tenantId, supplierId },
     orderBy: [{ type: 'asc' }, { createdAt: 'desc' }],
@@ -87,6 +90,7 @@ export async function list(tenantId: string, supplierId: string) {
 }
 
 export async function remove(tenantId: string, docId: string) {
+  assertTenantIsolation(tenantId, 'base_erp');
   const doc = await prisma.supplierDocument.findFirst({
     where: { id: docId, tenantId },
   });
@@ -104,6 +108,7 @@ export async function buildShortDownloadUrl(
   docId: string,
   createdBy?: string,
 ): Promise<{ shortUrl: string; fileName: string; type: SupplierDocumentType }> {
+  assertTenantIsolation(tenantId, 'base_erp');
   const doc = await prisma.supplierDocument.findFirst({
     where: { id: docId, tenantId },
   });

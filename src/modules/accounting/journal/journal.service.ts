@@ -12,6 +12,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../../shared/prisma.js';
 import { ValidationError, NotFoundError } from '../../../shared/errors.js';
 import * as periodService from '../period/period.service.js';
+import { assertTenantIsolation } from "../../../shared/tenant-isolation.js";
 
 type Decimal = Prisma.Decimal;
 
@@ -68,6 +69,7 @@ async function nextEntryNo(tenantId: string, entryDate: Date): Promise<string> {
 }
 
 export async function create(tenantId: string, createdBy: string | null, input: JournalEntryInput) {
+  assertTenantIsolation(tenantId, 'accounting');
   validateLines(input.lines);
   const period = await periodService.findPeriodForDate(tenantId, input.entryDate);
   if (!period) throw new ValidationError('找不到對應的會計期間，請先建立');
@@ -104,6 +106,7 @@ export async function create(tenantId: string, createdBy: string | null, input: 
 export async function list(tenantId: string, opts: {
   status?: string; periodId?: string; source?: string; from?: Date; to?: Date; limit?: number;
 } = {}) {
+  assertTenantIsolation(tenantId, 'accounting');
   return prisma.journalEntry.findMany({
     where: {
       tenantId,
@@ -121,6 +124,7 @@ export async function list(tenantId: string, opts: {
 }
 
 export async function getById(tenantId: string, id: string) {
+  assertTenantIsolation(tenantId, 'accounting');
   const e = await prisma.journalEntry.findFirst({
     where: { id, tenantId },
     include: { lines: { include: { account: true }, orderBy: { sequence: 'asc' } }, period: true },
@@ -130,6 +134,7 @@ export async function getById(tenantId: string, id: string) {
 }
 
 export async function update(tenantId: string, id: string, input: Partial<JournalEntryInput>) {
+  assertTenantIsolation(tenantId, 'accounting');
   const existing = await getById(tenantId, id);
   if (existing.status !== 'pending') throw new ValidationError('已過帳的傳票不可修改，需先反沖');
   if (input.lines) validateLines(input.lines);
@@ -162,6 +167,7 @@ export async function update(tenantId: string, id: string, input: Partial<Journa
 }
 
 export async function post(tenantId: string, id: string, postedBy: string) {
+  assertTenantIsolation(tenantId, 'accounting');
   const e = await getById(tenantId, id);
   if (e.status === 'posted') throw new ValidationError('已過帳');
   if (e.status === 'reversed') throw new ValidationError('已反沖的傳票不可過帳');
@@ -173,6 +179,7 @@ export async function post(tenantId: string, id: string, postedBy: string) {
 }
 
 export async function reverse(tenantId: string, id: string, reversedBy: string, reason?: string) {
+  assertTenantIsolation(tenantId, 'accounting');
   const orig = await getById(tenantId, id);
   if (orig.status !== 'posted') throw new ValidationError('只能反沖已過帳的傳票');
   return prisma.$transaction(async (tx) => {
@@ -226,6 +233,7 @@ export async function reverse(tenantId: string, id: string, reversedBy: string, 
 }
 
 export async function remove(tenantId: string, id: string) {
+  assertTenantIsolation(tenantId, 'accounting');
   const e = await getById(tenantId, id);
   if (e.status !== 'pending') throw new ValidationError('只能刪除 pending 傳票');
   await prisma.journalEntry.delete({ where: { id } });

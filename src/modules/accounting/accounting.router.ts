@@ -277,3 +277,41 @@ accountingRouter.get('/reports/balance-sheet', async (req: Request, res: Respons
     res.json(await reports.balanceSheet(req.tenantId, asOf));
   } catch (err) { next(err); }
 });
+
+accountingRouter.get('/reports/general-ledger', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.query.from || !req.query.to) throw new ValidationError('from / to 必填');
+    const accountCode = typeof req.query.accountCode === 'string' ? req.query.accountCode : undefined;
+    res.json(await reports.generalLedger(
+      req.tenantId,
+      new Date(String(req.query.from)),
+      new Date(String(req.query.to)),
+      accountCode,
+    ));
+  } catch (err) { next(err); }
+});
+
+accountingRouter.get('/reports/cash-flow', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.query.from || !req.query.to) throw new ValidationError('from / to 必填');
+    res.json(await reports.cashFlowStatement(
+      req.tenantId,
+      new Date(String(req.query.from)),
+      new Date(String(req.query.to)),
+    ));
+  } catch (err) { next(err); }
+});
+
+accountingRouter.get('/reports/ar-aging', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const asOf = req.query.asOf ? new Date(String(req.query.asOf)) : undefined;
+    res.json(await reports.arAging(req.tenantId, asOf));
+  } catch (err) { next(err); }
+});
+
+accountingRouter.get('/reports/ap-aging', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const asOf = req.query.asOf ? new Date(String(req.query.asOf)) : undefined;
+    res.json(await reports.apAging(req.tenantId, asOf));
+  } catch (err) { next(err); }
+});

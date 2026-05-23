@@ -19,11 +19,12 @@ function requireInProd(key: string, fallback?: string): string {
 
 const jwtSecret = requireInProd('JWT_SECRET', 'dev-only-secret-change-me');
 const publicBaseUrl = requireInProd('PUBLIC_BASE_URL', 'http://localhost:3000');
+const databaseUrl = requireInProd('DATABASE_URL', 'postgresql://erp:erp_dev_password@localhost:5433/erp_dev?schema=public');
 
 export const config = {
   port: parseInt(process.env.PORT || '3000', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
-  databaseUrl: process.env.DATABASE_URL || '',
+  databaseUrl,
   publicBaseUrl,
 
   // LINE Bot (default channel, can be overridden per tenant)

@@ -4,6 +4,7 @@ import { getTenantSettings } from '../../../shared/utils.js';
 import { writeAudit } from '../../../shared/audit.js';
 import { buildC0401, buildC0501 } from './xml-builder.js';
 import { writeIssueXml, writeVoidXml } from './turnkey-writer.js';
+import { assertTenantIsolation } from "../../../shared/tenant-isolation.js";
 
 export interface IssueItemInput {
   sequence?: number;
@@ -72,6 +73,7 @@ function validateNpoban(code?: string): void {
 // ----- pool -----
 
 export async function listPools(tenantId: string, opts: { includeInactive?: boolean } = {}) {
+  assertTenantIsolation(tenantId, 'accounting');
   return prisma.einvoiceNumberPool.findMany({
     where: { tenantId, ...(opts.includeInactive ? {} : { isActive: true }) },
     orderBy: [{ isActive: 'desc' }, { createdAt: 'desc' }],
@@ -84,6 +86,7 @@ export async function createPool(tenantId: string, data: {
   branchId?: string | null;
   note?: string; createdBy?: string;
 }) {
+  assertTenantIsolation(tenantId, 'accounting');
   if (!/^[A-Z]{2}$/.test(data.trackAlpha)) {
     throw new ValidationError('字軌必須為兩個大寫英文字母');
   }
@@ -117,6 +120,7 @@ export async function createPool(tenantId: string, data: {
 }
 
 export async function updatePool(tenantId: string, id: string, data: { isActive?: boolean; note?: string | null }) {
+  assertTenantIsolation(tenantId, 'accounting');
   const existing = await prisma.einvoiceNumberPool.findFirst({ where: { id, tenantId } });
   if (!existing) throw new NotFoundError('EinvoiceNumberPool', id);
   return prisma.einvoiceNumberPool.update({ where: { id }, data });
@@ -148,6 +152,7 @@ export async function importPoolsCsv(
   /** 這批 CSV 屬於哪個分支；總公司 = null。CSV 本身不含分支概念，由匯入時指定。 */
   branchId: string | null = null,
 ): Promise<ImportPoolsCsvResult> {
+  assertTenantIsolation(tenantId, 'accounting');
   const result: ImportPoolsCsvResult = { inserted: 0, skipped: 0, errors: [] };
   const stripped = csvText.replace(/^﻿/, '').replace(/\r\n?/g, '\n').trim();
   if (!stripped) throw new ValidationError('CSV 內容為空');
@@ -299,6 +304,7 @@ function roundMoney(n: number): number {
 // ----- issue -----
 
 export async function issue(tenantId: string, input: IssueInput) {
+  assertTenantIsolation(tenantId, 'accounting');
   if (!input.items?.length) throw new ValidationError('至少需要一個品項');
   if (!input.buyerName?.trim()) throw new ValidationError('請填寫買受人名稱');
   if (input.buyerTaxId && !/^\d{8}$/.test(input.buyerTaxId.trim())) {
@@ -489,6 +495,7 @@ export async function issue(tenantId: string, input: IssueInput) {
 // ----- void -----
 
 export async function voidInvoice(tenantId: string, id: string, reason: string, voidedBy?: string) {
+  assertTenantIsolation(tenantId, 'accounting');
   if (!reason?.trim()) throw new ValidationError('請填寫作廢原因');
   const inv = await prisma.einvoice.findFirst({ where: { id, tenantId } });
   if (!inv) throw new NotFoundError('Einvoice', id);
@@ -557,6 +564,7 @@ export async function voidInvoice(tenantId: string, id: string, reason: string, 
 export async function list(tenantId: string, filters: {
   status?: string; salesOrderId?: string; receivableId?: string;
 } = {}) {
+  assertTenantIsolation(tenantId, 'accounting');
   return prisma.einvoice.findMany({
     where: {
       tenantId,
@@ -574,6 +582,7 @@ export async function list(tenantId: string, filters: {
 }
 
 export async function getById(tenantId: string, id: string) {
+  assertTenantIsolation(tenantId, 'accounting');
   const row = await prisma.einvoice.findFirst({
     where: { id, tenantId },
     include: {
@@ -588,6 +597,7 @@ export async function getById(tenantId: string, id: string) {
 
 /** Read the raw C0401 / C0501 XML — DB 內容（項 11 二份備份）優先，fallback 到 turnkey 目錄。 */
 export async function readXml(tenantId: string, id: string, kind: 'issue' | 'void'): Promise<string | null> {
+  assertTenantIsolation(tenantId, 'accounting');
   const row = await prisma.einvoice.findFirst({ where: { id, tenantId } });
   if (!row) throw new NotFoundError('Einvoice', id);
   const body = kind === 'issue' ? row.xmlBody : row.voidXmlBody;

@@ -1,0 +1,25 @@
+# ERP Demo 本機開發用 Postgres
+# 啟動：docker compose -f docker-compose.dev.yml up -d
+# 關閉：docker compose -f docker-compose.dev.yml down
+# 清資料：docker compose -f docker-compose.dev.yml down -v
+name: erp-dev
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: erp-dev-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: erp_demo
+    ports:
+      - "5433:5432"
+    volumes:
+      - erp_dev_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  erp_dev_pg:

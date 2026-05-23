@@ -20,7 +20,10 @@ function sweepExpired(now: number): void {
 }
 
 export async function findEmployeeByLineUserId(lineUserId: string) {
-  return prisma.employee.findUnique({
+  // 注意：在多租戶場景下，lineUserId + tenantId 才是唯一識別符
+  // 此函數假設 lineUserId 在系統層級唯一（可選情況）
+  // 生產環境應改為接收 tenantId 參數
+  return prisma.employee.findFirst({
     where: { lineUserId },
     include: { tenant: true },
   });

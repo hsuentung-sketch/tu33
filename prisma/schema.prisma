@@ -48,6 +48,10 @@ model Tenant {
   fiscalPeriods      FiscalPeriod[]
   journalEntries     JournalEntry[]
   visitLogs          VisitLog[]
+  versionSubscription TenantVersionSubscription?
+  billingSubscription TenantBillingSubscription?
+  versionUpgradeLogs  VersionUpgradeLog[]
+  billingSubLogs      BillingSubscriptionLog[]
 }
 
 // ============================================================
@@ -58,7 +62,7 @@ model Employee {
   id         String   @id @default(cuid())
   tenantId   String
   tenant     Tenant   @relation(fields: [tenantId], references: [id])
-  lineUserId String?  @unique
+  lineUserId String?
   employeeId String
   name       String
   phone      String?
@@ -78,6 +82,7 @@ model Employee {
   visitLogs        VisitLog[] @relation("VisitLogCreatedBy")
 
   @@unique([tenantId, employeeId])
+  @@unique([tenantId, lineUserId])
   @@index([tenantId])
 }
 
@@ -195,6 +200,7 @@ model Customer {
   visitLogs   VisitLog[]
 
   @@unique([tenantId, name])
+  @@unique([tenantId, lineUserId])
   @@index([tenantId])
   @@index([tenantId, createdByEmployeeId])
 }
@@ -914,4 +920,268 @@ model VisitLog {
   @@index([tenantId, visitDate])
   @@index([tenantId, customerId])
   @@index([tenantId, createdByEmployeeId])
+}
+
+// ============================================================
+// Version Management (P0-3a)
+// ============================================================
+
+model VersionHistory {
+  id             String   @id @default(cuid())
+  version        String   @unique // e.g. "2.5.0"
+  releaseDate    DateTime @default(now())
+  supportedUntil DateTime // 30天後自動升級所有租戶
+  features       String[] @default([]) // 新功能列表
+  notes          String?  @db.Text // 發版說明
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([releaseDate])
+  @@index([supportedUntil])
+}
+
+model TenantVersionSubscription {
+  id              String   @id @default(cuid())
+  tenantId        String   @unique
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  currentVersion  String   // 當前版本
+  previousVersion String?  // 上一版本（供 rollback 使用）
+  latestVersion   String   // 最新可用版本
+  upgradeDeadline DateTime? // 租戶必須升級的期限（30天後自動升級）
+  lastCheckedAt   DateTime?
+  lastUpgradedAt  DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([upgradeDeadline])
+}
+
+enum VersionChangeType {
+  UPGRADE
+  ROLLBACK
+  AUTO_UPGRADE
+}
+
+model VersionUpgradeLog {
+  id            String            @id @default(cuid())
+  tenantId      String
+  tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  fromVersion   String
+  toVersion     String
+  changeType    VersionChangeType
+  operatorId    String?           // 執行者 employeeId（AUTO_UPGRADE 時為 null）
+  reason        String?           @db.Text
+  createdAt     DateTime          @default(now())
+
+  @@index([tenantId])
+  @@index([tenantId, createdAt])
+  @@index([changeType])
+}
+
+// ============================================================
+// Billing Management (P0-3b)
+// ============================================================
+
+enum BillingCycle {
+  MONTHLY
+  ANNUALLY
+}
+
+enum BillingEventType {
+  SUBSCRIPTION_CREATED
+  PLAN_UPGRADE
+  PLAN_DOWNGRADE
+  RENEWAL
+  CANCELLATION
+  TRIAL_END
+  SUSPENSION      // P0-3c: 訂閱暫停
+  RESUME          // P0-3c: 訂閱恢復
+  OVERDUE_NOTICE  // P0-3c: 逾期通知
+  USAGE_OVERAGE   // P0-3c: 使用量超額
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+model BillingPlan {
+  id                      String   @id @default(cuid())
+  name                    String   @unique // e.g., "Pro", "Enterprise"
+  description             String?  @db.Text
+  monthlyPrice            Decimal  @db.Decimal(10, 2)
+  annualPrice             Decimal  @db.Decimal(10, 2)
+  initialSetupPrice       Decimal  @default(0) @db.Decimal(10, 2) // P0-3c: 首次設計費
+  yearlyPrice             Decimal? @db.Decimal(10, 2) // P0-3c: 年繳價格
+  yearlyDiscountPercent   Decimal  @default(0) @db.Decimal(5, 2) // P0-3c: 年繳折扣百分比
+  trialDays               Int      @default(14) // 試用期天數
+  isActive                Boolean  @default(true)
+  displayOrder            Int      @default(0) // 展示順序
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  planFeatures            PlanFeature[]
+  subscriptions           TenantBillingSubscription[]
+  usageLimits             UsageLimit[]
+  usageOverageRates       UsageOverageRate[]
+
+  @@index([isActive])
+  @@index([displayOrder])
+}
+
+model PlanFeature {
+  id        String   @id @default(cuid())
+  planId    String
+  plan      BillingPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  feature   String   // 功能名稱（e.g., "inventory", "accounting", "commission"）
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@unique([planId, feature])
+  @@index([planId])
+}
+
+model TenantBillingSubscription {
+  id                  String         @id @default(cuid())
+  tenantId            String         @unique
+  tenant              Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  planId              String
+  plan                BillingPlan    @relation(fields: [planId], references: [id])
+  billingCycle        BillingCycle   @default(MONTHLY)
+  isInTrial           Boolean        @default(true)
+  trialEndDate        DateTime?
+  subscriptionStart   DateTime       @default(now())
+  renewalDate         DateTime       @default(now()) // 下次續訂日期
+  autoRenew           Boolean        @default(true)
+  cancellationDate    DateTime?      // 租戶取消訂閱日期
+  setupFeeCharged     Boolean        @default(false) // P0-3c: 是否已收首次設計費
+  suspendedAt         DateTime?      // P0-3c: 暫停時間
+  suspendedUntil      DateTime?      // P0-3c: 暫停結束日期
+  suspendReason       String?        // P0-3c: 暫停原因
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  billingEvents       BillingEvent[]
+  invoices            Invoice[]
+  usageMetrics        UsageMetric[]
+
+  @@index([tenantId])
+  @@index([planId])
+  @@index([renewalDate])
+  @@index([isInTrial])
+  @@index([suspendedAt])
+}
+
+model BillingEvent {
+  id                    String                      @id @default(cuid())
+  subscriptionId        String
+  subscription          TenantBillingSubscription   @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  eventType             BillingEventType
+  oldPlanId             String?                     // Plan 升降級時的舊 Plan
+  newPlanId             String?                     // Plan 升降級時的新 Plan
+  effectiveDate         DateTime                    @default(now())
+  proratedAmount        Decimal?                    @db.Decimal(10, 2) // 按比例調整金額
+  description           String?
+  createdAt             DateTime                    @default(now())
+
+  @@index([subscriptionId])
+  @@index([eventType])
+  @@index([effectiveDate])
+}
+
+model BillingSubscriptionLog {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  action        String   // PLAN_CHANGE | CYCLE_CHANGE | SUSPEND | RESUME | CANCEL | REACTIVATE
+  fromPlanId    String?  // 舊方案 ID
+  fromPlanName  String?  // 舊方案名稱（快照，避免方案改名後查不到）
+  toPlanId      String?  // 新方案 ID
+  toPlanName    String?  // 新方案名稱
+  operatorId    String?  // 操作者 employeeId
+  reason        String?  @db.Text
+  metadata      Json?    // 額外資訊（如 billingCycle 變更前後值）
+  createdAt     DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([tenantId, createdAt])
+  @@index([action])
+}
+
+model Invoice {
+  id                    String                       @id @default(cuid())
+  invoiceNumber         String                       @unique
+  subscriptionId        String
+  subscription          TenantBillingSubscription    @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  billingPeriodStart    DateTime
+  billingPeriodEnd      DateTime
+  amount                Decimal                      @db.Decimal(10, 2)
+  discount              Decimal                      @default(0)                         @db.Decimal(10, 2)
+  tax                   Decimal                      @default(0)                         @db.Decimal(10, 2)
+  total                 Decimal                      @db.Decimal(10, 2)
+  status                InvoiceStatus                @default(DRAFT)
+  issuedAt              DateTime?
+  paidAt                DateTime?
+  dueDate               DateTime
+  overdueSince          DateTime?                    // P0-3c: 逾期開始時間
+  reminderSentAt        DateTime?                    // P0-3c: 催款通知寄送時間
+  overdueFeeApplied     Decimal                      @default(0) @db.Decimal(10, 2) // P0-3c: 逾期費
+  notes                 String?
+  createdAt             DateTime                     @default(now())
+  updatedAt             DateTime                     @updatedAt
+
+  @@unique([subscriptionId, billingPeriodStart])
+  @@index([subscriptionId])
+  @@index([status])
+  @@index([dueDate])
+  @@index([issuedAt])
+  @@index([overdueSince])
+}
+
+// ============================================================
+// Usage-Based Billing (P0-3c)
+// ============================================================
+
+model UsageMetric {
+  id             String                       @id @default(cuid())
+  subscriptionId String
+  subscription   TenantBillingSubscription    @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  metricType     String // e.g., "api_calls", "storage_gb", "user_count"
+  value          Decimal                      @db.Decimal(12, 2)
+  recordedAt     DateTime                     @default(now())
+  createdAt      DateTime                     @default(now())
+
+  @@index([subscriptionId, metricType])
+  @@index([recordedAt])
+}
+
+model UsageLimit {
+  id            String      @id @default(cuid())
+  planId        String
+  plan          BillingPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  metricType    String // e.g., "api_calls", "storage_gb", "user_count"
+  monthlyLimit  Decimal     @db.Decimal(12, 2)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@unique([planId, metricType])
+  @@index([planId])
+}
+
+model UsageOverageRate {
+  id           String      @id @default(cuid())
+  planId       String
+  plan         BillingPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  metricType   String // e.g., "api_calls", "storage_gb", "user_count"
+  ratePerUnit  Decimal     @db.Decimal(10, 4) // 每單位超額費用
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@unique([planId, metricType])
+  @@index([planId])
 }

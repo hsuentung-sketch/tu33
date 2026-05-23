@@ -12,8 +12,13 @@ import { scheduleOverdueReminder } from './jobs/overdue-reminder.js';
 import { scheduleMonthlyStatements } from './jobs/monthly-statement.js';
 import { scheduleDailyBackup } from './jobs/daily-backup.js';
 import { scheduleEinvoiceSync } from './jobs/einvoice-sync.js';
+import { scheduleDailyVersionAutoUpgrade } from './jobs/daily-version-auto-upgrade.js';
+import { scheduleDailyBillingAutoRenewal } from './jobs/daily-billing-auto-renewal.js';
+import { scheduleDailyBillingOverdueCheck } from './jobs/daily-billing-overdue-check.js';
 import { runEinvoiceBootCheck } from './jobs/einvoice-boot-check.js';
 import { registerInventoryEventHandlers } from './modules/inventory/inventory.events.js';
+import { registerAutoJournalHandlers } from './modules/accounting/journal/auto-journal.js';
+import { platformRouter } from './modules/core/platform/platform.router.js';
 
 const app = express();
 
@@ -56,6 +61,10 @@ app.use('/pdf', pdfRouter);
 // Mounted before authMiddleware so LINE users can tap the short URL
 // directly from chat. The target still carries its own auth (JWT).
 app.use('/s', shortLinkRouter);
+
+// SaaS platform admin console (static SPA + API)
+app.use('/saas-admin', express.static('public/saas-admin'));
+app.use('/api/platform', platformRouter);
 
 // API routes
 app.use('/api', apiRouter);
@@ -150,7 +159,11 @@ app.listen(config.port, '0.0.0.0', () => {
   scheduleMonthlyStatements();
   scheduleDailyBackup();
   scheduleEinvoiceSync();
+  scheduleDailyVersionAutoUpgrade();
+  scheduleDailyBillingAutoRenewal();
+  scheduleDailyBillingOverdueCheck(); // P0-3c: Daily overdue check at 04:00
   registerInventoryEventHandlers();
+  registerAutoJournalHandlers();
   void runEinvoiceBootCheck();
 });
 

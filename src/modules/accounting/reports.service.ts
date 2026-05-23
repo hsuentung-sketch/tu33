@@ -1,9 +1,10 @@
 /**
- * 會計報表 service：試算表 / 損益表 / 資產負債表
+ * 會計報表 service：試算表 / 損益表 / 資產負債表 / 總分類帳 / 現金流量表 / 帳齡分析
  *
  * 一律只算 status='posted' 的 JournalEntry。pending 不入帳。
  */
 import { prisma } from '../../shared/prisma.js';
+import { SYSTEM_ACCOUNT_CODES } from './coa/default-coa-template.js';
 
 interface AccountBalance {
   id: string;
@@ -104,4 +105,248 @@ export async function balanceSheet(tenantId: string, asOf: Date) {
     totalAsset, totalLiability, totalEquity,
     balanced: Math.abs(totalAsset - (totalLiability + totalEquity)) < 0.005,
   };
+}
+
+// ─────────────────────────────────────────────────────────────
+// 總分類帳 (General Ledger)
+// ─────────────────────────────────────────────────────────────
+
+interface GLLine {
+  date: Date;
+  entryNo: string;
+  entryId: string;
+  description: string;
+  debit: number;
+  credit: number;
+  runningBalance: number;
+}
+
+interface GLAccount {
+  accountId: string;
+  code: string;
+  name: string;
+  type: string;
+  normalSide: string;
+  openingBalance: number;
+  lines: GLLine[];
+  closingBalance: number;
+}
+
+/**
+ * 總分類帳 — 各科目在期間內的逐筆明細 + 期初/期末餘額。
+ * accountCode 可選：傳入時只回單一科目，不傳回全部有異動的科目。
+ */
+export async function generalLedger(
+  tenantId: string,
+  from: Date,
+  to: Date,
+  accountCode?: string,
+) {
+  const accountWhere = accountCode
+    ? { account: { tenantId, code: accountCode } }
+    : {};
+
+  // 期初餘額（from 之前的所有 posted JE）
+  const priorLines = await prisma.journalLine.findMany({
+    where: {
+      ...accountWhere,
+      entry: { tenantId, status: 'posted', entryDate: { lt: from } },
+    },
+    include: { account: true },
+  });
+
+  const openingMap = new Map<string, { debit: number; credit: number; account: any }>();
+  for (const l of priorLines) {
+    if (!openingMap.has(l.accountId)) {
+      openingMap.set(l.accountId, { debit: 0, credit: 0, account: l.account });
+    }
+    const o = openingMap.get(l.accountId)!;
+    o.debit += Number(l.debit);
+    o.credit += Number(l.credit);
+  }
+
+  // 期間內的 posted JE lines
+  const periodLines = await prisma.journalLine.findMany({
+    where: {
+      ...accountWhere,
+      entry: { tenantId, status: 'posted', entryDate: { gte: from, lte: to } },
+    },
+    include: { account: true, entry: { select: { id: true, entryNo: true, entryDate: true, description: true } } },
+    orderBy: [{ entry: { entryDate: 'asc' } }, { sequence: 'asc' }],
+  });
+
+  // 彙整各科目
+  const glMap = new Map<string, GLAccount>();
+
+  for (const [accId, o] of openingMap) {
+    const net = o.debit - o.credit;
+    const bal = o.account.normalSide === 'debit' ? net : -net;
+    glMap.set(accId, {
+      accountId: accId, code: o.account.code, name: o.account.name,
+      type: o.account.type, normalSide: o.account.normalSide,
+      openingBalance: bal, lines: [], closingBalance: bal,
+    });
+  }
+
+  for (const l of periodLines) {
+    if (!glMap.has(l.accountId)) {
+      glMap.set(l.accountId, {
+        accountId: l.accountId, code: l.account.code, name: l.account.name,
+        type: l.account.type, normalSide: l.account.normalSide,
+        openingBalance: 0, lines: [], closingBalance: 0,
+      });
+    }
+    const gl = glMap.get(l.accountId)!;
+    const d = Number(l.debit);
+    const c = Number(l.credit);
+    const delta = gl.normalSide === 'debit' ? d - c : c - d;
+    gl.closingBalance += delta;
+    gl.lines.push({
+      date: l.entry.entryDate, entryNo: l.entry.entryNo, entryId: l.entry.id,
+      description: l.entry.description, debit: d, credit: c,
+      runningBalance: gl.closingBalance,
+    });
+  }
+
+  const accounts = [...glMap.values()].sort((a, b) => a.code.localeCompare(b.code));
+  return { from, to, accounts };
+}
+
+// ─────────────────────────────────────────────────────────────
+// 現金流量表 (Cash Flow Statement) — 直接法
+// ─────────────────────────────────────────────────────────────
+
+interface CashFlowItem {
+  entryId: string;
+  entryNo: string;
+  date: Date;
+  description: string;
+  amount: number;
+  source: string;
+  counterAccounts: string[];
+}
+
+export async function cashFlowStatement(tenantId: string, from: Date, to: Date) {
+  const cashCodes = [SYSTEM_ACCOUNT_CODES.CASH, SYSTEM_ACCOUNT_CODES.BANK];
+  const cashAccounts = await prisma.chartOfAccount.findMany({
+    where: { tenantId, code: { in: cashCodes } },
+    select: { id: true },
+  });
+  const cashIds = new Set(cashAccounts.map((a) => a.id));
+  if (cashIds.size === 0) return { from, to, items: [], openingCash: 0, totalInflow: 0, totalOutflow: 0, netCashFlow: 0, closingCash: 0 };
+
+  const lines = await prisma.journalLine.findMany({
+    where: {
+      accountId: { in: [...cashIds] },
+      entry: { tenantId, status: 'posted', entryDate: { gte: from, lte: to } },
+    },
+    include: {
+      entry: {
+        select: { id: true, entryNo: true, entryDate: true, description: true, source: true },
+        include: { lines: { include: { account: { select: { id: true, code: true, name: true } } } } },
+      },
+    },
+    orderBy: { entry: { entryDate: 'asc' } },
+  });
+
+  const items: CashFlowItem[] = [];
+  const seen = new Set<string>();
+
+  for (const l of lines) {
+    if (seen.has(l.entry.id)) continue;
+    seen.add(l.entry.id);
+    let cashDelta = 0;
+    const counterAccts: string[] = [];
+    for (const el of l.entry.lines) {
+      if (cashIds.has(el.accountId)) {
+        cashDelta += Number(el.debit) - Number(el.credit);
+      } else {
+        counterAccts.push(`${el.account.code} ${el.account.name}`);
+      }
+    }
+    items.push({
+      entryId: l.entry.id, entryNo: l.entry.entryNo, date: l.entry.entryDate,
+      description: l.entry.description, amount: cashDelta,
+      source: l.entry.source, counterAccounts: [...new Set(counterAccts)],
+    });
+  }
+
+  const totalInflow = items.filter((i) => i.amount > 0).reduce((s, i) => s + i.amount, 0);
+  const totalOutflow = items.filter((i) => i.amount < 0).reduce((s, i) => s + i.amount, 0);
+  const netCashFlow = totalInflow + totalOutflow;
+
+  const priorCashLines = await prisma.journalLine.findMany({
+    where: { accountId: { in: [...cashIds] }, entry: { tenantId, status: 'posted', entryDate: { lt: from } } },
+  });
+  const openingCash = priorCashLines.reduce((s, l) => s + Number(l.debit) - Number(l.credit), 0);
+
+  return { from, to, openingCash, items, totalInflow, totalOutflow, netCashFlow, closingCash: openingCash + netCashFlow };
+}
+
+// ─────────────────────────────────────────────────────────────
+// 帳齡分析 (Aging Analysis)
+// ─────────────────────────────────────────────────────────────
+
+interface AgingBucket { label: string; count: number; amount: number; }
+interface AgingRow {
+  id: string; counterpartyId: string; counterpartyName: string;
+  amount: number; dueDate: Date; daysOverdue: number; bucket: string; orderNo: string;
+}
+
+function assignBucket(days: number): string {
+  if (days <= 0) return 'current';
+  if (days <= 30) return '1-30';
+  if (days <= 60) return '31-60';
+  if (days <= 90) return '61-90';
+  return '90+';
+}
+
+function bucketLabel(key: string): string {
+  const m: Record<string, string> = { current: '未到期', '1-30': '1-30 天', '31-60': '31-60 天', '61-90': '61-90 天', '90+': '90 天以上' };
+  return m[key] ?? key;
+}
+
+function buildBuckets(items: AgingRow[]): AgingBucket[] {
+  return ['current', '1-30', '31-60', '61-90', '90+'].map((key) => {
+    const matched = items.filter((i) => i.bucket === key);
+    return { label: bucketLabel(key), count: matched.length, amount: matched.reduce((s, i) => s + i.amount, 0) };
+  });
+}
+
+/** 應收帳齡分析 */
+export async function arAging(tenantId: string, asOf?: Date) {
+  const ref = asOf ?? new Date();
+  const rows = await prisma.accountReceivable.findMany({
+    where: { tenantId, isPaid: false },
+    include: { customer: { select: { name: true } }, salesOrder: { select: { orderNo: true } } },
+    orderBy: { dueDate: 'asc' },
+  });
+  const items: AgingRow[] = rows.map((r) => {
+    const days = Math.floor((ref.getTime() - r.dueDate.getTime()) / 86400000);
+    return {
+      id: r.id, counterpartyId: r.customerId, counterpartyName: r.customer.name,
+      amount: Number(r.amount), dueDate: r.dueDate, daysOverdue: Math.max(0, days),
+      bucket: assignBucket(days), orderNo: r.salesOrder.orderNo,
+    };
+  });
+  return { asOf: ref, items, buckets: buildBuckets(items), totalOutstanding: items.reduce((s, i) => s + i.amount, 0) };
+}
+
+/** 應付帳齡分析 */
+export async function apAging(tenantId: string, asOf?: Date) {
+  const ref = asOf ?? new Date();
+  const rows = await prisma.accountPayable.findMany({
+    where: { tenantId, isPaid: false },
+    include: { supplier: { select: { name: true } }, purchaseOrder: { select: { orderNo: true } } },
+    orderBy: { dueDate: 'asc' },
+  });
+  const items: AgingRow[] = rows.map((r) => {
+    const days = Math.floor((ref.getTime() - r.dueDate.getTime()) / 86400000);
+    return {
+      id: r.id, counterpartyId: r.supplierId, counterpartyName: r.supplier.name,
+      amount: Number(r.amount), dueDate: r.dueDate, daysOverdue: Math.max(0, days),
+      bucket: assignBucket(days), orderNo: r.purchaseOrder.orderNo,
+    };
+  });
+  return { asOf: ref, items, buckets: buildBuckets(items), totalOutstanding: items.reduce((s, i) => s + i.amount, 0) };
 }
