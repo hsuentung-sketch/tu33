@@ -59,6 +59,7 @@ export async function create(
     phone?: string;
     email?: string;
     address?: string;
+    taxDeductRate?: number | null;
     password?: string;
   },
 ): Promise<PublicEmployee> {
@@ -72,6 +73,7 @@ export async function create(
       phone: data.phone,
       email: data.email,
       address: data.address,
+      taxDeductRate: data.taxDeductRate ?? null,
       passwordHash,
       passwordSetAt: passwordHash ? new Date() : null,
     },

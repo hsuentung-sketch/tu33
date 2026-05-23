@@ -3,6 +3,41 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.16.0] - 2026-05-23
+
+### Changed — 業績獎金改用「毛利−營業稅、員工稅率」
+
+業績獎金邏輯重寫（取代 v2.15.0 的「售價超賣分潤」）：
+
+- **公式**：每張單獎金 = `Σ(成交單價 − 進價) × 數量 − 該單營業稅`；累積後 `實發 = max(0, 累積 ×(1 − 該業務扣除稅率/100))`
+- **員工稅率**：Employee 加 `taxDeductRate`（代開發票扣除稅率 %），每位業務各自設定，取代 v2.15.0 全域 8/10/13% 下拉
+- **進價快照**：SalesItem 加 `costAtSale`，建單記錄成交當下進價；報表優先用快照，進價調整不影響已結算獎金
+- **業務可見度**：業務（SALES）只看「每張單獎金 + 累積 + 實發」，不回進價/毛利明細（不洩漏成本）；主管/會計看完整拆解。報表針對單一業務（實發需該業務稅率）
+- **移除** v2.15.0 的「成交價不得低於售價」建單驗證（新邏輯為毛利，虧本單由獎金為負自然反映；實發 max(0) 不倒扣）
+
+#### Schema 變更（上線前必跑）
+
+```sql
+ALTER TABLE "Employee" ADD COLUMN "taxDeductRate" DECIMAL(5,2);
+ALTER TABLE "SalesItem" ADD COLUMN "costAtSale" DECIMAL(12,2);
+```
+
+#### 改動
+
+| 路徑 | 改動 |
+|---|---|
+| `prisma/schema.prisma` | Employee +`taxDeductRate`；SalesItem +`costAtSale` |
+| `sales-order.service.ts` | `resolveItemSalePrices`→`resolveItemPriceSnapshots`（移除售價驗證、改查售價+進價）；create/edit 寫 `costAtSale` |
+| `commission.service.ts` | 重寫：毛利−營業稅、員工稅率、實發 max(0)、業務不回明細 |
+| `commission.router.ts` | 移除 deductPct；SALES 不給明細、ADMIN/會計須指定業務 |
+| `employee.service.ts` / `employee.router.ts` | create/zod 加 `taxDeductRate` |
+| `public/admin/app.js` | 員工 modal 加稅率欄位；viewBonusReport 重寫（毛利/進價明細、員工稅率、業務只看獎金、移除 %下拉） |
+
+### Fixed — 修復 f552f91 的編譯阻塞（隨本版一併）
+
+- `demo.router.ts` 尾部殘留 `,});});` 5 個語法錯
+- tsconfig 排除 `*.test.ts`/`*.spec.ts`（production build 不編譯測試）
+
 ## [2.15.0] - 2026-05-21
 
 ### Added — 業務功能分組 + 業績獎金計算

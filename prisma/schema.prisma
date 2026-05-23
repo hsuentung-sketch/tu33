@@ -69,6 +69,9 @@ model Employee {
   email      String?
   address    String?
   role       Role     @default(VIEWER)
+  // 業績獎金代開發票扣除稅率 %（v2.16.0+）。實發 = 累積獎金 × (1 − taxDeductRate/100)。
+  // null / 0 = 不扣。每位業務各自設定。
+  taxDeductRate Decimal? @db.Decimal(5, 2)
   // bcrypt hash for the admin web console. Null = no web access (LINE-only user).
   passwordHash String?
   // Timestamp when passwordHash was last set; surfaced in admin UI so ADMIN
@@ -391,9 +394,11 @@ model SalesItem {
   quantity     Int
   unitPrice    Decimal    @db.Decimal(12, 2)
   amount       Decimal    @db.Decimal(12, 2)
-  // 成交當下的產品售價快照（v2.15.0+）。業績獎金 =（unitPrice − salePriceAtSale）× quantity。
-  // 歷史資料或自由輸入品名（無對應產品）為 null → 報表 fallback 用當前 Product.salePrice。
+  // 成交當下的產品售價快照（v2.15.0+，保留供參考）。
   salePriceAtSale Decimal? @db.Decimal(12, 2)
+  // 成交當下的產品進價快照（v2.16.0+）。業績獎金 =（unitPrice − costAtSale）× quantity − 營業稅。
+  // 歷史資料或自由輸入品名（無對應產品）為 null → 報表 fallback 用當前 Product.costPrice。
+  costAtSale   Decimal? @db.Decimal(12, 2)
   note         String?
   sortOrder    Int        @default(0)
 }

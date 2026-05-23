@@ -7,10 +7,10 @@ export const commissionRouter = Router();
 const ALLOWED_ROLES = ['ADMIN', 'ACCOUNTING', 'SALES'];
 
 /**
- * GET /commission/monthly?year=&month=&employeeId=&deductPct=
- * 業績獎金月結報表。
- * - SALES：強制只看自己（忽略 employeeId query）。
- * - ADMIN / ACCOUNTING：可帶 employeeId（省略 = 全部業務）。
+ * GET /commission/monthly?year=&month=&employeeId=
+ * 業績獎金月結報表（v2.16.0：毛利−營業稅，扣除率用各業務員工稅率）。
+ * - SALES：強制只看自己；不回進價 / 毛利明細（只回每單獎金），避免洩漏成本。
+ * - ADMIN / ACCOUNTING：須指定 employeeId（實發需該業務稅率）；回完整明細。
  * - 其他角色：403。
  */
 commissionRouter.get('/monthly', async (req: Request, res: Response, next: NextFunction) => {
@@ -27,24 +27,26 @@ commissionRouter.get('/monthly', async (req: Request, res: Response, next: NextF
     if (!Number.isInteger(month) || month < 1 || month > 12) {
       throw new ValidationError('month 參數錯誤（1-12）');
     }
-    const deductPct = req.query.deductPct ? Number(req.query.deductPct) : 0;
 
-    // SALES 強制自己；ADMIN/ACCOUNTING 可選 employeeId
+    // SALES：強制自己 + 不給明細；ADMIN/ACCOUNTING：指定 employeeId + 給完整明細
     let employeeId: string | undefined;
+    let includeItemDetail: boolean;
     if (role === 'SALES') {
       employeeId = req.employee.id;
+      includeItemDetail = false;
     } else {
       employeeId =
         typeof req.query.employeeId === 'string' && req.query.employeeId
           ? req.query.employeeId
           : undefined;
+      includeItemDetail = true;
     }
 
     const report = await commissionService.getMonthlyReport(req.tenantId, {
       year,
       month,
       employeeId,
-      deductPct,
+      includeItemDetail,
     });
     res.json(report);
   } catch (err) {

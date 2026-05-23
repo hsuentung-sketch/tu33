@@ -19,6 +19,8 @@ const createSchema = z.object({
   phone: z.string().optional(),
   email: z.string().email().optional(),
   address: z.string().optional(),
+  // 業績獎金代開發票扣除稅率 %（v2.16.0+）
+  taxDeductRate: z.number().min(0).max(100).nullable().optional(),
   password: passwordSchema.optional(),
 });
 

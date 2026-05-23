@@ -937,6 +937,7 @@ function openEmployeeEditor(emp, onSaved) {
       field('Email', textInput('email', 'email')),
     ),
     field('地址', textInput('address')),
+    field('業績獎金扣除稅率 %（代開發票，空=不扣）', textInput('taxDeductRate', 'number', { step: '0.01', min: '0', max: '100' })),
     pwSection,
   );
 
@@ -959,6 +960,8 @@ function openEmployeeEditor(emp, onSaved) {
             phone: state.phone || undefined,
             email: state.email || undefined,
             address: state.address || undefined,
+            taxDeductRate: (state.taxDeductRate === '' || state.taxDeductRate == null)
+              ? null : Number(state.taxDeductRate),
           };
           if (!isEdit) body.employeeId = state.employeeId;
 
@@ -1616,13 +1619,13 @@ async function viewVisitLogs(main) {
   await reload();
 }
 
-// -------- 業績獎金報表（v2.15.0）--------
+// -------- 業績獎金報表（v2.16.0 改寫：毛利−營業稅、員工稅率）--------
 async function viewBonusReport(main) {
   main.innerHTML = '';
   main.append(el('h2', {}, '業績獎金'));
   main.append(el('div', { class: 'page-sub' }, isSales()
-    ? '只看自己當月業績獎金。獎金 =（成交價 − 產品售價）× 數量。'
-    : '業務業績獎金月結。獎金 =（成交價 − 產品售價）× 數量，累計後扣代開發票 % 為實發。'));
+    ? '只看自己當月業績獎金。每單獎金 =（成交價 − 進價）× 數量 − 該單營業稅。'
+    : '業務業績獎金月結。每單獎金 =（成交價 − 進價）× 數量 − 該單營業稅；累計 ×(1 − 該業務扣除稅率) = 實發。'));
 
   const now = new Date();
   const yearSel = el('select', {});
@@ -1633,9 +1636,10 @@ async function viewBonusReport(main) {
   for (let m = 1; m <= 12; m++) monthSel.append(el('option', { value: String(m) }, m + ' 月'));
   monthSel.value = String(now.getMonth() + 1);
 
+  // 業務選擇：SALES 鎖本人（後端強制自己）；ADMIN/會計須選一個業務（實發需該業務稅率）
   const empSelect = el('select', {});
   if (!isSales()) {
-    empSelect.append(el('option', { value: '' }, '全部業務'));
+    empSelect.append(el('option', { value: '' }, '請選擇業務'));
     const employees = await loadEmployeeOptions();
     for (const e of employees.filter((x) => x.role === 'SALES')) {
       empSelect.append(el('option', { value: e.id }, `${e.employeeId} ${e.name}`));
@@ -1645,61 +1649,70 @@ async function viewBonusReport(main) {
     empSelect.disabled = true;
   }
 
-  const deductSel = el('select', {});
-  for (const p of [0, 8, 10, 13]) {
-    deductSel.append(el('option', { value: String(p) }, p === 0 ? '不扣除' : p + '%'));
-  }
-  deductSel.value = '8';
-
   const resultBox = el('div', {});
+
+  const sumRow = (label, val, strong) => el('div',
+    { style: 'display:flex;justify-content:space-between;margin-bottom:6px;' },
+    el('span', {}, label), strong ? el('strong', {}, val) : el('span', {}, val));
 
   function renderReport(rep) {
     resultBox.innerHTML = '';
+    if (!rep.employeeId) {
+      resultBox.append(el('div', { class: 'empty', style: 'padding:24px;' }, '請先選擇業務'));
+      return;
+    }
+    resultBox.append(el('div', { style: 'margin-bottom:8px;font-size:13px;color:var(--muted);' },
+      `業務：${rep.employeeName || '—'}　扣除稅率：${rep.taxDeductRate}%`));
     if (!rep.rows.length) {
       resultBox.append(el('div', { class: 'empty', style: 'padding:24px;' }, '本月無銷貨單'));
       return;
     }
     for (const o of rep.rows) {
-      const tb = el('tbody');
-      for (const it of o.items) {
-        tb.append(el('tr', {},
-          el('td', {}, it.productName + (it.isFallback ? ' *' : '')),
-          el('td', { class: 'num' }, String(it.quantity)),
-          el('td', { class: 'num' }, fmtMoney(it.unitPrice)),
-          el('td', { class: 'num' }, fmtMoney(it.salePrice)),
-          el('td', { class: 'num' }, fmtMoney(it.bonus)),
-        ));
-      }
-      const itemTbl = el('table', { class: 'data', style: 'margin:4px 0;' },
-        el('thead', {}, el('tr', {},
-          el('th', {}, '品名'),
-          el('th', { class: 'num' }, '數量'),
-          el('th', { class: 'num' }, '成交價'),
-          el('th', { class: 'num' }, '售價'),
-          el('th', { class: 'num' }, '獎金'),
-        )),
-        tb,
-      );
-      resultBox.append(el('div', { class: 'card', style: 'padding:12px;margin-bottom:10px;' },
+      const card = el('div', { class: 'card', style: 'padding:12px;margin-bottom:10px;' },
         el('div', { style: 'display:flex;justify-content:space-between;font-weight:600;flex-wrap:wrap;gap:4px;' },
           el('span', {}, `${o.orderNo} · ${o.customerName}`),
-          el('span', { style: 'color:var(--muted);font-weight:400;font-size:12px;' }, `${o.orderDate} · 業務 ${o.salesPersonName}`),
+          el('span', { style: 'color:var(--muted);font-weight:400;font-size:12px;' }, o.orderDate),
         ),
-        itemTbl,
-        el('div', { style: 'text-align:right;font-weight:600;' }, `單筆獎金：${fmtMoney(o.orderBonus)}`),
-      ));
+      );
+      // ADMIN/會計才有 items 明細（含進價/毛利）；業務只看單筆獎金
+      if (o.items) {
+        const tb = el('tbody');
+        for (const it of o.items) {
+          tb.append(el('tr', {},
+            el('td', {}, it.productName + (it.isFallback ? ' *' : '')),
+            el('td', { class: 'num' }, String(it.quantity)),
+            el('td', { class: 'num' }, fmtMoney(it.unitPrice)),
+            el('td', { class: 'num' }, fmtMoney(it.costPrice)),
+            el('td', { class: 'num' }, fmtMoney(it.grossProfit)),
+          ));
+        }
+        card.append(el('table', { class: 'data', style: 'margin:4px 0;' },
+          el('thead', {}, el('tr', {},
+            el('th', {}, '品名'),
+            el('th', { class: 'num' }, '數量'),
+            el('th', { class: 'num' }, '成交價'),
+            el('th', { class: 'num' }, '進價'),
+            el('th', { class: 'num' }, '毛利'),
+          )),
+          tb,
+        ));
+        card.append(el('div', { style: 'text-align:right;font-size:12px;color:var(--muted);' },
+          `毛利合計 ${fmtMoney(o.grossProfitTotal)}　− 營業稅 ${fmtMoney(o.taxAmount)}`));
+      }
+      card.append(el('div', { style: 'text-align:right;font-weight:600;' }, `單筆獎金：${fmtMoney(o.orderBonus)}`));
+      resultBox.append(card);
     }
     const deducted = rep.totalBonus - rep.netAmount;
     resultBox.append(el('div', { class: 'card', style: 'padding:16px;margin-top:8px;background:#f0f7ff;border:1px solid #b6d4fe;' },
-      el('div', { style: 'display:flex;justify-content:space-between;margin-bottom:6px;' },
-        el('span', {}, '累計獎金'), el('strong', {}, fmtMoney(rep.totalBonus))),
-      el('div', { style: 'display:flex;justify-content:space-between;margin-bottom:6px;' },
-        el('span', {}, `扣除代開發票 ${rep.deductPct}%`), el('span', {}, '− ' + fmtMoney(deducted))),
+      sumRow('累計獎金', fmtMoney(rep.totalBonus), true),
+      sumRow(`扣除代開發票稅率 ${rep.taxDeductRate}%`, '− ' + fmtMoney(deducted)),
       el('div', { style: 'display:flex;justify-content:space-between;font-size:18px;font-weight:700;color:#0a4d99;' },
         el('span', {}, '實發金額'), el('span', {}, fmtMoney(rep.netAmount))),
     ));
-    resultBox.append(el('div', { style: 'font-size:12px;color:var(--muted);margin-top:6px;' },
-      '標「*」的品項無成交當下售價快照，以目前產品售價估算（產品調價後數字可能變動）。'));
+    if (rep.includeItemDetail) {
+      resultBox.append(el('div', { style: 'font-size:12px;color:var(--muted);margin-top:6px;' },
+        '標「*」的品項無成交當下進價快照，以目前產品進價估算（產品調價後數字可能變動）。'));
+    }
   }
 
   async function reload() {
@@ -1709,7 +1722,6 @@ async function viewBonusReport(main) {
       params.set('year', yearSel.value);
       params.set('month', monthSel.value);
       if (empSelect.value) params.set('employeeId', empSelect.value);
-      params.set('deductPct', deductSel.value);
       const rep = await api.get('/commission/monthly?' + params.toString());
       renderReport(rep);
     } catch (e) {
@@ -1721,10 +1733,9 @@ async function viewBonusReport(main) {
   const toolbar = el('div', { class: 'toolbar' },
     yearSel, monthSel,
     el('label', { style: 'font-size:12px;color:var(--muted);' }, ' 業務 ', empSelect),
-    el('label', { style: 'font-size:12px;color:var(--muted);' }, ' 代開發票 ', deductSel),
     el('button', { class: 'btn', onClick: reload }, '查詢'),
   );
-  [yearSel, monthSel, empSelect, deductSel].forEach((s) => s.addEventListener('change', reload));
+  [yearSel, monthSel, empSelect].forEach((s) => s.addEventListener('change', reload));
   main.append(toolbar, resultBox);
   await reload();
 }
