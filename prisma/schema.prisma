@@ -26,6 +26,9 @@ model Tenant {
   modules           String[] // ["sales","purchase","accounting"]
   settings          Json     @default("{}")
   isActive          Boolean  @default(true)
+  // P1-1 churn：soft-delete 時戳。非 null = 已退租（保留資料，30 天後可 hard-delete）。
+  // platform 列表預設過濾掉 deletedAt != null 的租戶。
+  deletedAt         DateTime?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -978,6 +981,9 @@ model VersionUpgradeLog {
   changeType    VersionChangeType
   operatorId    String?           // 執行者 employeeId（AUTO_UPGRADE 時為 null）
   reason        String?           @db.Text
+  // CP（控制台）pull-on-demand 升級成功後 push 的 git commit SHA（P0-V）。
+  // ERP 自身 semver 升級為 null；讓 CP 的 deploy commit 追蹤能與 ERP semver 對齊。
+  commitHash    String?
   createdAt     DateTime          @default(now())
 
   @@index([tenantId])

@@ -480,3 +480,89 @@ export async function getPlanFeatures(planId: string): Promise<string[]> {
 
   return features.map((f) => f.feature);
 }
+
+// ── P0-3a: External sync（供 CP 控制台呼叫，ERP 為 billing single source of truth）──
+
+/**
+ * Upsert BillingPlan（by unique name）+ 重設 planFeatures = modules。
+ * CP 新建/更新方案時推送過來。modules 為合法 module key（見 docs/module-keys.md）。
+ */
+export async function upsertPlanFromExternal(input: {
+  name: string;
+  monthlyPrice: number;
+  annualPrice?: number;
+  trialDays?: number;
+  modules: string[];
+  isActive?: boolean;
+}): Promise<BillingPlan> {
+  if (!input.name?.trim()) throw new ValidationError('方案名稱必填');
+  const plan = await prisma.billingPlan.upsert({
+    where: { name: input.name },
+    create: {
+      name: input.name,
+      monthlyPrice: input.monthlyPrice,
+      annualPrice: input.annualPrice ?? input.monthlyPrice * 12,
+      trialDays: input.trialDays ?? 14,
+      isActive: input.isActive ?? true,
+    },
+    update: {
+      monthlyPrice: input.monthlyPrice,
+      ...(input.annualPrice != null ? { annualPrice: input.annualPrice } : {}),
+      ...(input.trialDays != null ? { trialDays: input.trialDays } : {}),
+      ...(input.isActive != null ? { isActive: input.isActive } : {}),
+    },
+  });
+  // 重設 planFeatures（modules → enabled feature），確保與 CP 一致
+  await prisma.planFeature.deleteMany({ where: { planId: plan.id } });
+  if (input.modules?.length) {
+    await prisma.planFeature.createMany({
+      data: input.modules.map((m) => ({ planId: plan.id, feature: m, enabled: true })),
+    });
+  }
+  logger.info('Plan upserted from external (CP)', { name: plan.id, modules: input.modules });
+  return plan;
+}
+
+/** 暫停訂閱（CP suspend 呼叫）：設 suspendedAt + SUSPENSION 事件。 */
+export async function suspendSubscription(
+  tenantId: string,
+  reason?: string,
+  until?: Date,
+): Promise<TenantBillingSubscription> {
+  const sub = await prisma.tenantBillingSubscription.findUnique({ where: { tenantId } });
+  if (!sub) throw new NotFoundError('TenantBillingSubscription', tenantId);
+  const updated = await prisma.tenantBillingSubscription.update({
+    where: { tenantId },
+    data: { suspendedAt: new Date(), suspendedUntil: until ?? null, suspendReason: reason ?? null },
+  });
+  await prisma.billingEvent.create({
+    data: {
+      id: `evt_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
+      subscriptionId: sub.id,
+      eventType: 'SUSPENSION',
+      description: reason ?? '訂閱暫停（CP）',
+    },
+  });
+  logger.info('Subscription suspended', { tenantId, reason });
+  return updated;
+}
+
+/** 恢復訂閱（CP resume 呼叫）：清 suspendedAt + RESUME 事件。 */
+export async function resumeSubscription(tenantId: string): Promise<TenantBillingSubscription> {
+  const sub = await prisma.tenantBillingSubscription.findUnique({ where: { tenantId } });
+  if (!sub) throw new NotFoundError('TenantBillingSubscription', tenantId);
+  const updated = await prisma.tenantBillingSubscription.update({
+    where: { tenantId },
+    data: { suspendedAt: null, suspendedUntil: null, suspendReason: null },
+  });
+  await prisma.billingEvent.create({
+    data: {
+      id: `evt_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
+      subscriptionId: sub.id,
+      eventType: 'RESUME',
+      description: '訂閱恢復（CP）',
+    },
+  });
+  logger.info('Subscription resumed', { tenantId });
+  return updated;
+}

@@ -19,12 +19,14 @@ function sweepExpired(now: number): void {
   }
 }
 
-export async function findEmployeeByLineUserId(lineUserId: string) {
-  // 注意：在多租戶場景下，lineUserId + tenantId 才是唯一識別符
-  // 此函數假設 lineUserId 在系統層級唯一（可選情況）
-  // 生產環境應改為接收 tenantId 參數
+/**
+ * 依 (tenantId, lineUserId) 複合鍵查員工。P0-2：lineUserId 在多租戶下
+ * 非全域唯一，查詢必須帶 tenantId，否則跨租戶洩漏。
+ * （舊的 findEmployeeByLineUserId(lineUserId) 無 caller 且不帶 tenantId，已移除。）
+ */
+export async function findEmployeeByLineUserId(tenantId: string, lineUserId: string) {
   return prisma.employee.findFirst({
-    where: { lineUserId },
+    where: { tenantId, lineUserId },
     include: { tenant: true },
   });
 }
