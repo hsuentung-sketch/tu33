@@ -16,3 +16,7 @@ tmp/
 
 # Fonts downloaded at build time
 assets/fonts/
+
+# Claude Code 工作工件（session 用，不進 repo）
+DESIGN-LOG.md
+SESSION-STATE.md
