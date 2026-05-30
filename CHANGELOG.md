@@ -38,6 +38,60 @@ ALTER TABLE "SalesItem" ADD COLUMN "costAtSale" DECIMAL(12,2);
 - `demo.router.ts` 尾部殘留 `,});});` 5 個語法錯
 - tsconfig 排除 `*.test.ts`/`*.spec.ts`（production build 不編譯測試）
 
+### Added — Code Backlog P0-P2（d755c8d）
+
+跨 ERP + CP 的技術債清理，以下為 ERP 端項目：
+
+#### P0-2：lineUserId 多租戶隔離
+
+- `Employee_lineUserId_key` 全域 unique → `Employee_tenantId_lineUserId_key` 複合 unique
+- `Customer` 同步加 `Customer_tenantId_lineUserId_key`
+- `auth.service.findEmployeeByLineUserId(tenantId, lineUserId)` 必帶 tenantId，防跨租戶洩漏
+- `auth.middleware.ts` LINE webhook handler 帶 tenantId 查詢
+
+#### P0-V：VersionUpgradeLog commitHash
+
+- `VersionUpgradeLog` 加 `commitHash` 欄位：CP pull-on-demand 升級後 push git commit SHA
+- `POST /api/platform/versions/record`：CP 寫入升級紀錄（含 commitHash）
+- `GET /api/platform/versions`：列出版本紀錄
+
+#### P0-3a：Platform Billing Sync
+
+- `POST /api/platform/billing/sync`：CP 同步方案定義（upsert BillingPlan + PlanFeature）
+- `POST /api/platform/billing/subscriptions/:tenantId/suspend`：暫停訂閱
+- `POST /api/platform/billing/subscriptions/:tenantId/resume`：恢復訂閱
+- `POST /api/platform/billing/invoices/:id/mark-paid`：標記發票已付
+- `billing.service.ts` 新增 `upsertPlanFromExternal()`、`suspendSubscription()`、`resumeSubscription()`
+
+#### P1-1：Tenant Churn（軟刪除 + 匯出）
+
+- `Tenant` 加 `deletedAt` 欄位
+- `POST /api/platform/tenants/:id/soft-delete`：標記刪除
+- `POST /api/platform/tenants/:id/restore`：恢復
+- `GET /api/platform/tenants/:id/export`：匯出租戶全數據（strip passwordHash + settings）
+- `GET /api/platform/tenants` 預設過濾 `deletedAt=null`
+
+#### P2-fee：Module Keys 文件
+
+- 新增 `docs/module-keys.md`：合法模組 key 與用量指標唯一真相來源
+- 確保 ERP feature gate、BillingPlan.PlanFeature、Tenant.modules、CP Plan.modules 四處用同一組 key
+
+#### Schema 變更（上線前必跑）
+
+```sql
+ALTER TABLE "Tenant" ADD COLUMN IF NOT EXISTS "deletedAt" TIMESTAMP;
+ALTER TABLE "VersionUpgradeLog" ADD COLUMN IF NOT EXISTS "commitHash" TEXT;
+ALTER TABLE "TenantVersionSubscription" ADD COLUMN IF NOT EXISTS "previousVersion" TEXT;
+```
+
+#### 依賴 f552f91 的 DDL（上線前必跑，見 `prisma/migrations/manual/`）
+
+1. `20260430_accounting_phase_a.sql` — 會計科目 / 期間 / 傳票
+2. `20260521_billing_management.sql` — 計費方案 / 訂閱 / 事件 / 發票
+3. `20260521_version_management.sql` — 版本歷史 / 租戶版本訂閱
+4. `20260521_p0_3c_advanced_billing.sql` — 年繳 / 暫停 / 使用量
+5. `20260521_lineUserId_composite_unique.sql` — lineUserId 複合唯一
+
 ## [2.15.0] - 2026-05-21
 
 ### Added — 業務功能分組 + 業績獎金計算
