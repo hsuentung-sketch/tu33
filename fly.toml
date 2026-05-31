@@ -9,9 +9,8 @@ primary_region = 'nrt'
 [build]
 
 [deploy]
-  # Run Prisma migrations before starting the new release.
-  # Fly runs this on a temporary VM; if it fails the deploy is aborted.
-  release_command = 'npx prisma migrate deploy'
+  # DDL 走 Supabase SQL Editor 手動執行，不用 prisma migrate deploy。
+  # Prisma 7 driver adapter 模式下 schema 無 url，prisma migrate deploy 會失敗。
 
 [env]
   NODE_ENV = 'production'
