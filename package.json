@@ -2,6 +2,7 @@
   "name": "erp-line-bot",
   "version": "2.16.0",
   "description": "LINE Bot ERP System for SMBs - Multi-tenant modular architecture",
+  "type": "commonjs",
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",

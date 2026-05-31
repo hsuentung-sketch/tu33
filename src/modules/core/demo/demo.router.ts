@@ -13,8 +13,6 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
 
-// 取得當前目錄（編譯後位於 dist/）
-const __dirname = path.resolve();
 const execFileAsync = promisify(execFile);
 
 export const demoRouter = Router();
