@@ -257,6 +257,47 @@ bump `package.json` 的 version 時必須**同步**以下：
 ## Git 身份
 - Author: `ERP Dev <erp@local>`（用 `git -c user.name=... -c user.email=...` commit，專案沒設 global）
 
+## 鐵則：AppError 與 tenant-isolation 使用紀律
+
+2026-06-01 因兩處串連 bug 導致潤樋使用者 工作日誌 / 會計 / 庫存 / 電子發票 / 文件 全部 403 FORBIDDEN。為防再犯，以下兩條強制：
+
+### A. AppError 構造參數順序 — **`(statusCode, message, code?)`**
+
+```ts
+// ✓ 正確
+throw new AppError(403, '無權存取此租戶的資料', 'FORBIDDEN');
+throw new ForbiddenError('沒權限：只能查看自己建立的日誌');
+
+// ✗ 錯誤（message 與 code 對調）— 前端會顯示「FORBIDDEN」這三個字
+throw new AppError(403, 'FORBIDDEN', '無權存取此租戶的資料');
+```
+
+`code` 是 **optional 第 3 參數**（給 client 做 switch 用），message 才是給人看的描述。**新拋 error 一律優先用子類**（`ForbiddenError`、`NotFoundError`、`ValidationError`、`UnauthorizedError`）而非裸 `new AppError(...)`，避免位置易混。
+
+### B. `assertTenantIsolation` 只用於「已 fetch row 後二次比對」
+
+```ts
+// ✓ 正確：fetch 完一筆 row 後比對
+const log = await prisma.visitLog.findUnique({ where: { id } });
+if (!log) throw new NotFoundError('VisitLog', id);
+assertTenantIsolation({ requestTenantId: req.tenantId, resourceTenantId: log.tenantId });
+
+// ✓ 推薦（更精簡，免叫 helper）：where 直接帶 tenantId
+const log = await prisma.visitLog.findFirst({ where: { id, tenantId: req.tenantId } });
+
+// ✗ 錯誤（service.list/findMany 階段呼叫，根本沒 resource 可比對）
+export async function list(tenantId, filter) {
+  assertTenantIsolation({ requestTenantId: tenantId, resourceTenantId: 'sales' });
+  // 'sales' 不是 tenantId！永遠 throw 403。
+}
+```
+
+**list / findMany / findFirst / create 等查詢階段**：用 prisma `where: { tenantId }` 隔離即可，**不要呼叫** `assertTenantIsolation`。
+
+PR review 抓 `assertTenantIsolation\(` 全文搜尋，第 2 參數若是字面字串就是錯。
+
+---
+
 ## 踩過的坑備忘
 - Express 5：mount 順序重要，`/pdf` **必須在 authMiddleware 之前**
 - Prisma 7：用共享的 `prisma` client（`src/shared/prisma.ts`），不要 `new PrismaClient()`
