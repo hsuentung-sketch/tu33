@@ -12,7 +12,6 @@ export interface AdjustOptions {
 }
 
 export async function getInventory(tenantId: string, productId: string) {
-  assertTenantIsolation(tenantId, 'inventory');
   const product = await prisma.product.findFirst({
     where: { id: productId, tenantId },
   });
@@ -35,7 +34,6 @@ export async function adjust(
   reason: InventoryReason,
   opts: AdjustOptions = {},
 ) {
-  assertTenantIsolation(tenantId, 'inventory');
   const product = await prisma.product.findFirst({
     where: { id: productId, tenantId },
   });
@@ -97,7 +95,6 @@ export async function list(
   tenantId: string,
   opts: { lowStockOnly?: boolean } = {},
 ) {
-  assertTenantIsolation(tenantId, 'inventory');
   const rows = await prisma.inventory.findMany({
     where: { tenantId },
     include: { product: true },
@@ -125,7 +122,6 @@ export async function listTransactions(
   productId?: string,
   limit = 50,
 ) {
-  assertTenantIsolation(tenantId, 'inventory');
   const where: Prisma.InventoryTransactionWhereInput = { tenantId };
   if (productId) where.productId = productId;
   return prisma.inventoryTransaction.findMany({
@@ -141,7 +137,6 @@ export async function setReorderPoint(
   productId: string,
   value: number,
 ) {
-  assertTenantIsolation(tenantId, 'inventory');
   const product = await prisma.product.findFirst({
     where: { id: productId, tenantId },
   });

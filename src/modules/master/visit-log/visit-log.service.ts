@@ -25,7 +25,6 @@ export interface VisitLogFilter {
 }
 
 export async function list(tenantId: string, filter: VisitLogFilter = {}) {
-  assertTenantIsolation(tenantId, 'sales');
   const where: Record<string, unknown> = { tenantId };
   if (filter.customerId) where.customerId = filter.customerId;
   if (filter.employeeId) where.createdByEmployeeId = filter.employeeId;
@@ -47,7 +46,6 @@ export async function list(tenantId: string, filter: VisitLogFilter = {}) {
 }
 
 export async function getById(tenantId: string, id: string) {
-  assertTenantIsolation(tenantId, 'sales');
   const log = await prisma.visitLog.findFirst({
     where: { id, tenantId },
     include: {
@@ -60,7 +58,6 @@ export async function getById(tenantId: string, id: string) {
 }
 
 export async function create(tenantId: string, input: VisitLogInput) {
-  assertTenantIsolation(tenantId, 'sales');
   if (!input.content || input.content.trim().length === 0) {
     throw new ValidationError('拜訪內容不可空白');
   }
@@ -92,7 +89,6 @@ export async function update(
   id: string,
   input: Partial<VisitLogInput>,
 ) {
-  assertTenantIsolation(tenantId, 'sales');
   await getById(tenantId, id);
   return prisma.visitLog.update({
     where: { id },
@@ -110,7 +106,6 @@ export async function update(
 }
 
 export async function remove(tenantId: string, id: string) {
-  assertTenantIsolation(tenantId, 'sales');
   await getById(tenantId, id);
   await prisma.visitLog.delete({ where: { id } });
 }

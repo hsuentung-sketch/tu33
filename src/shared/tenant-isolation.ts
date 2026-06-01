@@ -13,15 +13,15 @@ import { AppError } from './errors.js';
  */
 export function assertTenantIsolation(requestTenantId: string, resourceTenantId: string): void {
   if (!requestTenantId) {
-    throw new AppError(401, 'UNAUTHORIZED', '請求缺少租戶資訊');
+    throw new AppError(401, '請求缺少租戶資訊', 'UNAUTHORIZED');
   }
 
   if (!resourceTenantId) {
-    throw new AppError(500, 'INTERNAL_ERROR', '資源缺少租戶資訊');
+    throw new AppError(500, '資源缺少租戶資訊', 'INTERNAL_ERROR');
   }
 
   if (requestTenantId !== resourceTenantId) {
-    throw new AppError(403, 'FORBIDDEN', '無權存取此租戶的資料');
+    throw new AppError(403, '無權存取此租戶的資料', 'FORBIDDEN');
   }
 }
 
@@ -36,12 +36,12 @@ export function assertTenantIsolationBatch(
   resourceTenantIds: string[]
 ): void {
   if (!requestTenantId) {
-    throw new AppError(401, 'UNAUTHORIZED', '請求缺少租戶資訊');
+    throw new AppError(401, '請求缺少租戶資訊', 'UNAUTHORIZED');
   }
 
   const invalidResources = resourceTenantIds.filter((id) => id !== requestTenantId);
   if (invalidResources.length > 0) {
-    throw new AppError(403, 'FORBIDDEN', `${invalidResources.length} 筆資源不屬於此租戶`);
+    throw new AppError(403, `${invalidResources.length} 筆資源不屬於此租戶`, 'FORBIDDEN');
   }
 }
 

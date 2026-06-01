@@ -7,7 +7,6 @@ import { ValidationError, NotFoundError } from '../../../shared/errors.js';
 import { assertTenantIsolation } from "../../../shared/tenant-isolation.js";
 
 export async function list(tenantId: string, opts: { year?: number } = {}) {
-  assertTenantIsolation(tenantId, 'accounting');
   return prisma.fiscalPeriod.findMany({
     where: { tenantId, ...(opts.year ? { year: opts.year } : {}) },
     orderBy: [{ year: 'asc' }, { period: 'asc' }],
@@ -23,7 +22,6 @@ export async function ensureYearPeriods(
   year: number,
   fiscalYearStartMonth: number = 1,
 ): Promise<{ created: number }> {
-  assertTenantIsolation(tenantId, 'accounting');
   const existing = await prisma.fiscalPeriod.findMany({
     where: { tenantId, year },
     select: { period: true },
@@ -46,7 +44,6 @@ export async function ensureYearPeriods(
 }
 
 export async function findPeriodForDate(tenantId: string, date: Date) {
-  assertTenantIsolation(tenantId, 'accounting');
   // 找 startDate <= date <= endDate
   return prisma.fiscalPeriod.findFirst({
     where: {
@@ -58,7 +55,6 @@ export async function findPeriodForDate(tenantId: string, date: Date) {
 }
 
 export async function close(tenantId: string, id: string, closedBy: string) {
-  assertTenantIsolation(tenantId, 'accounting');
   const p = await prisma.fiscalPeriod.findFirst({ where: { id, tenantId } });
   if (!p) throw new NotFoundError('期間不存在');
   if (p.status === 'closed') throw new ValidationError('已關閉');
@@ -74,7 +70,6 @@ export async function close(tenantId: string, id: string, closedBy: string) {
 }
 
 export async function reopen(tenantId: string, id: string) {
-  assertTenantIsolation(tenantId, 'accounting');
   const p = await prisma.fiscalPeriod.findFirst({ where: { id, tenantId } });
   if (!p) throw new NotFoundError('期間不存在');
   if (p.status === 'open') throw new ValidationError('已是開放狀態');

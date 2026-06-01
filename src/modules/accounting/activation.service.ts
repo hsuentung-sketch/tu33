@@ -16,7 +16,6 @@ import * as journalService from './journal/journal.service.js';
 import { assertTenantIsolation } from "../../shared/tenant-isolation.js";
 
 export async function isEnabled(tenantId: string): Promise<boolean> {
-  assertTenantIsolation(tenantId, 'accounting');
   const t = await prisma.tenant.findUnique({ where: { id: tenantId } });
   return getTenantSettings(t?.settings).accounting.enabled;
 }
@@ -24,7 +23,6 @@ export async function isEnabled(tenantId: string): Promise<boolean> {
 export async function activate(tenantId: string, opts: {
   fiscalYearStartMonth?: number; year?: number;
 }): Promise<{ inserted: number; periodsCreated: number }> {
-  assertTenantIsolation(tenantId, 'accounting');
   const fiscalYearStartMonth = opts.fiscalYearStartMonth ?? 1;
   const year = opts.year ?? new Date().getFullYear();
 
@@ -64,7 +62,6 @@ export async function createOpeningBalance(tenantId: string, createdBy: string, 
   description?: string;
   lines: Array<{ accountCode: string; debit?: number; credit?: number; description?: string }>;
 }) {
-  assertTenantIsolation(tenantId, 'accounting');
   if (!input.lines || input.lines.length < 2) {
     throw new ValidationError('期初餘額至少需 2 筆分錄（如：現金 / 業主資本）');
   }
