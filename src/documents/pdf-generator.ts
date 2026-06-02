@@ -16,14 +16,18 @@ function stampPathFor(tenantId: string): string {
   return resolve(STAMP_DIR, `${tenantId}.png`);
 }
 
-// ---------- 字體尺寸（除標題抬頭外，body 統一 12pt） ----------
-const FS = {
-  title: 20,
-  company: 18,
-  body: 12,
-  totalsBig: 13,
-  footer: 9,
-} as const;
+// ---------- 字體尺寸 ----------
+interface FontSizes {
+  title: number;
+  company: number;
+  body: number;
+  totalsBig: number;
+  footer: number;
+}
+const FS_A4: FontSizes = { title: 20, company: 18, body: 12, totalsBig: 13, footer: 9 };
+const FS_DOT: FontSizes = { title: 16, company: 14, body: 10, totalsBig: 11, footer: 8 };
+/** @deprecated alias kept for unchanged generators */
+const FS = FS_A4;
 
 interface DocumentItem {
   productName: string;
@@ -155,32 +159,78 @@ function formatCurrency(amount: number): string {
 
 // ---------- Layout helpers ----------
 //
-// The three PDF types share the same visual language (header band,
+// The PDF types share the same visual language (header band,
 // two-column info grid, bordered item table, totals block). The
-// helpers below exist so each generator only has to describe the data
-// and the labels — not re-implement the drawing every time.
+// helpers below accept a PageLayout so the same drawing logic can
+// target different paper sizes (A4 for quotation / monthly; dot-matrix
+// 中一刀 for sales order / purchase order).
 
-const PAGE = {
-  margin: 40,
-  contentWidth: 515, // A4 width (595) - 2 * margin
-  left: 40,
-  right: 555,
+interface PageLayout {
+  margin: number;
+  contentWidth: number;
+  left: number;
+  right: number;
+  fs: FontSizes;
+  /** Title band height */
+  titleH: number;
+  /** Info grid min row height */
+  infoRowH: number;
+  /** Info grid vertical padding */
+  infoPad: number;
+  /** Item table header height */
+  itemHeaderH: number;
+  /** Item table min row height */
+  itemRowH: number;
+  /** Item table vertical padding */
+  itemPad: number;
+  /** Minimum empty rows in item table */
+  itemMinRows: number;
+  /** Totals row height */
+  totalsRowH: number;
+  /** Gap between sections */
+  gap: number;
+}
+
+/** A4 (595 × 842pt) — 報價單、月結請款單、月結應付 */
+const LAYOUT_A4: PageLayout = {
+  margin: 40, contentWidth: 515, left: 40, right: 555,
+  fs: FS_A4,
+  titleH: 40, infoRowH: 24, infoPad: 7,
+  itemHeaderH: 26, itemRowH: 24, itemPad: 7, itemMinRows: 5,
+  totalsRowH: 24, gap: 8,
 };
+
+/**
+ * 點陣式印表機「中一刀」(241.3mm × 139.8mm = 684pt × 396pt)
+ * — 銷貨單、進貨單
+ */
+const LAYOUT_DOT: PageLayout = {
+  margin: 18, contentWidth: 648, left: 18, right: 666,
+  fs: FS_DOT,
+  titleH: 26, infoRowH: 16, infoPad: 3,
+  itemHeaderH: 16, itemRowH: 16, itemPad: 3, itemMinRows: 3,
+  totalsRowH: 16, gap: 4,
+};
+
+/** @deprecated back-compat alias for unchanged generators that still use PAGE */
+const PAGE = LAYOUT_A4;
 
 /** Title band at top: title text on left, company name on right. */
 function drawTitleBand(
   doc: InstanceType<typeof PDFDocument>,
   title: string,
   company: string,
+  L: PageLayout = LAYOUT_A4,
 ): number {
-  const y = PAGE.margin;
-  const h = 40;
+  const y = L.margin;
+  const h = L.titleH;
+  const vOff = Math.round((h - L.fs.title) / 2);
   doc.save();
-  doc.rect(PAGE.left, y, PAGE.contentWidth, h).fillAndStroke('#E8EEF7', '#2F5496');
+  doc.rect(L.left, y, L.contentWidth, h).fillAndStroke('#E8EEF7', '#2F5496');
   doc.restore();
   doc.fillColor('#000');
-  doc.fontSize(FS.title).text(title, PAGE.left + 10, y + 10, { width: 220 });
-  doc.fontSize(FS.company).text(company, PAGE.left + 240, y + 11, { width: 265, align: 'right' });
+  doc.fontSize(L.fs.title).text(title, L.left + 10, y + vOff, { width: 220 });
+  doc.fontSize(L.fs.company).text(company, L.left + 240, y + vOff + 1, { width: L.contentWidth - 250, align: 'right' });
   return y + h;
 }
 
@@ -196,18 +246,17 @@ function drawInfoGrid(
   startY: number,
   left: InfoRow[],
   right: InfoRow[],
+  L: PageLayout = LAYOUT_A4,
 ): number {
-  const minRowH = 24;
-  const padTop = 7;
-  const padBottom = 7;
+  const minRowH = L.infoRowH;
+  const padTop = L.infoPad;
+  const padBottom = L.infoPad;
   const rows = Math.max(left.length, right.length);
-  const colW = PAGE.contentWidth / 2;
-  const labelW = 54;
+  const colW = L.contentWidth / 2;
+  const labelW = L === LAYOUT_DOT ? 48 : 54;
   const valueW = colW - labelW - 8;
 
-  // 預先量測每列高度：左右兩欄 value 各自 wrap 後的高度，取大者 + 上下 padding，
-  // 不小於 minRowH。讓地址等長字串自動換行而不被截斷。
-  doc.fontSize(FS.body);
+  doc.fontSize(L.fs.body);
   const rowHeights: number[] = [];
   for (let i = 0; i < rows; i++) {
     const l = left[i];
@@ -221,24 +270,23 @@ function drawInfoGrid(
   const totalH = rowHeights.reduce((s, h) => s + h, 0);
 
   doc.lineWidth(0.9).strokeColor('#333');
-  doc.rect(PAGE.left, startY, PAGE.contentWidth, totalH).stroke();
-  // 中間垂直分隔
-  doc.moveTo(PAGE.left + colW, startY).lineTo(PAGE.left + colW, startY + totalH).stroke();
+  doc.rect(L.left, startY, L.contentWidth, totalH).stroke();
+  doc.moveTo(L.left + colW, startY).lineTo(L.left + colW, startY + totalH).stroke();
 
   let y = startY;
   for (let i = 0; i < rows; i++) {
     if (i > 0) {
-      doc.moveTo(PAGE.left, y).lineTo(PAGE.right, y).stroke();
+      doc.moveTo(L.left, y).lineTo(L.right, y).stroke();
     }
     const l = left[i];
     const r = right[i];
     if (l) {
-      doc.fillColor('#222').text(l.label, PAGE.left + 6, y + padTop, { width: labelW });
-      doc.fillColor('#000').text(l.value, PAGE.left + 4 + labelW, y + padTop, { width: valueW });
+      doc.fillColor('#222').text(l.label, L.left + 6, y + padTop, { width: labelW });
+      doc.fillColor('#000').text(l.value, L.left + 4 + labelW, y + padTop, { width: valueW });
     }
     if (r) {
-      doc.fillColor('#222').text(r.label, PAGE.left + colW + 6, y + padTop, { width: labelW });
-      doc.fillColor('#000').text(r.value, PAGE.left + colW + 4 + labelW, y + padTop, { width: valueW });
+      doc.fillColor('#222').text(r.label, L.left + colW + 6, y + padTop, { width: labelW });
+      doc.fillColor('#000').text(r.value, L.left + colW + 4 + labelW, y + padTop, { width: valueW });
     }
     y += rowHeights[i];
   }
@@ -258,46 +306,42 @@ function drawItemTable(
   startY: number,
   columns: Column[],
   rows: string[][],
-  minRows: number = 5,
+  L: PageLayout = LAYOUT_A4,
 ): number {
-  // Pad to a minimum row count so quotation / sales / purchase PDFs share a
-  // consistent visual footprint regardless of item count. Extra rows are empty
-  // (blank cells) — caller always wins when rows.length > minRows.
+  const minRows = L.itemMinRows;
   const padded = rows.length >= minRows
     ? rows
     : [...rows, ...Array.from({ length: minRows - rows.length }, () => columns.map(() => ''))];
-  const headerH = 26;
-  const minRowH = 24;
-  const padTop = 7;
-  const padBottom = 7;
+  const headerH = L.itemHeaderH;
+  const minRowH = L.itemRowH;
+  const padTop = L.itemPad;
+  const padBottom = L.itemPad;
   const totalFrac = columns.reduce((s, c) => s + c.width, 0);
-  const xs: number[] = [PAGE.left];
-  let accum = PAGE.left;
+  const xs: number[] = [L.left];
+  let accum = L.left;
   for (const c of columns) {
-    accum += (c.width / totalFrac) * PAGE.contentWidth;
+    accum += (c.width / totalFrac) * L.contentWidth;
     xs.push(accum);
   }
 
   // header row
   doc.save();
-  doc.rect(PAGE.left, startY, PAGE.contentWidth, headerH).fillAndStroke('#DCE3EE', '#333');
+  doc.rect(L.left, startY, L.contentWidth, headerH).fillAndStroke('#DCE3EE', '#333');
   doc.restore();
-  doc.fillColor('#000').fontSize(FS.body);
-  // 表頭強制置中（不論 column body 是 left/right），第一列視覺一致
+  doc.fillColor('#000').fontSize(L.fs.body);
   columns.forEach((c, i) => {
-    doc.text(c.header, xs[i] + 4, startY + 7, {
+    doc.text(c.header, xs[i] + 4, startY + L.itemPad, {
       width: xs[i + 1] - xs[i] - 8,
       align: 'center',
     });
   });
-  // header column dividers
   doc.lineWidth(0.9).strokeColor('#333');
   for (let i = 1; i < xs.length - 1; i++) {
     doc.moveTo(xs[i], startY).lineTo(xs[i], startY + headerH).stroke();
   }
 
-  // 預先量測每 row 各 cell 高度，取最大值；長品名自動換行不被截斷。
-  doc.fontSize(FS.body);
+  // body rows
+  doc.fontSize(L.fs.body);
   const rowHeights: number[] = padded.map((row) => {
     let maxCellH = 0;
     row.forEach((cell, i) => {
@@ -309,14 +353,12 @@ function drawItemTable(
     return Math.max(minRowH, maxCellH + padTop + padBottom);
   });
 
-  // body rows
   let y = startY + headerH;
   const bodyTop = y;
   padded.forEach((row, rIdx) => {
     const h = rowHeights[rIdx];
-    // 每列底部分隔線
     if (rIdx > 0) {
-      doc.moveTo(PAGE.left, y).lineTo(PAGE.right, y).stroke();
+      doc.moveTo(L.left, y).lineTo(L.right, y).stroke();
     }
     row.forEach((cell, i) => {
       doc.text(cell, xs[i] + 4, y + padTop, {
@@ -326,8 +368,7 @@ function drawItemTable(
     });
     y += h;
   });
-  // body outer + column dividers
-  doc.rect(PAGE.left, bodyTop, PAGE.contentWidth, y - bodyTop).stroke();
+  doc.rect(L.left, bodyTop, L.contentWidth, y - bodyTop).stroke();
   for (let i = 1; i < xs.length - 1; i++) {
     doc.moveTo(xs[i], bodyTop).lineTo(xs[i], y).stroke();
   }
@@ -340,11 +381,13 @@ function drawTotals(
   subtotal: number,
   tax: number,
   total: number,
+  L: PageLayout = LAYOUT_A4,
 ): number {
-  const rowH = 24;
+  const rowH = L.totalsRowH;
   const blockW = 260;
-  const x = PAGE.right - blockW;
+  const x = L.right - blockW;
   const labelW = 130;
+  const vPad = Math.round((rowH - L.fs.body) / 2);
 
   doc.lineWidth(0.9).strokeColor('#333');
   doc.rect(x, startY, blockW, rowH * 3).stroke();
@@ -352,17 +395,17 @@ function drawTotals(
   doc.moveTo(x, startY + rowH * 2).lineTo(x + blockW, startY + rowH * 2).stroke();
   doc.moveTo(x + labelW, startY).lineTo(x + labelW, startY + rowH * 3).stroke();
 
-  doc.fillColor('#222').fontSize(FS.body);
-  doc.text('小計', x + 6, startY + 7, { width: labelW - 12 });
-  doc.text('營業稅 (5%)', x + 6, startY + rowH + 7, { width: labelW - 12 });
-  doc.fillColor('#000').fontSize(FS.totalsBig);
-  doc.text('總計', x + 6, startY + rowH * 2 + 6, { width: labelW - 12 });
+  doc.fillColor('#222').fontSize(L.fs.body);
+  doc.text('小計', x + 6, startY + vPad, { width: labelW - 12 });
+  doc.text('營業稅 (5%)', x + 6, startY + rowH + vPad, { width: labelW - 12 });
+  doc.fillColor('#000').fontSize(L.fs.totalsBig);
+  doc.text('總計', x + 6, startY + rowH * 2 + vPad, { width: labelW - 12 });
 
-  doc.fillColor('#000').fontSize(FS.body);
-  doc.text(formatCurrency(subtotal), x + labelW + 6, startY + 7, { width: blockW - labelW - 12, align: 'right' });
-  doc.text(formatCurrency(tax), x + labelW + 6, startY + rowH + 7, { width: blockW - labelW - 12, align: 'right' });
-  doc.fontSize(FS.totalsBig);
-  doc.text(formatCurrency(total), x + labelW + 6, startY + rowH * 2 + 6, { width: blockW - labelW - 12, align: 'right' });
+  doc.fillColor('#000').fontSize(L.fs.body);
+  doc.text(formatCurrency(subtotal), x + labelW + 6, startY + vPad, { width: blockW - labelW - 12, align: 'right' });
+  doc.text(formatCurrency(tax), x + labelW + 6, startY + rowH + vPad, { width: blockW - labelW - 12, align: 'right' });
+  doc.fontSize(L.fs.totalsBig);
+  doc.text(formatCurrency(total), x + labelW + 6, startY + rowH * 2 + vPad, { width: blockW - labelW - 12, align: 'right' });
 
   return startY + rowH * 3;
 }
@@ -466,10 +509,12 @@ export function generateQuotationPdf(data: QuotationPdfData): InstanceType<typeo
 }
 
 export function generateSalesOrderPdf(data: SalesOrderPdfData): InstanceType<typeof PDFDocument> {
-  const doc = new PDFDocument({ size: 'A4', margin: PAGE.margin });
+  const L = LAYOUT_DOT;
+  // 中一刀: 241.3mm × 139.8mm
+  const doc = new PDFDocument({ size: [684, 396], margin: L.margin });
   doc.font(CJK_FONT);
 
-  let y = drawTitleBand(doc, '銷貨單', data.companyHeader);
+  let y = drawTitleBand(doc, '銷貨單', data.companyHeader, L);
 
   const left: InfoRow[] = [
     { label: '公司', value: data.customer.name },
@@ -487,22 +532,21 @@ export function generateSalesOrderPdf(data: SalesOrderPdfData): InstanceType<typ
     { label: '訂單編號', value: data.orderNo },
     { label: '開單日期', value: formatDate(data.date) },
   ];
-  y = drawInfoGrid(doc, y + 8, left, right);
+  y = drawInfoGrid(doc, y + L.gap, left, right, L);
 
-  // E-invoice badge (if linked). Kept as a single line so it doesn't
-  // perturb the fixed 5-row item table rhythm.
+  // E-invoice badge
   if (data.einvoice) {
-    y += 6;
+    y += 3;
     const e = data.einvoice;
     if (e.voided) {
-      doc.fontSize(FS.body).fillColor('#C00');
-      doc.text(`發票號碼：${e.invoiceNo}（已作廢）  發票日期：${formatDate(e.invoiceDate)}`, PAGE.left, y);
+      doc.fontSize(L.fs.body).fillColor('#C00');
+      doc.text(`發票號碼：${e.invoiceNo}（已作廢）  發票日期：${formatDate(e.invoiceDate)}`, L.left, y);
       doc.fillColor('#000');
     } else {
-      doc.fontSize(FS.body).fillColor('#000');
-      doc.text(`發票號碼：${e.invoiceNo}　發票日期：${formatDate(e.invoiceDate)}`, PAGE.left, y);
+      doc.fontSize(L.fs.body).fillColor('#000');
+      doc.text(`發票號碼：${e.invoiceNo}　發票日期：${formatDate(e.invoiceDate)}`, L.left, y);
     }
-    y += 18;
+    y += 14;
   }
 
   const rows = data.items.map((it, i) => [
@@ -513,34 +557,36 @@ export function generateSalesOrderPdf(data: SalesOrderPdfData): InstanceType<typ
     formatCurrency(toNumber(it.amount)),
     it.note ?? '',
   ]);
-  y = drawItemTable(doc, y + 8, [
-    { header: '編號', width: 8, align: 'center' },
-    { header: '品項', width: 36 },
+  y = drawItemTable(doc, y + L.gap, [
+    { header: '編號', width: 6, align: 'center' },
+    { header: '品項', width: 38 },
     { header: '數量', width: 8, align: 'right' },
     { header: '單價', width: 14, align: 'right' },
     { header: '金額', width: 14, align: 'right' },
     { header: '說明', width: 22 },
-  ], rows);
+  ], rows, L);
 
-  y = drawTotals(doc, y + 8, data.subtotal, data.taxAmount, data.totalAmount);
+  y = drawTotals(doc, y + L.gap, data.subtotal, data.taxAmount, data.totalAmount, L);
 
   // Signatures
-  y += 32;
-  doc.fontSize(FS.body).fillColor('#000');
-  doc.text(`出貨人：${data.deliveredBy ?? ''}`, PAGE.left, y);
-  doc.text(`收貨人：${data.receivedBy ?? ''}`, PAGE.left + PAGE.contentWidth / 2, y);
+  y += 12;
+  doc.fontSize(L.fs.body).fillColor('#000');
+  doc.text(`出貨人：${data.deliveredBy ?? ''}`, L.left, y);
+  doc.text(`收貨人：${data.receivedBy ?? ''}`, L.left + L.contentWidth / 2, y);
 
   if (data.pdfFooter) {
-    doc.fontSize(FS.footer).fillColor('#555').text(data.pdfFooter, PAGE.left, 800, { width: PAGE.contentWidth, align: 'center' });
+    doc.fontSize(L.fs.footer).fillColor('#555').text(data.pdfFooter, L.left, 380, { width: L.contentWidth, align: 'center' });
   }
   return doc;
 }
 
 export function generatePurchaseOrderPdf(data: PurchaseOrderPdfData): InstanceType<typeof PDFDocument> {
-  const doc = new PDFDocument({ size: 'A4', margin: PAGE.margin });
+  const L = LAYOUT_DOT;
+  // 中一刀: 241.3mm × 139.8mm
+  const doc = new PDFDocument({ size: [684, 396], margin: L.margin });
   doc.font(CJK_FONT);
 
-  let y = drawTitleBand(doc, '進貨單', data.companyHeader);
+  let y = drawTitleBand(doc, '進貨單', data.companyHeader, L);
 
   const left: InfoRow[] = [
     { label: '供應商', value: data.supplier.name },
@@ -558,7 +604,7 @@ export function generatePurchaseOrderPdf(data: PurchaseOrderPdfData): InstanceTy
     { label: '進貨單號', value: data.orderNo },
     { label: '開單日期', value: formatDate(data.date) },
   ];
-  y = drawInfoGrid(doc, y + 8, left, right);
+  y = drawInfoGrid(doc, y + L.gap, left, right, L);
 
   const rows = data.items.map((it, i) => [
     String(i + 1),
@@ -568,19 +614,19 @@ export function generatePurchaseOrderPdf(data: PurchaseOrderPdfData): InstanceTy
     formatCurrency(toNumber(it.amount)),
     it.note ?? '',
   ]);
-  y = drawItemTable(doc, y + 8, [
-    { header: '編號', width: 8, align: 'center' },
-    { header: '品項', width: 36 },
+  y = drawItemTable(doc, y + L.gap, [
+    { header: '編號', width: 6, align: 'center' },
+    { header: '品項', width: 38 },
     { header: '數量', width: 8, align: 'right' },
     { header: '單價', width: 14, align: 'right' },
     { header: '金額', width: 14, align: 'right' },
     { header: '說明', width: 22 },
-  ], rows);
+  ], rows, L);
 
-  y = drawTotals(doc, y + 8, data.subtotal, data.taxAmount, data.totalAmount);
+  y = drawTotals(doc, y + L.gap, data.subtotal, data.taxAmount, data.totalAmount, L);
 
   if (data.pdfFooter) {
-    doc.fontSize(FS.footer).fillColor('#555').text(data.pdfFooter, PAGE.left, 800, { width: PAGE.contentWidth, align: 'center' });
+    doc.fontSize(L.fs.footer).fillColor('#555').text(data.pdfFooter, L.left, 380, { width: L.contentWidth, align: 'center' });
   }
   return doc;
 }
