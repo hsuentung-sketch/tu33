@@ -1223,38 +1223,48 @@ async function openOrderEditor(kind, orderId, onSaved) {
 
   const totalsDiv = el('div', { style: 'text-align:right;font-size:13px;margin-top:6px;color:#555;' });
 
+  /** 只更新底部小計/營業稅/總計，不重建 DOM（避免輸入焦點遺失）。 */
+  function updateTotals() {
+    let sub = 0;
+    state.items.forEach((it) => { sub += (it.quantity || 0) * (it.unitPrice || 0); });
+    const tax = Math.round(sub * 0.05);
+    totalsDiv.textContent = `小計 ${fmtMoney(sub)}　營業稅 ${fmtMoney(tax)}　總計 ${fmtMoney(sub + tax)}`;
+  }
   function renderItems() {
     itemsBody.innerHTML = '';
-    let sub = 0;
     state.items.forEach((it, idx) => {
       const nameInp = el('input', { type: 'text', style: 'width:100%;' });
       nameInp.value = it.productName;
       nameInp.addEventListener('input', () => { it.productName = nameInp.value; });
       const qtyInp = el('input', { type: 'number', step: '1', style: 'width:70px;text-align:right;' });
       qtyInp.value = String(it.quantity);
-      qtyInp.addEventListener('input', () => { it.quantity = Number(qtyInp.value) || 0; renderItems(); });
       const priceInp = el('input', { type: 'number', step: '0.01', style: 'width:90px;text-align:right;' });
       priceInp.value = String(it.unitPrice);
-      priceInp.addEventListener('input', () => { it.unitPrice = Number(priceInp.value) || 0; renderItems(); });
+      const lineCell = el('td', { class: 'num' }, fmtMoney((it.quantity || 0) * (it.unitPrice || 0)));
+      // 數量/單價 input 只更新資料 + 行金額 + 底部總計，不重建 DOM
+      const recalcLine = () => {
+        const line = (it.quantity || 0) * (it.unitPrice || 0);
+        lineCell.textContent = fmtMoney(line);
+        updateTotals();
+      };
+      qtyInp.addEventListener('input', () => { it.quantity = Number(qtyInp.value) || 0; recalcLine(); });
+      priceInp.addEventListener('input', () => { it.unitPrice = Number(priceInp.value) || 0; recalcLine(); });
       const noteInp = el('input', { type: 'text', style: 'width:100%;' });
       noteInp.value = it.note || '';
       noteInp.addEventListener('input', () => { it.note = noteInp.value; });
       const removeBtn = el('button', { class: 'btn small danger', onClick: () => {
         state.items.splice(idx, 1); renderItems();
       } }, '刪');
-      const line = (it.quantity || 0) * (it.unitPrice || 0);
-      sub += line;
       itemsBody.append(el('tr', {},
         el('td', {}, nameInp),
         el('td', { class: 'num' }, qtyInp),
         el('td', { class: 'num' }, priceInp),
-        el('td', { class: 'num' }, fmtMoney(line)),
+        lineCell,
         el('td', {}, noteInp),
         el('td', {}, removeBtn),
       ));
     });
-    const tax = Math.round(sub * 0.05);
-    totalsDiv.textContent = `小計 ${fmtMoney(sub)}　營業稅 ${fmtMoney(tax)}　總計 ${fmtMoney(sub + tax)}`;
+    updateTotals();
   }
   renderItems();
   const addBtn = el('button', { class: 'btn small', onClick: () => {
