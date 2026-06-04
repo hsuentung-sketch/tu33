@@ -4,6 +4,7 @@ import { ForbiddenError, ValidationError } from '../../../shared/errors.js';
 import { prisma } from '../../../shared/prisma.js';
 import * as salesOrderService from './sales-order.service.js';
 import { buildPdfShortUrl } from '../../../documents/pdf-shortlink.js';
+import { generateOrderExcel } from '../../../documents/excel-generator.js';
 
 export const salesOrderRouter = Router();
 
@@ -160,6 +161,44 @@ salesOrderRouter.get('/:id/pdf-url', async (req: Request, res: Response, next: N
       createdBy: req.employee.id,
     });
     res.json({ url });
+  } catch (err) {
+    next(err);
+  }
+});
+
+salesOrderRouter.get('/:id/excel', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const o = await salesOrderService.getById(req.tenantId, String(req.params.id));
+    const tenant = await prisma.tenant.findUnique({ where: { id: req.tenantId } });
+    const buf = await generateOrderExcel({
+      kind: 'sales',
+      companyHeader: tenant?.companyName || '',
+      companyTaxId: tenant?.taxId,
+      orderNo: o.orderNo,
+      date: o.orderDate,
+      partyLabel: '客戶',
+      partyName: o.customer.name,
+      partyPhone: o.customer.phone,
+      partyTaxId: o.customer.taxId,
+      partyAddress: o.customer.address,
+      staffLabel: '業務',
+      staffName: o.salesPerson,
+      staffPhone: o.salesPhone,
+      deliveryNote: o.deliveryNote,
+      items: o.items.map((it) => ({
+        productName: it.productName,
+        quantity: it.quantity,
+        unitPrice: Number(it.unitPrice),
+        amount: Number(it.amount),
+        note: it.note,
+      })),
+      subtotal: Number(o.subtotal),
+      taxAmount: Number(o.taxAmount),
+      totalAmount: Number(o.totalAmount),
+    });
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="sales-${o.orderNo}.xlsx"`);
+    res.send(buf);
   } catch (err) {
     next(err);
   }

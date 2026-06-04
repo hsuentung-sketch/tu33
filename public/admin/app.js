@@ -1373,6 +1373,28 @@ async function openPdfInline(ev, apiBase, id) {
   btn.disabled = false; btn.textContent = 'PDF';
 }
 
+/** Download an Excel file for an order. */
+async function downloadExcel(ev, apiBase, id) {
+  const btn = ev.currentTarget;
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    const res = await fetch(`/api${apiBase}/${id}/excel`, {
+      headers: { Authorization: `Bearer ${localStorage.getItem('ep_token') || ''}` },
+      credentials: 'include',
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    const disp = res.headers.get('content-disposition') || '';
+    const match = disp.match(/filename="?([^"]+)"?/);
+    a.download = match ? match[1] : 'order.xlsx';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch (e) { toast(e.message, 'err'); }
+  btn.disabled = false; btn.textContent = 'Excel';
+}
+
 async function openOrderViewer(kind, orderId) {
   const urlBase = kind === 'quotation' ? '/quotations'
                 : kind === 'sales' ? '/sales-orders'
@@ -1449,12 +1471,37 @@ async function openOrderViewer(kind, orderId) {
     },
   }, '下載 PDF');
 
+  // Excel download (sales + purchase only; quotation has no excel endpoint)
+  const excelBtn = !isQuote ? el('button', {
+    class: 'btn',
+    style: 'margin-left:6px;',
+    onClick: async () => {
+      excelBtn.disabled = true; excelBtn.textContent = '產生中…';
+      try {
+        const res = await fetch(`/api${apiBase}/${orderId}/excel`, {
+          headers: { Authorization: `Bearer ${localStorage.getItem('ep_token') || ''}` },
+          credentials: 'include',
+        });
+        if (!res.ok) throw new Error(`${res.status}`);
+        const blob = await res.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        const disp = res.headers.get('content-disposition') || '';
+        const m = disp.match(/filename="?([^"]+)"?/);
+        a.download = m ? m[1] : 'order.xlsx';
+        a.click(); URL.revokeObjectURL(a.href);
+      } catch (e) { toast(e.message, 'err'); }
+      excelBtn.disabled = false; excelBtn.textContent = '下載 Excel';
+    },
+  }, '下載 Excel') : null;
+
   const backdrop = el('div', { class: 'modal-backdrop' });
   const modal = el('div', { class: 'modal', style: 'max-width:820px;width:92%;' },
     el('h3', {}, `檢視 ${isQuote ? '報價單' : isPurchase ? '進貨單' : '銷貨單'}  ${no}`),
     el('div', { class: 'body' }, header, itemsTable, totalsDiv),
     el('div', { class: 'actions', style: 'justify-content:flex-end;' },
       pdfBtn,
+      excelBtn,
       el('button', { class: 'btn', onClick: () => backdrop.remove() }, '關閉'),
     ),
   );
@@ -1542,6 +1589,8 @@ async function viewSalesOrders(main) {
             el('button', { class: 'btn small', onClick: () => openOrderViewer('sales', o.id) }, '檢視'),
             ' ',
             el('button', { class: 'btn small', onClick: (ev) => openPdfInline(ev, '/sales-orders', o.id) }, 'PDF'),
+            ' ',
+            el('button', { class: 'btn small', onClick: (ev) => downloadExcel(ev, '/sales-orders', o.id) }, 'Excel'),
             canEdit ? ' ' : null,
             canEdit
               ? el('button', { class: 'btn small', onClick: () => openOrderEditor('sales', o.id, reload) }, '編輯')
@@ -1863,6 +1912,8 @@ async function viewPurchaseOrders(main) {
             el('button', { class: 'btn small', onClick: () => openOrderViewer('purchase', o.id) }, '檢視'),
             ' ',
             el('button', { class: 'btn small', onClick: (ev) => openPdfInline(ev, '/purchase-orders', o.id) }, 'PDF'),
+            ' ',
+            el('button', { class: 'btn small', onClick: (ev) => downloadExcel(ev, '/purchase-orders', o.id) }, 'Excel'),
             canEdit ? ' ' : null,
             canEdit
               ? el('button', { class: 'btn small', onClick: () => openOrderEditor('purchase', o.id, reload) }, '編輯')

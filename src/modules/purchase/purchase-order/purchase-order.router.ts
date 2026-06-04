@@ -4,6 +4,7 @@ import { ForbiddenError, ValidationError } from '../../../shared/errors.js';
 import { prisma } from '../../../shared/prisma.js';
 import * as purchaseOrderService from './purchase-order.service.js';
 import { buildPdfShortUrl } from '../../../documents/pdf-shortlink.js';
+import { generateOrderExcel } from '../../../documents/excel-generator.js';
 
 export const purchaseOrderRouter = Router();
 
@@ -149,6 +150,44 @@ purchaseOrderRouter.get('/:id/pdf-url', async (req: Request, res: Response, next
       createdBy: req.employee.id,
     });
     res.json({ url });
+  } catch (err) {
+    next(err);
+  }
+});
+
+purchaseOrderRouter.get('/:id/excel', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const o = await purchaseOrderService.getById(req.tenantId, String(req.params.id));
+    const tenant = await prisma.tenant.findUnique({ where: { id: req.tenantId } });
+    const buf = await generateOrderExcel({
+      kind: 'purchase',
+      companyHeader: tenant?.companyName || '',
+      companyTaxId: tenant?.taxId,
+      orderNo: o.orderNo,
+      date: o.orderDate,
+      partyLabel: '供應商',
+      partyName: o.supplier.name,
+      partyPhone: o.supplier.phone,
+      partyTaxId: o.supplier.taxId,
+      partyAddress: o.supplier.address,
+      staffLabel: '內勤',
+      staffName: o.internalStaff,
+      staffPhone: o.staffPhone,
+      deliveryNote: o.deliveryNote,
+      items: o.items.map((it) => ({
+        productName: it.productName,
+        quantity: it.quantity,
+        unitPrice: Number(it.unitPrice),
+        amount: Number(it.amount),
+        note: it.note,
+      })),
+      subtotal: Number(o.subtotal),
+      taxAmount: Number(o.taxAmount),
+      totalAmount: Number(o.totalAmount),
+    });
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="purchase-${o.orderNo}.xlsx"`);
+    res.send(buf);
   } catch (err) {
     next(err);
   }
