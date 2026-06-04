@@ -1362,6 +1362,17 @@ async function openOrderEditor(kind, orderId, onSaved) {
  * Read-only order viewer — any authenticated user can open.
  * Shows header, items table, totals, delivery note + PDF download link.
  */
+/** Fetch a signed PDF URL and open in new tab. Used by list-view PDF buttons. */
+async function openPdfInline(ev, apiBase, id) {
+  const btn = ev.currentTarget;
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    const { url } = await api.get(`${apiBase}/${id}/pdf-url`);
+    window.open(url, '_blank');
+  } catch (e) { toast(e.message, 'err'); }
+  btn.disabled = false; btn.textContent = 'PDF';
+}
+
 async function openOrderViewer(kind, orderId) {
   const urlBase = kind === 'quotation' ? '/quotations'
                 : kind === 'sales' ? '/sales-orders'
@@ -1422,18 +1433,21 @@ async function openOrderViewer(kind, orderId) {
     `小計 ${fmtMoney(order.subtotal)}　　營業稅 ${fmtMoney(order.taxAmount)}　　總計 ${fmtMoney(order.totalAmount)}`,
   );
 
-  const pdfKind = kind === 'quotation' ? 'quotation' : kind === 'sales' ? 'sales-order' : 'purchase-order';
-  const pdfBtn = el('a', {
+  const apiBase = kind === 'quotation' ? '/quotations'
+    : kind === 'sales' ? '/sales-orders' : '/purchase-orders';
+  const pdfBtn = el('button', {
     class: 'btn primary',
-    href: `/api/${pdfKind === 'quotation' ? 'quotations' : pdfKind === 'sales-order' ? 'sales-orders' : 'purchase-orders'}/${orderId}/pdf`,
-    target: '_blank',
-    style: 'text-decoration:none;',
-  }, '📄 下載 PDF');
-  // Above URL is not used — our PDF endpoint is /pdf/:kind/:id?token=... which
-  // needs a signed token. Easier: ask server to produce short URL on demand.
-  // For now we'll wire via /api/statements proxy? Actually simplest: don't
-  // bother generating a fresh token in the viewer — we already show all data.
-  pdfBtn.style.display = 'none'; // hide until we add a backend shortlink fetch
+    onClick: async () => {
+      pdfBtn.disabled = true;
+      pdfBtn.textContent = '產生中…';
+      try {
+        const { url } = await api.get(`${apiBase}/${orderId}/pdf-url`);
+        window.open(url, '_blank');
+      } catch (e) { toast(e.message, 'err'); }
+      pdfBtn.disabled = false;
+      pdfBtn.textContent = '下載 PDF';
+    },
+  }, '下載 PDF');
 
   const backdrop = el('div', { class: 'modal-backdrop' });
   const modal = el('div', { class: 'modal', style: 'max-width:820px;width:92%;' },
@@ -1478,6 +1492,8 @@ async function viewQuotations(main) {
           el('td', {}, fmtDate(q.createdAt)),
           el('td', { class: 'actions' },
             el('button', { class: 'btn small', onClick: () => openOrderViewer('quotation', q.id) }, '檢視'),
+            ' ',
+            el('button', { class: 'btn small', onClick: (ev) => openPdfInline(ev, '/quotations', q.id) }, 'PDF'),
             canEdit ? ' ' : null,
             canEdit
               ? el('button', { class: 'btn small', onClick: () => openOrderEditor('quotation', q.id, reload) }, '編輯')
@@ -1524,6 +1540,8 @@ async function viewSalesOrders(main) {
           el('td', {}, fmtDate(o.deliveryDate)),
           el('td', { class: 'actions' },
             el('button', { class: 'btn small', onClick: () => openOrderViewer('sales', o.id) }, '檢視'),
+            ' ',
+            el('button', { class: 'btn small', onClick: (ev) => openPdfInline(ev, '/sales-orders', o.id) }, 'PDF'),
             canEdit ? ' ' : null,
             canEdit
               ? el('button', { class: 'btn small', onClick: () => openOrderEditor('sales', o.id, reload) }, '編輯')
@@ -1843,6 +1861,8 @@ async function viewPurchaseOrders(main) {
           el('td', {}, fmtDate(o.receivedDate)),
           el('td', { class: 'actions' },
             el('button', { class: 'btn small', onClick: () => openOrderViewer('purchase', o.id) }, '檢視'),
+            ' ',
+            el('button', { class: 'btn small', onClick: (ev) => openPdfInline(ev, '/purchase-orders', o.id) }, 'PDF'),
             canEdit ? ' ' : null,
             canEdit
               ? el('button', { class: 'btn small', onClick: () => openOrderEditor('purchase', o.id, reload) }, '編輯')

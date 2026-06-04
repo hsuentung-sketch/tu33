@@ -5,6 +5,7 @@ import * as quotationService from '../../modules/sales/quotation/quotation.servi
 import { generateQuotationPdf } from '../../documents/pdf-generator.js';
 import { sendDocumentEmail } from '../../documents/email-sender.js';
 import { getTenantSettings } from '../../shared/utils.js';
+import { buildPdfShortUrl } from '../../documents/pdf-shortlink.js';
 
 async function buildQuotationPdfBuffer(tenantId: string, quotationId: string): Promise<{ buffer: Buffer; filename: string; quotationNo: string; customer: { name: string; email: string | null } } | null> {
   const q = await prisma.quotation.findFirst({
@@ -107,25 +108,51 @@ export async function handleQuotationCommand(action: string, ctx: any): Promise<
         });
         return;
       }
-      const text = rows.map((r, i) =>
-        `${i + 1}. ${r.quotationNo} ${r.customer.name} $${Number(r.totalAmount).toLocaleString('zh-TW')} [${r.status}]`,
-      ).join('\n');
-      const actions = rows
-        .filter((r) => r.status !== 'CANCELLED' && r.status !== 'LOST')
-        .slice(0, 4)
-        .map((r) => ({
-          type: 'postback' as const,
-          label: `轉銷貨 ${r.quotationNo}`.slice(0, 20),
-          data: `action=quotation:convert&id=${r.id}`,
-        }));
-      const messages: any[] = [{ type: 'text', text: `📋 最近 10 筆報價：\n${text}` }];
-      if (actions.length > 0) {
-        messages.push({
-          type: 'template',
-          altText: '轉為銷貨單',
-          template: { type: 'buttons', title: '報價轉銷貨', text: '選擇要成交轉為銷貨單的報價', actions },
+      // Build Flex carousel with PDF + convert buttons per quotation
+      const bubbles = [];
+      for (const r of rows.slice(0, 10)) {
+        const pdfUrl = await buildPdfShortUrl({
+          tenantId,
+          kind: 'quotation',
+          id: r.id,
+          label: `quotation-${r.quotationNo}.pdf`,
+          createdBy: employee.id,
+        });
+        const actions: any[] = [
+          { type: 'uri', label: '下載 PDF', uri: pdfUrl },
+        ];
+        if (r.status !== 'CANCELLED' && r.status !== 'LOST' && r.status !== 'WON') {
+          actions.push({
+            type: 'postback',
+            label: '轉銷貨單',
+            data: `action=quotation:convert&id=${r.id}`,
+          });
+        }
+        bubbles.push({
+          type: 'bubble',
+          size: 'kilo',
+          body: {
+            type: 'box', layout: 'vertical', spacing: 'sm',
+            contents: [
+              { type: 'text', text: r.quotationNo, weight: 'bold', size: 'md' },
+              { type: 'text', text: r.customer.name, size: 'sm', color: '#555555' },
+              { type: 'text', text: `$${Number(r.totalAmount).toLocaleString('zh-TW')}  [${r.status}]`, size: 'sm', color: '#888888' },
+            ],
+          },
+          footer: {
+            type: 'box', layout: 'horizontal', spacing: 'sm',
+            contents: actions.map((a: any) => ({
+              type: 'button', style: 'primary', height: 'sm', color: a.type === 'uri' ? '#1DB446' : '#0066CC',
+              action: a,
+            })),
+          },
         });
       }
+      const messages: any[] = [{
+        type: 'flex',
+        altText: `最近 ${rows.length} 筆報價單`,
+        contents: { type: 'carousel', contents: bubbles },
+      }];
       await client.replyMessage({ replyToken: event.replyToken, messages });
       return;
     }

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { ForbiddenError, ValidationError } from '../../../shared/errors.js';
 import { prisma } from '../../../shared/prisma.js';
 import * as purchaseOrderService from './purchase-order.service.js';
+import { buildPdfShortUrl } from '../../../documents/pdf-shortlink.js';
 
 export const purchaseOrderRouter = Router();
 
@@ -132,6 +133,22 @@ purchaseOrderRouter.post('/:id/complete', async (req: Request, res: Response, ne
   try {
     const result = await purchaseOrderService.complete(req.tenantId, String(req.params.id));
     res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+purchaseOrderRouter.get('/:id/pdf-url', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const o = await purchaseOrderService.getById(req.tenantId, String(req.params.id));
+    const url = await buildPdfShortUrl({
+      tenantId: req.tenantId,
+      kind: 'purchase-order',
+      id: o.id,
+      label: `purchase-${o.orderNo}.pdf`,
+      createdBy: req.employee.id,
+    });
+    res.json({ url });
   } catch (err) {
     next(err);
   }

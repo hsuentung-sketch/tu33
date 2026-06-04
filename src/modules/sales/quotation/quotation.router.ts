@@ -207,6 +207,22 @@ quotationRouter.post('/:id/convert', async (req: Request, res: Response, next: N
   }
 });
 
+quotationRouter.get('/:id/pdf-url', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const q = await quotationService.getById(req.tenantId, String(req.params.id));
+    const url = await buildPdfShortUrl({
+      tenantId: req.tenantId,
+      kind: 'quotation',
+      id: q.id,
+      label: `quotation-${q.quotationNo}.pdf`,
+      createdBy: req.employee.id,
+    });
+    res.json({ url });
+  } catch (err) {
+    next(err);
+  }
+});
+
 /**
  * Push the quotation PDF link to the employee's LINE chat from the
  * tenant's bot. Called after successful LIFF submit so the user gets
