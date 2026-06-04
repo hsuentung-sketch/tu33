@@ -111,6 +111,8 @@ pdfRouter.get('/:kind/:id', async (req: Request, res: Response, next: NextFuncti
           customer: {
             name: q.customer.name,
             contactName: q.customer.contactName,
+            phone: q.customer.phone,
+            taxId: q.customer.taxId,
             zipCode: q.customer.zipCode,
             address: q.customer.address,
           },

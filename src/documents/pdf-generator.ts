@@ -49,6 +49,8 @@ interface QuotationPdfData {
   customer: {
     name: string;
     contactName?: string | null;
+    phone?: string | null;
+    taxId?: string | null;
     zipCode?: string | null;
     address?: string | null;
   };
@@ -468,17 +470,32 @@ export function generateQuotationPdf(data: QuotationPdfData): InstanceType<typeo
   }
 
   const addr = [data.customer.zipCode, data.customer.address].filter(Boolean).join(' ');
+
+  // 預先計算欄位 x，讓資訊格中線對齊品項表「數量｜單價」邊界
+  const quoteCols: Column[] = [
+    { header: '編號', width: 8, align: 'center' },
+    { header: '品項', width: 36 },
+    { header: '數量', width: 8, align: 'right' },
+    { header: '單價', width: 14, align: 'right' },
+    { header: '金額', width: 14, align: 'right' },
+    { header: '備註', width: 22 },
+  ];
+  const quoteXs = computeColXs(quoteCols, LAYOUT_A4);
+  const gridSplitX = quoteXs[3]; // 編號+品項+數量 後的邊界
+
   y = drawInfoGrid(doc, y + 8, [
     { label: '公司', value: data.customer.name },
     { label: '聯絡人', value: data.customer.contactName ?? '' },
     { label: '地址', value: addr },
+    { label: '電話', value: data.customer.phone ?? '' },
+    { label: '統編', value: data.customer.taxId ?? '' },
   ], [
     { label: '業務', value: data.salesPerson },
     { label: '電話', value: data.salesPhone ?? '' },
     { label: '我方統編', value: data.companyTaxId ?? '' },
     { label: '報價單號', value: data.quotationNo },
     { label: '日期', value: formatDate(data.date) },
-  ]);
+  ], LAYOUT_A4, gridSplitX);
 
   const rows = data.items.map((it, i) => [
     String(i + 1),

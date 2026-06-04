@@ -173,6 +173,8 @@
       itemsEl.innerHTML = '';
       emptyEl.style.display = items.length ? 'none' : 'block';
       items.forEach((it, i) => {
+        const wrap = document.createElement('div');
+        wrap.style.marginBottom = '6px';
         const div = document.createElement('div');
         div.className = 'row';
         div.innerHTML = `
@@ -181,7 +183,15 @@
           <input type="number" placeholder="單價" value="${it.price || ''}" data-i="${i}" data-k="price" />
           <button class="btn-danger" data-del="${i}">刪</button>
         `;
-        itemsEl.appendChild(div);
+        wrap.appendChild(div);
+        const noteInp = document.createElement('input');
+        noteInp.placeholder = '備註（選填）';
+        noteInp.value = it.note || '';
+        noteInp.dataset.i = String(i);
+        noteInp.dataset.k = 'note';
+        noteInp.style.cssText = 'margin-top:4px;font-size:13px;';
+        wrap.appendChild(noteInp);
+        itemsEl.appendChild(wrap);
       });
       recalc();
     }
@@ -196,7 +206,7 @@
     }
 
     document.getElementById('add-item').onclick = () => {
-      items.push({ name: '', qty: 1, price: 0 });
+      items.push({ name: '', qty: 1, price: 0, note: '' });
       render();
     };
 
@@ -349,6 +359,7 @@
               productName: it.name,
               quantity: Number(it.qty),
               unitPrice: Number(it.price),
+              note: it.note || undefined,
             })),
         };
         if (!body.customerId) { alert('請先選擇客戶（從下拉選單點選）'); return; }
