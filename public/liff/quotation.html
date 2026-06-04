@@ -38,6 +38,21 @@
   </div>
 
   <div class="card">
+    <label>報價單有效日期 <span style="color:#e74c3c;font-size:11px;">必填</span></label>
+    <input type="date" id="valid-until" />
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">
+      <div>
+        <label>可供貨時間</label>
+        <input id="supply-time" placeholder="如：即日起" />
+      </div>
+      <div>
+        <label>付款期限 <span style="color:#e74c3c;font-size:11px;">必填</span></label>
+        <input id="payment-terms" placeholder="如：月結30天" />
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;">
       <strong>品項</strong>
       <button class="btn-secondary" id="add-item">+ 新增品項</button>
@@ -265,7 +280,15 @@
       if (!opt) return;
       selectedCustomer = { id: opt.value, name: opt.textContent };
       pickedEl.textContent = '✅ 已選擇：' + opt.textContent;
+      autoFillPaymentTerms(opt.dataset.paymentDays);
     });
+
+    function autoFillPaymentTerms(days) {
+      const inp = document.getElementById('payment-terms');
+      if (days && Number(days) > 0 && !inp.value) {
+        inp.value = '月結' + days + '天';
+      }
+    }
 
     async function searchCustomers(q) {
       if (!idToken) {
@@ -289,7 +312,7 @@
         return;
       }
       hintEl.textContent = '找到 ' + list.length + ' 筆，請選擇';
-      selectEl.innerHTML = list.map((c) => `<option value="${c.id}">${c.name}</option>`).join('');
+      selectEl.innerHTML = list.map((c) => `<option value="${c.id}" data-payment-days="${c.paymentDays ?? ''}">${c.name}</option>`).join('');
       selectEl.style.display = 'block';
       // Single match → auto-select and surface the full name.
       if (list.length === 1) {
@@ -297,6 +320,7 @@
         selectedCustomer = { id: list[0].id, name: list[0].name };
         searchEl.value = list[0].name;
         pickedEl.textContent = '✅ 已自動選擇：' + list[0].name;
+        autoFillPaymentTerms(list[0].paymentDays);
       }
     }
 
@@ -308,9 +332,16 @@
       submitBtn.textContent = '送出中…';
       try {
         const customerId = selectedCustomer?.id || selectEl.value;
+        const validUntil = document.getElementById('valid-until').value;
+        const paymentTerms = document.getElementById('payment-terms').value.trim();
+        if (!validUntil) { alert('請填寫報價單有效日期'); return; }
+        if (!paymentTerms) { alert('請填寫付款期限'); return; }
         const body = {
           customerId,
           salesPerson: document.getElementById('sales-person').value,
+          supplyTime: document.getElementById('supply-time').value.trim() || undefined,
+          paymentTerms,
+          validUntil,
           note: document.getElementById('note').value,
           items: items
             .filter((it) => it.name && it.qty && it.price)
@@ -349,6 +380,20 @@
         submitBtn.textContent = '送出報價單';
       }
     }
+
+    // 報價單有效日期預設：3 個工作天後
+    (function setDefaultValidDate() {
+      const d = new Date();
+      let count = 0;
+      while (count < 3) {
+        d.setDate(d.getDate() + 1);
+        if (d.getDay() !== 0 && d.getDay() !== 6) count++;
+      }
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      document.getElementById('valid-until').value = `${yyyy}-${mm}-${dd}`;
+    })();
 
     init();
   </script>

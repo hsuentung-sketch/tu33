@@ -1195,7 +1195,7 @@ async function openOrderEditor(kind, orderId, onSaved) {
       inp.addEventListener('input', () => { state[key] = inp.value; });
       return el('div', { class: 'field' }, el('label', {}, label), inp);
     };
-    r.append(fieldOf('可供貨時間', 'supplyTime'), fieldOf('付款期限', 'paymentTerms'), fieldOf('有效日期', 'validUntil'));
+    r.append(fieldOf('可供貨時間', 'supplyTime'), fieldOf('付款期限', 'paymentTerms'), fieldOf('報價單有效日期', 'validUntil'));
     body.append(r);
     const noteInp = el('textarea', { rows: '2' }); noteInp.value = state.note;
     noteInp.addEventListener('input', () => { state.note = noteInp.value; });
@@ -1390,7 +1390,7 @@ async function openOrderViewer(kind, orderId) {
     row(staffLabel, staffName),
     row('狀態', order.status || '—'),
     row('開單日', fmtDate(order.orderDate || order.createdAt)),
-    isQuote ? row('報價期限', order.validUntil || '—') : null,
+    isQuote ? row('報價單有效日期', order.validUntil || '—') : null,
     row('送貨備註', order.deliveryNote || order.note || '—'),
     order.isDeleted ? row('⚠ 狀態', '此單已刪除') : null,
   );
