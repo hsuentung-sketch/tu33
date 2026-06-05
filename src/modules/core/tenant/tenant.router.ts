@@ -236,3 +236,91 @@ tenantRouter.delete('/me/invoice-stamp',
     } catch (err) { next(err); }
   },
 );
+
+// ================================================================
+// 公司匯款帳號影本（PDF / JPEG）— ADMIN 上傳，所有登入者可下載
+// ================================================================
+
+const BANK_DOC_DIR = process.env.BANK_DOC_DIR
+  || (existsSync('/data') ? '/data/bank-docs' : resolve(process.cwd(), 'data/bank-docs'));
+
+const bankDocUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
+
+tenantRouter.get('/me/bank-doc',
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const tenant = await prisma.tenant.findUnique({ where: { id: req.tenantId } });
+      const settings = getTenantSettings(tenant?.settings);
+      res.json((settings as any).bankDoc ?? { hasDoc: false });
+    } catch (err) { next(err); }
+  },
+);
+
+tenantRouter.get('/me/bank-doc/file',
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const tenant = await prisma.tenant.findUnique({ where: { id: req.tenantId } });
+      const settings = getTenantSettings(tenant?.settings);
+      const meta = (settings as any).bankDoc;
+      if (!meta?.hasDoc || !meta.filename) return res.status(404).send('No bank document');
+      const filePath = resolve(BANK_DOC_DIR, `${req.tenantId}-${meta.filename}`);
+      if (!existsSync(filePath)) return res.status(404).send('File not found');
+      const buf = await readFile(filePath);
+      const ext = meta.filename.split('.').pop()?.toLowerCase();
+      const mime = ext === 'pdf' ? 'application/pdf' : `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+      res.setHeader('Content-Type', mime);
+      res.setHeader('Content-Disposition', `inline; filename="${meta.filename}"`);
+      res.send(buf);
+    } catch (err) { next(err); }
+  },
+);
+
+tenantRouter.post('/me/bank-doc',
+  requireRole('ADMIN'),
+  bankDocUpload.single('bankDoc'),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.file) throw new ValidationError('未收到檔案（欄位名 bankDoc）');
+      const ext = req.file.originalname.split('.').pop()?.toLowerCase() || '';
+      if (!['pdf', 'jpg', 'jpeg', 'png'].includes(ext)) {
+        throw new ValidationError('僅支援 PDF / JPG / JPEG / PNG');
+      }
+      const filename = `bank-account.${ext}`;
+      await mkdir(BANK_DOC_DIR, { recursive: true });
+      const filePath = resolve(BANK_DOC_DIR, `${req.tenantId}-${filename}`);
+      await writeFile(filePath, req.file.buffer);
+      const tenant = await prisma.tenant.findUnique({ where: { id: req.tenantId } });
+      const rawSettings = getTenantSettings(tenant?.settings);
+      const bankDoc = { hasDoc: true, filename, uploadedAt: new Date().toISOString() };
+      await prisma.tenant.update({
+        where: { id: req.tenantId },
+        data: { settings: { ...rawSettings, bankDoc } as unknown as object },
+      });
+      res.json(bankDoc);
+    } catch (err) { next(err); }
+  },
+);
+
+tenantRouter.delete('/me/bank-doc',
+  requireRole('ADMIN'),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const tenant = await prisma.tenant.findUnique({ where: { id: req.tenantId } });
+      const rawSettings = getTenantSettings(tenant?.settings);
+      const oldMeta = (rawSettings as any).bankDoc;
+      if (oldMeta?.filename) {
+        const filePath = resolve(BANK_DOC_DIR, `${req.tenantId}-${oldMeta.filename}`);
+        try { await unlink(filePath); } catch { /* ok if missing */ }
+      }
+      const bankDoc = { hasDoc: false, filename: '', uploadedAt: '' };
+      await prisma.tenant.update({
+        where: { id: req.tenantId },
+        data: { settings: { ...rawSettings, bankDoc } as unknown as object },
+      });
+      res.json(bankDoc);
+    } catch (err) { next(err); }
+  },
+);

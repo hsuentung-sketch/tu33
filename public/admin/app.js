@@ -938,6 +938,18 @@ function openEmployeeEditor(emp, onSaved) {
     ),
     field('地址', textInput('address')),
     field('業績獎金扣除稅率 %（代開發票，空=不扣）', textInput('taxDeductRate', 'number', { step: '0.01', min: '0', max: '100' })),
+    el('div', { style: 'margin-top:12px;padding:12px;border:1px solid var(--border);border-radius:6px;background:#fafafa;' },
+      el('div', { style: 'font-size:13px;font-weight:600;margin-bottom:8px;' }, '銀行帳號資訊'),
+      el('div', { class: 'field row' },
+        field('銀行代號', textInput('bankCode')),
+        field('銀行名稱', textInput('bankName')),
+      ),
+      el('div', { class: 'field row' },
+        field('分行', textInput('bankBranch')),
+        field('戶名', textInput('bankAccountName')),
+      ),
+      field('匯款帳號', textInput('bankAccountNo')),
+    ),
     pwSection,
   );
 
@@ -962,6 +974,11 @@ function openEmployeeEditor(emp, onSaved) {
             address: state.address || undefined,
             taxDeductRate: (state.taxDeductRate === '' || state.taxDeductRate == null)
               ? null : Number(state.taxDeductRate),
+            bankCode: state.bankCode || null,
+            bankName: state.bankName || null,
+            bankBranch: state.bankBranch || null,
+            bankAccountName: state.bankAccountName || null,
+            bankAccountNo: state.bankAccountNo || null,
           };
           if (!isEdit) body.employeeId = state.employeeId;
 
@@ -2829,6 +2846,53 @@ async function viewCompany(main) {
       saveBtn.disabled = false;
     }
   });
+
+  // ---- 公司匯款帳號影本 ----
+  const bankDocTitle = el('h3', { style: 'margin-top:24px;' }, '公司匯款帳號影本');
+  const bankDocSub = el('div', { class: 'page-sub' }, '上傳匯款帳號影本（PDF 或圖片），供業務下載提供客戶使用。');
+  const bankDocCard = el('div', { class: 'card', style: 'padding:16px;max-width:640px;' });
+  const bankDocStatus = el('div', { style: 'margin-bottom:8px;font-size:13px;' });
+  const bankDocBtns = el('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;' });
+  bankDocCard.append(bankDocStatus, bankDocBtns);
+  main.append(bankDocTitle, bankDocSub, bankDocCard);
+
+  async function loadBankDoc() {
+    try {
+      const meta = await api.get('/tenant/me/bank-doc');
+      bankDocStatus.textContent = meta.hasDoc
+        ? `已上傳：${meta.filename}（${meta.uploadedAt ? fmtDate(meta.uploadedAt) : ''}）`
+        : '尚未上傳';
+      bankDocBtns.innerHTML = '';
+      if (meta.hasDoc) {
+        bankDocBtns.append(
+          el('a', { class: 'btn small', href: '/api/tenant/me/bank-doc/file', target: '_blank', style: 'text-decoration:none;' }, '下載 / 預覽'),
+          el('button', { class: 'btn small danger', onClick: async () => {
+            if (!confirmBox('確定刪除匯款帳號影本？')) return;
+            await api.del('/tenant/me/bank-doc');
+            toast('已刪除', 'ok'); loadBankDoc();
+          } }, '刪除'),
+        );
+      }
+      const fileInput = el('input', { type: 'file', accept: '.pdf,.jpg,.jpeg,.png', style: 'display:none;' });
+      fileInput.addEventListener('change', async () => {
+        if (!fileInput.files?.length) return;
+        const fd = new FormData();
+        fd.append('bankDoc', fileInput.files[0]);
+        try {
+          const res = await fetch('/api/tenant/me/bank-doc', {
+            method: 'POST', body: fd, credentials: 'include',
+          });
+          if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error?.message || res.statusText); }
+          toast('已上傳', 'ok'); loadBankDoc();
+        } catch (e) { toast(e.message, 'err'); }
+      });
+      bankDocBtns.append(
+        el('button', { class: 'btn small primary', onClick: () => fileInput.click() }, meta.hasDoc ? '重新上傳' : '上傳檔案'),
+        fileInput,
+      );
+    } catch (e) { bankDocStatus.textContent = '載入失敗：' + e.message; }
+  }
+  loadBankDoc();
 
   // ---- 電子發票設定 ----
   const einvTitle = el('h3', { style: 'margin-top:24px;' }, '電子發票設定');

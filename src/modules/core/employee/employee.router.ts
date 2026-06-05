@@ -12,6 +12,14 @@ function requireAdmin(req: Request) {
 
 const passwordSchema = z.string().min(8, '密碼至少 8 碼');
 
+const bankFields = {
+  bankCode: z.string().nullable().optional(),
+  bankName: z.string().nullable().optional(),
+  bankBranch: z.string().nullable().optional(),
+  bankAccountName: z.string().nullable().optional(),
+  bankAccountNo: z.string().nullable().optional(),
+};
+
 const createSchema = z.object({
   employeeId: z.string().min(1),
   name: z.string().min(1),
@@ -19,8 +27,8 @@ const createSchema = z.object({
   phone: z.string().optional(),
   email: z.string().email().optional(),
   address: z.string().optional(),
-  // 業績獎金代開發票扣除稅率 %（v2.16.0+）
   taxDeductRate: z.number().min(0).max(100).nullable().optional(),
+  ...bankFields,
   password: passwordSchema.optional(),
 });
 
@@ -30,7 +38,7 @@ const updateSchema = z.object({
   phone: z.string().optional(),
   email: z.string().email().optional(),
   address: z.string().optional(),
-  // Password mutation: undefined = no change; string = reset; null = remove.
+  ...bankFields,
   password: z.union([passwordSchema, z.null()]).optional(),
 });
 

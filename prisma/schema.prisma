@@ -75,6 +75,12 @@ model Employee {
   // 業績獎金代開發票扣除稅率 %（v2.16.0+）。實發 = 累積獎金 × (1 − taxDeductRate/100)。
   // null / 0 = 不扣。每位業務各自設定。
   taxDeductRate Decimal? @db.Decimal(5, 2)
+  // 銀行帳號資訊（v2.16.1+）— 薪轉 / 獎金匯款
+  bankCode        String?  // 銀行代號（如 053）
+  bankName        String?  // 銀行名稱（如 台中商銀）
+  bankBranch      String?  // 分行（如 竹南分行）
+  bankAccountName String?  // 戶名
+  bankAccountNo   String?  // 匯款帳號
   // bcrypt hash for the admin web console. Null = no web access (LINE-only user).
   passwordHash String?
   // Timestamp when passwordHash was last set; surfaced in admin UI so ADMIN
