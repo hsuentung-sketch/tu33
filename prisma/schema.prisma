@@ -71,6 +71,7 @@ model Employee {
   phone      String?
   email      String?
   address    String?
+  notes      String?  // 管理員備忘（v2.17.0+）
   role       Role     @default(VIEWER)
   // 業績獎金代開發票扣除稅率 %（v2.16.0+）。實發 = 累積獎金 × (1 − taxDeductRate/100)。
   // null / 0 = 不扣。每位業務各自設定。

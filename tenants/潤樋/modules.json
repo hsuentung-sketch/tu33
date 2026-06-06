@@ -1,0 +1,16 @@
+{
+  "tenant": "潤樋",
+  "codebase": "saas-erp-main",
+  "industry": "金屬加工業",
+  "version": "2.x",
+  "enabled_modules": [
+    "core",
+    "master",
+    "sales",
+    "purchase",
+    "accounting",
+    "inventory"
+  ],
+  "disabled_modules": [],
+  "notes": "潤樋為 tu33-erp 主幹的第一個正式 tenant，也是 SaaS 功能的參考實作基準"
+}

@@ -27,6 +27,7 @@ const createSchema = z.object({
   phone: z.string().optional(),
   email: z.string().email().optional(),
   address: z.string().optional(),
+  notes: z.string().nullable().optional(),
   taxDeductRate: z.number().min(0).max(100).nullable().optional(),
   ...bankFields,
   password: passwordSchema.optional(),
@@ -38,6 +39,7 @@ const updateSchema = z.object({
   phone: z.string().optional(),
   email: z.string().email().optional(),
   address: z.string().optional(),
+  notes: z.string().nullable().optional(),
   ...bankFields,
   password: z.union([passwordSchema, z.null()]).optional(),
 });
@@ -83,6 +85,8 @@ employeeRouter.put('/:id', async (req: Request, res: Response, next: NextFunctio
       throw new ValidationError(parsed.error.issues.map((i) => i.message).join(', '));
     }
     const { password, ...rest } = parsed.data;
+    // Trim notes; empty string → null
+    if (typeof rest.notes === 'string') rest.notes = rest.notes.trim() || null;
     // Non-password fields go through the generic update.
     if (Object.keys(rest).length) {
       await employeeService.update(req.tenantId, String(req.params.id), rest);

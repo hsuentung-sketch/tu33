@@ -1,0 +1,27 @@
+{
+  "tenant": "潤樋",
+  "companyName": "潤樋實業股份有限公司",
+  "taxId": "62198132",
+  "industry": "金屬加工業",
+  "deploy": {
+    "flyApp": "erp-line-bot",
+    "region": "nrt",
+    "supabaseRef": ""
+  },
+  "line": {
+    "messagingApiChannelId": "2009636862",
+    "loginChannelId": "2009797959",
+    "liffId": "2009797959-uDVN0eGQ"
+  },
+  "billing": {
+    "paymentDays": 30,
+    "gracePeriodDays": 15,
+    "multiCompanyMode": false
+  },
+  "features": {
+    "ocrBusinessCard": true,
+    "pdfDownload": true,
+    "adminConsole": true,
+    "voiceCommand": true
+  }
+}

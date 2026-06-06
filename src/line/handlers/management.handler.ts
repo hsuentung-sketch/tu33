@@ -422,6 +422,10 @@ async function listEmployees(client: any, event: any, tenantId: string): Promise
     if (e.phone) bits.push(`   電話：${e.phone}`);
     if (e.email) bits.push(`   Email：${e.email}`);
     bits.push(`   LINE 綁定：${e.lineUserId ? '✅' : '未綁定'}`);
+    if (e.notes) {
+      const display = e.notes.length > 30 ? e.notes.slice(0, 30) + '...' : e.notes;
+      bits.push(`   備忘：${display}`);
+    }
     return bits.join('\n');
   }).join('\n\n');
   await client.replyMessage({

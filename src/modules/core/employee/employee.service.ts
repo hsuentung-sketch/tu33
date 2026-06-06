@@ -59,6 +59,7 @@ export async function create(
     phone?: string;
     email?: string;
     address?: string;
+    notes?: string | null;
     taxDeductRate?: number | null;
     password?: string;
   },
@@ -73,6 +74,7 @@ export async function create(
       phone: data.phone,
       email: data.email,
       address: data.address,
+      notes: data.notes?.trim() || null,
       taxDeductRate: data.taxDeductRate ?? null,
       passwordHash,
       passwordSetAt: passwordHash ? new Date() : null,

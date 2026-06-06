@@ -937,6 +937,12 @@ function openEmployeeEditor(emp, onSaved) {
       field('Email', textInput('email', 'email')),
     ),
     field('地址', textInput('address')),
+    field('備忘', (() => {
+      const ta = el('textarea', { rows: '3', style: 'width:100%;resize:vertical;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:14px;' });
+      ta.value = state.notes ?? '';
+      ta.addEventListener('input', () => { state.notes = ta.value; });
+      return ta;
+    })()),
     field('業績獎金扣除稅率 %（代開發票，空=不扣）', textInput('taxDeductRate', 'number', { step: '0.01', min: '0', max: '100' })),
     el('div', { style: 'margin-top:12px;padding:12px;border:1px solid var(--border);border-radius:6px;background:#fafafa;' },
       el('div', { style: 'font-size:13px;font-weight:600;margin-bottom:8px;' }, '銀行帳號資訊'),
@@ -974,6 +980,7 @@ function openEmployeeEditor(emp, onSaved) {
             address: state.address || undefined,
             taxDeductRate: (state.taxDeductRate === '' || state.taxDeductRate == null)
               ? null : Number(state.taxDeductRate),
+            notes: state.notes?.trim() || null,
             bankCode: state.bankCode || null,
             bankName: state.bankName || null,
             bankBranch: state.bankBranch || null,
