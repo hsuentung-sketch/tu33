@@ -3,6 +3,42 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.16.1] - 2026-06-08
+
+### Fixed -- Storage 遷移：Supabase Storage -> Neon PostgreSQL
+
+原 Supabase 專案在 DB 遷移到 Neon 後被自動刪除，Storage bucket 與產品/供應商文件一併消失，
+導致 LINE Bot 下載 PDS 時回報 "Storage signed URL failed: fetch failed"。
+
+- **ProductDocument / SupplierDocument** 加 `fileData Bytes?` 欄位，檔案直接存 DB
+- 新 `/doc/:kind/:id?token=...` 公開下載端點（JWT-authed），取代 Supabase signed URL
+- `src/shared/storage.ts` 標記 deprecated（所有函式改為 throw）
+- 下載仍走 ShortLink 包裝，LINE 訊息 URL 不變
+- `list()` 查詢用 `select` 排除 `fileData`（避免大 blob 傳輸）
+- 移除 `@supabase/supabase-js` 運行時依賴（package.json 保留但不再 import）
+
+#### Schema 變更（上線前必跑）
+
+```sql
+ALTER TABLE "ProductDocument" ADD COLUMN "fileData" BYTEA;
+ALTER TABLE "SupplierDocument" ADD COLUMN "fileData" BYTEA;
+```
+
+> 既有文件紀錄（DB row）保留但 `fileData` 為 null，下載時回 410 提示重新上傳。
+
+#### 改動
+
+| 路徑 | 改動 |
+|---|---|
+| `prisma/schema.prisma` | ProductDocument +`fileData`；SupplierDocument +`fileData` |
+| `src/documents/doc-link.ts` | **新檔** JWT sign/verify for doc downloads |
+| `src/routes/doc.router.ts` | **新檔** 公開下載端點 |
+| `src/shared/storage.ts` | deprecated，所有函式 throw |
+| `src/modules/master/product/product-document.service.ts` | 改寫：存/讀 DB，不再呼叫 Supabase |
+| `src/modules/master/supplier/supplier-document.service.ts` | 同上 |
+| `src/index.ts` | 掛載 `/doc` router（auth middleware 之前） |
+| `src/config/index.ts` | supabase config 標記 deprecated |
+
 ## [2.16.0] - 2026-05-23
 
 ### Changed — 業績獎金改用「毛利−營業稅、員工稅率」

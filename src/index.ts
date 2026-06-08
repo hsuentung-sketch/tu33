@@ -5,6 +5,7 @@ import { logger } from './shared/logger.js';
 import { webhookRouter } from './line/webhook.js';
 import { apiRouter } from './routes/index.js';
 import { pdfRouter } from './routes/pdf.router.js';
+import { docRouter } from './routes/doc.router.js';
 import { shortLinkRouter } from './modules/core/shortlink/shortlink.router.js';
 import { AppError } from './shared/errors.js';
 import { writeErrorLog, runWithRequestContext, newRequestId } from './shared/error-log.js';
@@ -78,6 +79,9 @@ app.get('/', (_req, res) => {
 
 // Public PDF download routes (token-authed via JWT, not LIFF id-token)
 app.use('/pdf', pdfRouter);
+
+// Public document file download (v2.16.0+, replaces Supabase signed URLs)
+app.use('/doc', docRouter);
 
 // Public short-link resolver — 302 redirects to stored target URL.
 // Mounted before authMiddleware so LINE users can tap the short URL

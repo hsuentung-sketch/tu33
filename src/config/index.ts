@@ -65,7 +65,8 @@ export const config = {
     apiKey: process.env.ANTHROPIC_API_KEY || '',
   },
 
-  // Supabase Storage — for product documents (PDS / SDS / DM)
+  // DEPRECATED (v2.16.0): Supabase Storage removed — files now in DB (fileData column).
+  // These env vars are no longer required. Left as no-op so old references don't crash.
   supabase: {
     url: process.env.SUPABASE_URL || '',
     serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || '',

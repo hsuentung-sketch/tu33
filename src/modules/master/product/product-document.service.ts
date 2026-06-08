@@ -1,23 +1,17 @@
 /**
  * Product document service — upload / list / delete.
  *
- * Stores files in Supabase Storage ("product-docs" bucket) and metadata
- * in the ProductDocument table. Path layout:
- *   {tenantId}/{productId}/{type}/{randomId}.{ext}
+ * v2.16.0+: Files stored as `fileData` (Bytes) in the ProductDocument row
+ * inside Neon PostgreSQL. Replaces the old Supabase Storage approach.
  *
- * Downloads are served through short links that wrap a Supabase signed URL.
+ * Downloads served via public /doc/product/:id?token=... endpoint (JWT-authed).
  */
 import { randomBytes } from 'node:crypto';
 import { prisma } from '../../../shared/prisma.js';
-import {
-  uploadProductDoc,
-  deleteProductDoc,
-  createProductDocSignedUrl,
-} from '../../../shared/storage.js';
+import { signDocToken, buildDocUrl } from '../../../documents/doc-link.js';
 import { createShortLink } from '../../core/shortlink/shortlink.service.js';
 import { NotFoundError, ValidationError } from '../../../shared/errors.js';
 import { config } from '../../../config/index.js';
-import { assertTenantIsolation } from "../../../shared/tenant-isolation.js";
 
 export type DocumentType = 'PDS' | 'SDS' | 'DM' | 'OTHER';
 
@@ -62,32 +56,31 @@ export async function upload(input: UploadInput & { tenantId: string }) {
   const ext = sanitizeExt(input.fileName);
   const storagePath = buildStoragePath(input.tenantId, input.productId, input.type, ext);
 
-  await uploadProductDoc(storagePath, input.bytes, input.mimeType);
-
-  try {
-    const row = await prisma.productDocument.create({
-      data: {
-        tenantId: input.tenantId,
-        productId: input.productId,
-        type: input.type,
-        fileName: input.fileName,
-        storagePath,
-        fileSize: input.bytes.length,
-        mimeType: input.mimeType,
-        uploadedBy: input.uploadedBy ?? null,
-      },
-    });
-    return row;
-  } catch (err) {
-    // Compensating delete so we don't leak an orphan object.
-    await deleteProductDoc(storagePath).catch(() => {});
-    throw err;
-  }
+  const row = await prisma.productDocument.create({
+    data: {
+      tenantId: input.tenantId,
+      productId: input.productId,
+      type: input.type,
+      fileName: input.fileName,
+      storagePath, // legacy field, kept for backward compat
+      fileSize: input.bytes.length,
+      mimeType: input.mimeType,
+      fileData: new Uint8Array(input.bytes),
+      uploadedBy: input.uploadedBy ?? null,
+    },
+  });
+  return row;
 }
 
 export async function list(tenantId: string, productId: string) {
   return prisma.productDocument.findMany({
     where: { tenantId, productId },
+    // Exclude fileData from list queries (large blob)
+    select: {
+      id: true, tenantId: true, productId: true, type: true,
+      fileName: true, storagePath: true, fileSize: true,
+      mimeType: true, uploadedBy: true, createdAt: true,
+    },
     orderBy: [{ type: 'asc' }, { createdAt: 'desc' }],
   });
 }
@@ -95,19 +88,16 @@ export async function list(tenantId: string, productId: string) {
 export async function remove(tenantId: string, docId: string) {
   const doc = await prisma.productDocument.findFirst({
     where: { id: docId, tenantId },
+    select: { id: true },
   });
   if (!doc) throw new NotFoundError('ProductDocument', docId);
-  // Delete object first; if DB delete fails the orphan is worse than the reverse.
-  await deleteProductDoc(doc.storagePath).catch(() => {
-    /* object may already be gone; ignore and delete DB row */
-  });
   await prisma.productDocument.delete({ where: { id: docId } });
   return { ok: true };
 }
 
 /**
- * Build a LINE-friendly download URL. Returns the short URL; the real
- * Supabase signed URL is stored as the short-link target.
+ * Build a LINE-friendly download URL. Signs a JWT pointing to our
+ * /doc/product/:id endpoint, wraps in a short link for clean URLs.
  */
 export async function buildShortDownloadUrl(
   tenantId: string,
@@ -116,12 +106,15 @@ export async function buildShortDownloadUrl(
 ): Promise<{ shortUrl: string; fileName: string; type: DocumentType }> {
   const doc = await prisma.productDocument.findFirst({
     where: { id: docId, tenantId },
+    select: { id: true, fileName: true, type: true, tenantId: true },
   });
   if (!doc) throw new NotFoundError('ProductDocument', docId);
 
-  const signedUrl = await createProductDocSignedUrl(doc.storagePath, DOWNLOAD_TTL_SECONDS);
+  const token = signDocToken(tenantId, 'product', docId, DOWNLOAD_TTL_SECONDS);
+  const directUrl = buildDocUrl(config.publicBaseUrl, 'product', docId, token);
+
   const { code } = await createShortLink({
-    target: signedUrl,
+    target: directUrl,
     tenantId,
     label: doc.fileName,
     kind: 'doc',

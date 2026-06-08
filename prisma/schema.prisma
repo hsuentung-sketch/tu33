@@ -144,9 +144,10 @@ model ProductDocument {
   product     Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
   type        DocumentType
   fileName    String      // original filename for display
-  storagePath String      // path inside the storage bucket
+  storagePath String      // legacy (was Supabase path); kept for backward compat
   fileSize    Int         // bytes
   mimeType    String
+  fileData    Bytes?      // v2.16.0+: file content in DB (replaces Supabase Storage)
   uploadedBy  String?     // employee id
   createdAt   DateTime    @default(now())
 
@@ -270,9 +271,10 @@ model SupplierDocument {
   supplier    Supplier             @relation(fields: [supplierId], references: [id], onDelete: Cascade)
   type        SupplierDocumentType
   fileName    String               // 顯示用原始檔名
-  storagePath String               // storage bucket 內路徑
+  storagePath String               // legacy (was Supabase path); kept for backward compat
   fileSize    Int                  // bytes
   mimeType    String
+  fileData    Bytes?               // v2.16.0+: file content in DB (replaces Supabase Storage)
   uploadedBy  String?              // employee id
   createdAt   DateTime             @default(now())
 

@@ -1,19 +1,17 @@
 /**
- * Supplier document service — upload / list / delete（v2.14.0+）。
+ * Supplier document service — upload / list / delete (v2.14.0+).
  *
- * 仿 product-document.service.ts。檔案存 Supabase Storage（與產品文件
- * 共用 bucket），metadata 存 SupplierDocument 表。Path layout：
- *   supplier/{tenantId}/{supplierId}/{type}/{randomId}.{ext}
+ * v2.16.0+: Files stored as `fileData` (Bytes) in the SupplierDocument row
+ * inside Neon PostgreSQL. Replaces the old Supabase Storage approach.
  *
- * 主要用途：存供應商的銀行存摺 PDF（匯款核對憑證），也可放合約等。
+ * Downloads served via public /doc/supplier/:id?token=... endpoint (JWT-authed).
  */
 import { randomBytes } from 'node:crypto';
 import { prisma } from '../../../shared/prisma.js';
-import { uploadDoc, deleteDoc, createDocSignedUrl } from '../../../shared/storage.js';
+import { signDocToken, buildDocUrl } from '../../../documents/doc-link.js';
 import { createShortLink } from '../../core/shortlink/shortlink.service.js';
 import { NotFoundError, ValidationError } from '../../../shared/errors.js';
 import { config } from '../../../config/index.js';
-import { assertTenantIsolation } from "../../../shared/tenant-isolation.js";
 
 export type SupplierDocumentType = 'BANKBOOK' | 'CONTRACT' | 'OTHER';
 
@@ -58,31 +56,30 @@ export async function upload(input: UploadInput & { tenantId: string }) {
   const ext = sanitizeExt(input.fileName);
   const storagePath = buildStoragePath(input.tenantId, input.supplierId, input.type, ext);
 
-  await uploadDoc(storagePath, input.bytes, input.mimeType);
-
-  try {
-    return await prisma.supplierDocument.create({
-      data: {
-        tenantId: input.tenantId,
-        supplierId: input.supplierId,
-        type: input.type,
-        fileName: input.fileName,
-        storagePath,
-        fileSize: input.bytes.length,
-        mimeType: input.mimeType,
-        uploadedBy: input.uploadedBy ?? null,
-      },
-    });
-  } catch (err) {
-    // Compensating delete so we don't leak an orphan object.
-    await deleteDoc(storagePath).catch(() => {});
-    throw err;
-  }
+  return await prisma.supplierDocument.create({
+    data: {
+      tenantId: input.tenantId,
+      supplierId: input.supplierId,
+      type: input.type,
+      fileName: input.fileName,
+      storagePath, // legacy field, kept for backward compat
+      fileSize: input.bytes.length,
+      mimeType: input.mimeType,
+      fileData: new Uint8Array(input.bytes),
+      uploadedBy: input.uploadedBy ?? null,
+    },
+  });
 }
 
 export async function list(tenantId: string, supplierId: string) {
   return prisma.supplierDocument.findMany({
     where: { tenantId, supplierId },
+    // Exclude fileData from list queries (large blob)
+    select: {
+      id: true, tenantId: true, supplierId: true, type: true,
+      fileName: true, storagePath: true, fileSize: true,
+      mimeType: true, uploadedBy: true, createdAt: true,
+    },
     orderBy: [{ type: 'asc' }, { createdAt: 'desc' }],
   });
 }
@@ -90,16 +87,14 @@ export async function list(tenantId: string, supplierId: string) {
 export async function remove(tenantId: string, docId: string) {
   const doc = await prisma.supplierDocument.findFirst({
     where: { id: docId, tenantId },
+    select: { id: true },
   });
   if (!doc) throw new NotFoundError('SupplierDocument', docId);
-  await deleteDoc(doc.storagePath).catch(() => {
-    /* object may already be gone; ignore and delete DB row */
-  });
   await prisma.supplierDocument.delete({ where: { id: docId } });
   return { ok: true };
 }
 
-/** Build a LINE-friendly download URL（short link 包 Supabase signed URL）。 */
+/** Build a LINE-friendly download URL (short link wrapping JWT-authed /doc endpoint). */
 export async function buildShortDownloadUrl(
   tenantId: string,
   docId: string,
@@ -107,12 +102,15 @@ export async function buildShortDownloadUrl(
 ): Promise<{ shortUrl: string; fileName: string; type: SupplierDocumentType }> {
   const doc = await prisma.supplierDocument.findFirst({
     where: { id: docId, tenantId },
+    select: { id: true, fileName: true, type: true, tenantId: true },
   });
   if (!doc) throw new NotFoundError('SupplierDocument', docId);
 
-  const signedUrl = await createDocSignedUrl(doc.storagePath, DOWNLOAD_TTL_SECONDS);
+  const token = signDocToken(tenantId, 'supplier', docId, DOWNLOAD_TTL_SECONDS);
+  const directUrl = buildDocUrl(config.publicBaseUrl, 'supplier', docId, token);
+
   const { code } = await createShortLink({
-    target: signedUrl,
+    target: directUrl,
     tenantId,
     label: doc.fileName,
     kind: 'doc',
