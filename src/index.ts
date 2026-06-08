@@ -8,6 +8,7 @@ import { pdfRouter } from './routes/pdf.router.js';
 import { shortLinkRouter } from './modules/core/shortlink/shortlink.router.js';
 import { AppError } from './shared/errors.js';
 import { writeErrorLog, runWithRequestContext, newRequestId } from './shared/error-log.js';
+import { prisma } from './shared/prisma.js';
 import { scheduleOverdueReminder } from './jobs/overdue-reminder.js';
 import { scheduleMonthlyStatements } from './jobs/monthly-statement.js';
 import { scheduleDailyBackup } from './jobs/daily-backup.js';
@@ -44,9 +45,29 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
-// Health check
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+// Health check — DB 連線實測，Fly 每 30s 呼叫一次。
+// 若 DB 連不上回 503，Fly deploy 時新版不會通過 health check，自動 rollback。
+let dbOk = true;
+let lastDbCheck = 0;
+const DB_CHECK_INTERVAL_MS = 15_000; // 最多每 15 秒查一次 DB
+
+app.get('/health', async (_req, res) => {
+  const now = Date.now();
+  if (now - lastDbCheck > DB_CHECK_INTERVAL_MS) {
+    try {
+      await (prisma as any).$queryRawUnsafe('SELECT 1');
+      dbOk = true;
+    } catch (err: any) {
+      dbOk = false;
+      logger.error('Health check DB failure', { error: err.message });
+    }
+    lastDbCheck = now;
+  }
+  if (!dbOk) {
+    res.status(503).json({ status: 'error', db: 'unreachable', timestamp: new Date().toISOString() });
+    return;
+  }
+  res.json({ status: 'ok', db: 'connected', timestamp: new Date().toISOString() });
 });
 
 // Root → admin console. Bookmark targets without /admin/ should land somewhere useful.
@@ -152,9 +173,21 @@ app.use((err: Error, req: express.Request, res: express.Response, _next: express
 
 // Bind explicitly to 0.0.0.0 so Render's IPv4 port scanner can detect us.
 // Without the host arg, Node may bind to IPv6 only on some environments.
-app.listen(config.port, '0.0.0.0', () => {
+app.listen(config.port, '0.0.0.0', async () => {
   logger.info(`ERP server running on 0.0.0.0:${config.port}`);
   logger.info(`Environment: ${config.nodeEnv}`);
+
+  // Boot-time DB connectivity check — 清楚 log 而非靜默失敗
+  try {
+    await (prisma as any).$queryRawUnsafe('SELECT 1');
+    logger.info('DB connection verified on boot');
+  } catch (err: any) {
+    logger.error('DB connection FAILED on boot — all features will be unavailable', {
+      error: err.message,
+      code: err.code,
+      hint: 'Check DATABASE_URL in Fly secrets (fly secrets list)',
+    });
+  }
   scheduleOverdueReminder();
   scheduleMonthlyStatements();
   scheduleDailyBackup();
