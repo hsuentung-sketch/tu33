@@ -20,6 +20,7 @@ import { runEinvoiceBootCheck } from './jobs/einvoice-boot-check.js';
 import { registerInventoryEventHandlers } from './modules/inventory/inventory.events.js';
 import { registerAutoJournalHandlers } from './modules/accounting/journal/auto-journal.js';
 import { platformRouter } from './modules/core/platform/platform.router.js';
+import { licenseMiddleware } from './shared/license-middleware.js';
 
 const app = express();
 
@@ -86,6 +87,10 @@ app.use('/s', shortLinkRouter);
 // SaaS platform admin console (static SPA + API)
 app.use('/saas-admin', express.static('public/saas-admin'));
 app.use('/api/platform', platformRouter);
+
+// License check — blocks mutations when license expired (V0.12.0 F.3).
+// Mounted AFTER webhook / health / pdf / short-link (public routes must not be gated).
+app.use('/api', licenseMiddleware);
 
 // API routes
 app.use('/api', apiRouter);

@@ -71,4 +71,10 @@ export const config = {
     serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
     productDocsBucket: process.env.SUPABASE_PRODUCT_DOCS_BUCKET || 'product-docs',
   },
+  // Control Plane (V0.12.0 F.3) — license verify + release manifest
+  controlPlane: {
+    baseUrl: process.env.CP_BASE_URL || '',
+    licenseKey: process.env.LICENSE_KEY || '',
+    releaseSigningKey: process.env.RELEASE_SIGNING_KEY || '',
+  },
 } as const;
