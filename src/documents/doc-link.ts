@@ -8,7 +8,7 @@
 import jwt from 'jsonwebtoken';
 import { config } from '../config/index.js';
 
-export type DocKind = 'product' | 'supplier';
+export type DocKind = 'product' | 'supplier' | 'bank-doc';
 
 interface DocTokenPayload {
   t: string;  // tenantId

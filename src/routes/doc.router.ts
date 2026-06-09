@@ -9,9 +9,16 @@
  * GET /doc/supplier/:id?token=...  -> streams SupplierDocument.fileData
  */
 import { Router, type Request, type Response } from 'express';
+import { existsSync } from 'fs';
+import { readFile } from 'fs/promises';
+import { resolve } from 'path';
 import { prisma } from '../shared/prisma.js';
 import { verifyDocToken, type DocKind } from '../documents/doc-link.js';
+import { getTenantSettings } from '../shared/utils.js';
 import { logger } from '../shared/logger.js';
+
+const BANK_DOC_DIR = process.env.BANK_DOC_DIR
+  || (existsSync('/data') ? '/data/bank-docs' : resolve(process.cwd(), 'data/bank-docs'));
 
 export const docRouter = Router();
 
@@ -46,6 +53,28 @@ async function streamDoc(req: Request, res: Response) {
         where: { id: docId, tenantId: payload.t },
         select: { fileName: true, mimeType: true, fileData: true, fileSize: true },
       });
+    } else if (kind === 'bank-doc') {
+      // Bank-doc: file on disk, metadata in tenant settings. docId = 'file'.
+      const tenant = await prisma.tenant.findUnique({ where: { id: payload.t } });
+      const settings = getTenantSettings(tenant?.settings);
+      const meta = (settings as any).bankDoc;
+      if (!meta?.hasDoc || !meta.filename) {
+        res.status(404).json({ error: 'No bank document uploaded' });
+        return;
+      }
+      const filePath = resolve(BANK_DOC_DIR, `${payload.t}-${meta.filename}`);
+      if (!existsSync(filePath)) {
+        res.status(404).json({ error: 'Bank document file not found' });
+        return;
+      }
+      const buf = await readFile(filePath);
+      const ext = meta.filename.split('.').pop()?.toLowerCase();
+      const mime = ext === 'pdf' ? 'application/pdf' : `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+      res.setHeader('Content-Type', mime);
+      res.setHeader('Content-Length', buf.length);
+      res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(meta.filename)}`);
+      res.end(buf);
+      return;
     } else {
       res.status(400).json({ error: 'Unknown document kind' });
       return;

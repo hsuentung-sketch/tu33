@@ -2,6 +2,10 @@ import { logger } from '../../shared/logger.js';
 import * as customerService from '../../modules/master/customer/customer.service.js';
 import * as supplierService from '../../modules/master/supplier/supplier.service.js';
 import { prisma } from '../../shared/prisma.js';
+import { getTenantSettings } from '../../shared/utils.js';
+import { signDocToken, buildDocUrl } from '../../documents/doc-link.js';
+import { createShortLink } from '../../modules/core/shortlink/shortlink.service.js';
+import { config } from '../../config/index.js';
 import * as session from '../session.js';
 
 type Role = 'ADMIN' | 'SALES' | 'PURCHASING' | 'ACCOUNTING' | 'VIEWER';
@@ -401,6 +405,44 @@ export async function handleManagementCommand(action: string, ctx: any): Promise
       return;
     }
 
+    case 'management:bank-doc': {
+      try {
+        const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+        const settings = getTenantSettings(tenant?.settings);
+        const meta = (settings as any).bankDoc;
+        if (!meta?.hasDoc || !meta.filename) {
+          await client.replyMessage({
+            replyToken: event.replyToken,
+            messages: [{ type: 'text', text: '尚未上傳公司匯款帳號文件。\n請管理員到後台「公司資料」上傳。' }],
+          });
+          return;
+        }
+        // Build JWT-signed short link for bank-doc download
+        const token = signDocToken(tenantId, 'bank-doc', 'file', 60 * 60 * 24 * 7);
+        const target = buildDocUrl(config.publicBaseUrl, 'bank-doc', 'file', token);
+        const { code } = await createShortLink({
+          target,
+          tenantId,
+          label: 'bank-account-doc',
+          kind: 'doc',
+          ttlSeconds: 60 * 60 * 24 * 7,
+          createdBy: employee.id,
+        });
+        const shortUrl = `${config.publicBaseUrl.replace(/\/$/, '')}/s/${code}`;
+        await client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: `公司匯款帳號文件\n${shortUrl}\n\n（連結 7 天內有效）` }],
+        });
+      } catch (err) {
+        logger.error('bank-doc download link failed', err);
+        await client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: '取得匯款帳號文件失敗，請稍後再試。' }],
+        });
+      }
+      return;
+    }
+
     default:
       logger.warn(`Unknown management action: ${action}`);
   }
@@ -542,6 +584,7 @@ function rootMenu(employee?: { role?: string }) {
   }
   items.push(btn('客戶管理', 'action=management:customer', '#2E7D32'));
   items.push(btn('工作日誌', 'action=visitlog:menu', '#00897B'));
+  items.push(btn('公司匯款帳號', 'action=management:bank-doc', '#795548'));
   return {
     type: 'bubble' as const,
     body: {

@@ -6,6 +6,7 @@ import { generateQuotationPdf } from '../../documents/pdf-generator.js';
 import { sendDocumentEmail } from '../../documents/email-sender.js';
 import { getTenantSettings } from '../../shared/utils.js';
 import { buildPdfShortUrl } from '../../documents/pdf-shortlink.js';
+import { config } from '../../config/index.js';
 
 async function buildQuotationPdfBuffer(tenantId: string, quotationId: string): Promise<{ buffer: Buffer; filename: string; quotationNo: string; customer: { name: string; email: string | null } } | null> {
   const q = await prisma.quotation.findFirst({
@@ -108,7 +109,8 @@ export async function handleQuotationCommand(action: string, ctx: any): Promise<
         });
         return;
       }
-      // Build Flex carousel with PDF + convert buttons per quotation
+      // Build Flex carousel with PDF + edit + convert + cancel buttons per quotation
+      const adminBase = config.publicBaseUrl.replace(/\/$/, '') + '/admin/';
       const bubbles = [];
       for (const r of rows.slice(0, 10)) {
         const pdfUrl = await buildPdfShortUrl({
@@ -118,15 +120,29 @@ export async function handleQuotationCommand(action: string, ctx: any): Promise<
           label: `quotation-${r.quotationNo}.pdf`,
           createdBy: employee.id,
         });
-        const actions: any[] = [
-          { type: 'uri', label: '下載 PDF', uri: pdfUrl },
+        const isActive = r.status !== 'CANCELLED' && r.status !== 'LOST' && r.status !== 'WON';
+        // Row 1: PDF download + edit (admin link)
+        const row1: any[] = [
+          { type: 'button', style: 'primary', height: 'sm', color: '#1DB446',
+            action: { type: 'uri', label: 'PDF', uri: pdfUrl } },
         ];
-        if (r.status !== 'CANCELLED' && r.status !== 'LOST' && r.status !== 'WON') {
-          actions.push({
-            type: 'postback',
-            label: '轉銷貨單',
-            data: `action=quotation:convert&id=${r.id}`,
-          });
+        if (isActive) {
+          row1.push({ type: 'button', style: 'link', height: 'sm',
+            action: { type: 'uri', label: '編輯（後台）', uri: `${adminBase}#quotations` } });
+        }
+        // Row 2: convert + cancel (only for active quotations)
+        const row2: any[] = [];
+        if (isActive) {
+          row2.push({ type: 'button', style: 'primary', height: 'sm', color: '#0066CC',
+            action: { type: 'postback', label: '轉銷貨單', data: `action=quotation:convert&id=${r.id}` } });
+          row2.push({ type: 'button', style: 'primary', height: 'sm', color: '#CC3333',
+            action: { type: 'postback', label: '取消報價', data: `action=quotation:cancel&id=${r.id}` } });
+        }
+        const footerContents: any[] = [
+          { type: 'box', layout: 'horizontal', spacing: 'sm', contents: row1 },
+        ];
+        if (row2.length > 0) {
+          footerContents.push({ type: 'box', layout: 'horizontal', spacing: 'sm', contents: row2 });
         }
         bubbles.push({
           type: 'bubble',
@@ -140,11 +156,8 @@ export async function handleQuotationCommand(action: string, ctx: any): Promise<
             ],
           },
           footer: {
-            type: 'box', layout: 'horizontal', spacing: 'sm',
-            contents: actions.map((a: any) => ({
-              type: 'button', style: 'primary', height: 'sm', color: a.type === 'uri' ? '#1DB446' : '#0066CC',
-              action: a,
-            })),
+            type: 'box', layout: 'vertical', spacing: 'sm',
+            contents: footerContents,
           },
         });
       }
@@ -176,6 +189,27 @@ export async function handleQuotationCommand(action: string, ctx: any): Promise<
         await client.replyMessage({
           replyToken: event.replyToken,
           messages: [{ type: 'text', text: `轉換失敗：${(err as Error).message}` }],
+        });
+      }
+      return;
+    }
+
+    case 'quotation:cancel': {
+      const id = params.get('id');
+      if (!id) return;
+      try {
+        await runWithAuditContext(
+          { tenantId, userId: employee.id },
+          () => quotationService.softDelete(tenantId, id, employee.id),
+        );
+        await client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: '✅ 報價單已取消。' }],
+        });
+      } catch (err) {
+        await client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: `取消失敗：${(err as Error).message}` }],
         });
       }
       return;

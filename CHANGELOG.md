@@ -3,6 +3,25 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.16.3] - 2026-06-09
+
+### Added -- LINE 報價管理 + 銀行帳戶文件下載（#19, #20, #21, #55）
+
+**#19 報價單編輯（LINE → 後台）：**
+- 報價 Flex 卡片加「編輯（後台）」連結按鈕，導向 admin `#quotations` 頁面
+
+**#20 報價單取消/刪除（LINE）：**
+- 報價 Flex 卡片加「取消報價」按鈕（紅色），postback 呼叫 `quotationService.softDelete`
+- 僅 DRAFT/SENT/TRACKING 狀態顯示取消按鈕
+
+**#21 報價轉銷貨（後台）：** 已在 v2.16.2 完成
+
+**#55 公司匯款帳號文件（LINE）：**
+- 管理選單加「公司匯款帳號」按鈕
+- 產生 JWT-signed 短連結（7 天有效），LINE 用戶可直接下載
+- `/doc/bank-doc/file?token=...` 公開端點，從磁碟讀取檔案
+- DocKind 新增 `'bank-doc'` 類型
+
 ## [2.16.2] - 2026-06-09
 
 ### Added -- LINE / Admin 功能同步（高 + 中優先）
