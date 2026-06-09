@@ -1144,9 +1144,12 @@ async function openOrderEditor(kind, orderId, onSaved) {
   const urlBase = kind === 'quotation' ? '/quotations'
                 : kind === 'sales' ? '/sales-orders'
                 : '/purchase-orders';
-  let order;
-  try { order = await api.get(`${urlBase}/${orderId}`); }
-  catch (e) { toast(e.message, 'err'); return; }
+  const isCreate = !orderId;
+  let order = null;
+  if (!isCreate) {
+    try { order = await api.get(`${urlBase}/${orderId}`); }
+    catch (e) { toast(e.message, 'err'); return; }
+  }
 
   const isQuote = kind === 'quotation';
   const isPurchase = kind === 'purchase';
@@ -1159,27 +1162,30 @@ async function openOrderEditor(kind, orderId, onSaved) {
     ? await api.get('/suppliers').catch(() => [])
     : await api.get('/customers').catch(() => []);
 
+  const me = window.__session?.employee;
   const state = {
-    [partyKey]: order[partyKey],
-    [staffKey]: order[staffKey] ?? '',
-    [staffPhoneKey]: order[staffPhoneKey] ?? '',
-    deliveryNote: order.deliveryNote ?? '',
-    supplyTime: order.supplyTime ?? '',
-    paymentTerms: order.paymentTerms ?? '',
-    validUntil: order.validUntil ?? '',
-    note: order.note ?? '',
-    items: (order.items || []).map((it) => ({
-      productName: it.productName,
-      quantity: it.quantity,
-      unitPrice: Number(it.unitPrice),
-      note: it.note ?? '',
-    })),
+    [partyKey]: order ? order[partyKey] : (parties[0]?.id ?? ''),
+    [staffKey]: order ? (order[staffKey] ?? '') : (me?.name ?? ''),
+    [staffPhoneKey]: order ? (order[staffPhoneKey] ?? '') : '',
+    deliveryNote: order ? (order.deliveryNote ?? '') : '',
+    supplyTime: order ? (order.supplyTime ?? '') : '',
+    paymentTerms: order ? (order.paymentTerms ?? '') : '',
+    validUntil: order ? (order.validUntil ?? '') : '',
+    note: order ? (order.note ?? '') : '',
+    items: order
+      ? (order.items || []).map((it) => ({
+          productName: it.productName,
+          quantity: it.quantity,
+          unitPrice: Number(it.unitPrice),
+          note: it.note ?? '',
+        }))
+      : [{ productName: '', quantity: 1, unitPrice: 0, note: '' }],
     reason: '',
   };
 
-  const lockedByPaid = isPurchase ? order.payable?.isPaid : order.receivable?.isPaid;
-  const nonPendingStatus = !['PENDING', 'DRAFT', 'SENT'].includes(order.status);
-  const closedStatus = ['WON', 'LOST', 'CANCELLED'].includes(order.status) && isQuote;
+  const lockedByPaid = !isCreate && (isPurchase ? order.payable?.isPaid : order.receivable?.isPaid);
+  const nonPendingStatus = !isCreate && !['PENDING', 'DRAFT', 'SENT'].includes(order.status);
+  const closedStatus = !isCreate && ['WON', 'LOST', 'CANCELLED'].includes(order.status) && isQuote;
 
   // --- Build modal body ---
   const body = el('div', { class: 'body' });
@@ -1297,8 +1303,8 @@ async function openOrderEditor(kind, orderId, onSaved) {
   itemsBox.append(addBtn, totalsDiv);
   body.append(itemsBox);
 
-  // Reason textarea (required if non-PENDING / non-DRAFT)
-  if (nonPendingStatus && !closedStatus) {
+  // Reason textarea (required if non-PENDING / non-DRAFT) — edit mode only
+  if (!isCreate && nonPendingStatus && !closedStatus) {
     const rInp = el('textarea', { rows: '2', placeholder: '此狀態修改需填寫原因' });
     rInp.addEventListener('input', () => { state.reason = rInp.value; });
     body.append(el('div', { class: 'field' },
@@ -1306,8 +1312,8 @@ async function openOrderEditor(kind, orderId, onSaved) {
     ));
   }
 
-  // Disable save entirely if paid or closed (view-only)
-  const locked = lockedByPaid || closedStatus || order.isDeleted;
+  // Disable save entirely if paid or closed (view-only) — edit mode only
+  const locked = !isCreate && (lockedByPaid || closedStatus || order.isDeleted);
   if (locked) {
     errBox.textContent = order.isDeleted ? '⛔ 此單已刪除' :
                          closedStatus ? `⛔ 狀態 ${order.status} 不可修改` :
@@ -1320,11 +1326,13 @@ async function openOrderEditor(kind, orderId, onSaved) {
   saveBtn.disabled = locked;
   saveBtn.addEventListener('click', async () => {
     try {
-      if (nonPendingStatus && !closedStatus && !state.reason.trim()) {
+      if (!isCreate && nonPendingStatus && !closedStatus && !state.reason.trim()) {
         throw new Error('請填寫修改原因');
       }
       if (!state.items.length) throw new Error('至少需要一個品項');
-      const body = isQuote ? {
+      if (!state[partyKey]) throw new Error(isPurchase ? '請選擇供應商' : '請選擇客戶');
+      if (!state[staffKey]?.trim()) throw new Error(isPurchase ? '請填寫內勤姓名' : '請填寫業務姓名');
+      const payload = isQuote ? {
         customerId: state.customerId,
         salesPerson: state.salesPerson || null,
         salesPhone: state.salesPhone || null,
@@ -1349,13 +1357,19 @@ async function openOrderEditor(kind, orderId, onSaved) {
         items: state.items,
         reason: state.reason || undefined,
       };
-      await api.put(`${urlBase}/${orderId}`, body);
-      toast('已儲存', 'ok');
+      if (isCreate) {
+        payload.createdBy = me?.id;
+        await api.post(urlBase, payload);
+        toast('已建立', 'ok');
+      } else {
+        await api.put(`${urlBase}/${orderId}`, payload);
+        toast('已儲存', 'ok');
+      }
       backdrop.remove();
       onSaved?.();
     } catch (e) { errBox.textContent = e.message; }
   });
-  const deleteBtn = el('button', { class: 'btn danger', onClick: async () => {
+  const deleteBtn = !isCreate ? el('button', { class: 'btn danger', onClick: async () => {
     if (!confirmBox('確定刪除此單？連動的應收/應付及庫存會自動沖銷。')) return;
     try {
       await api.del(`${urlBase}/${orderId}`);
@@ -1363,10 +1377,14 @@ async function openOrderEditor(kind, orderId, onSaved) {
       backdrop.remove();
       onSaved?.();
     } catch (e) { errBox.textContent = e.message; }
-  } }, '刪除');
-  deleteBtn.disabled = locked;
+  } }, '刪除') : el('span');
+  if (!isCreate) deleteBtn.disabled = locked;
+  const kindLabel = isQuote ? '報價單' : isPurchase ? '進貨單' : '銷貨單';
+  const titleText = isCreate
+    ? `新增${kindLabel}`
+    : `編輯 ${kindLabel}  ${order.quotationNo || order.orderNo}`;
   const modal = el('div', { class: 'modal', style: 'max-width:820px;width:92%;' },
-    el('h3', {}, `編輯 ${isQuote ? '報價單' : isPurchase ? '進貨單' : '銷貨單'}  ${order.quotationNo || order.orderNo}`),
+    el('h3', {}, titleText),
     body,
     errBox,
     el('div', { class: 'actions', style: 'justify-content:space-between;' },
@@ -1538,6 +1556,9 @@ async function viewQuotations(main) {
   main.innerHTML = '';
   main.append(el('h2', {}, '報價單'));
   main.append(el('div', { class: 'page-sub' }, '可修改/刪除：ADMIN 或建單人；刪除為軟刪除。'));
+  const toolbar = el('div', { class: 'toolbar' });
+  toolbar.append(el('button', { class: 'btn primary', onClick: () => openOrderEditor('quotation', null, reload) }, '+ 新增報價單'));
+  main.append(toolbar);
   const tbody = el('tbody');
   main.append(el('table', { class: 'data' },
     el('thead', {}, el('tr', {},
@@ -1573,6 +1594,17 @@ async function viewQuotations(main) {
             canEdit
               ? el('button', { class: 'btn small danger', onClick: () => deleteOrderInline('quotation', q, reload) }, '刪除')
               : null,
+            ['DRAFT', 'SENT', 'TRACKING'].includes(q.status) ? ' ' : null,
+            ['DRAFT', 'SENT', 'TRACKING'].includes(q.status)
+              ? el('button', { class: 'btn small', style: 'color:var(--success);border-color:var(--success);', onClick: async () => {
+                  if (!confirm(`確定將報價單 ${q.quotationNo} 轉為銷貨單？`)) return;
+                  try {
+                    const result = await api.post(`/quotations/${q.id}/convert`, { createdBy: window.__session.employee.id });
+                    toast(`已轉銷貨單 ${result.orderNo}`, 'ok');
+                    reload();
+                  } catch (e) { toast(e.message, 'err'); }
+                } }, '轉銷貨')
+              : null,
           ),
         ));
       }
@@ -1585,6 +1617,9 @@ async function viewSalesOrders(main) {
   main.innerHTML = '';
   main.append(el('h2', {}, '銷貨單'));
   main.append(el('div', { class: 'page-sub' }, '可修改/刪除：ADMIN 或建單人；已入帳者鎖定。'));
+  const toolbar = el('div', { class: 'toolbar' });
+  toolbar.append(el('button', { class: 'btn primary', onClick: () => openOrderEditor('sales', null, reload) }, '+ 新增銷貨單'));
+  main.append(toolbar);
   const tbody = el('tbody');
   main.append(el('table', { class: 'data' },
     el('thead', {}, el('tr', {},
@@ -1908,6 +1943,9 @@ async function viewPurchaseOrders(main) {
   main.innerHTML = '';
   main.append(el('h2', {}, '進貨單'));
   main.append(el('div', { class: 'page-sub' }, '可修改/刪除：ADMIN 或建單人；已付款者鎖定。'));
+  const toolbar = el('div', { class: 'toolbar' });
+  if (!isSales()) toolbar.append(el('button', { class: 'btn primary', onClick: () => openOrderEditor('purchase', null, reload) }, '+ 新增進貨單'));
+  main.append(toolbar);
   const tbody = el('tbody');
   main.append(el('table', { class: 'data' },
     el('thead', {}, el('tr', {},

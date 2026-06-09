@@ -3,6 +3,7 @@ import * as session from '../session.js';
 import { fuzzySearch } from '../../shared/search.js';
 import { prisma } from '../../shared/prisma.js';
 import * as salesOrderService from '../../modules/sales/sales-order/sales-order.service.js';
+import * as commissionService from '../../modules/sales/commission/commission.service.js';
 import * as productService from '../../modules/master/product/product.service.js';
 import { runWithAuditContext } from '../../shared/audit.js';
 import { buildPdfShortUrl } from '../../documents/pdf-shortlink.js';
@@ -423,6 +424,50 @@ export async function handleSalesCommand(action: string, ctx: any): Promise<void
           contents: { type: 'carousel', contents: bubbles },
         }] as never,
       });
+      return;
+    }
+
+    case 'sales:commission': {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = now.getMonth() + 1;
+      try {
+        const report = await commissionService.getMonthlyReport(tenantId, {
+          year,
+          month,
+          employeeId: employee.id,
+          includeItemDetail: false, // 業務不看進價
+        });
+        if (report.rows.length === 0) {
+          await client.replyMessage({
+            replyToken: event.replyToken,
+            messages: [{ type: 'text', text: `${year}/${String(month).padStart(2, '0')} 尚無銷貨獎金紀錄。` }],
+          });
+          return;
+        }
+        const lines = report.rows.map((r) =>
+          `${r.orderDate} ${r.customerName}\n  ${r.orderNo}  獎金 $${r.orderBonus.toLocaleString('zh-TW')}`
+        );
+        const summary =
+          `${year}/${String(month).padStart(2, '0')} 業績獎金\n` +
+          `業務：${report.employeeName}\n` +
+          `────────────\n` +
+          lines.join('\n') +
+          `\n────────────\n` +
+          `累計獎金：$${report.totalBonus.toLocaleString('zh-TW')}\n` +
+          `扣除稅率：${report.taxDeductRate}%\n` +
+          `實發金額：$${report.netAmount.toLocaleString('zh-TW')}`;
+        await client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: summary }],
+        });
+      } catch (err) {
+        logger.error('commission query error', err);
+        await client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: '查詢獎金失敗，請稍後再試。' }],
+        });
+      }
       return;
     }
 

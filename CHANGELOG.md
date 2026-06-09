@@ -3,6 +3,21 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.16.2] - 2026-06-09
+
+### Added -- LINE / Admin 功能同步（高 + 中優先）
+
+**後台新增（高優先）：**
+- 報價單 / 銷貨單 / 進貨單頁面加「+ 新增」按鈕，可直接在後台開單
+- `openOrderEditor` 支援 create mode（orderId=null），共用編輯器邏輯
+- 報價單列表加「轉銷貨」按鈕（DRAFT/SENT/TRACKING 狀態）
+- 進貨單新增按鈕對 SALES 角色隱藏
+
+**LINE 新增（中優先）：**
+- 「獎金」/「業績」指令：查詢當月業績獎金摘要（逐單列出 + 累計 + 實發）
+- 「庫存」/「庫存 關鍵字」指令：查詢庫存，支援品名/編號模糊搜尋
+- 預設回覆訊息更新，列出新指令
+
 ## [2.16.1] - 2026-06-08
 
 ### Fixed -- Storage 遷移：Supabase Storage -> Neon PostgreSQL

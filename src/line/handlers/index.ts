@@ -296,13 +296,28 @@ async function routeTextCommand(text: string, ctx: TextCommandContext): Promise<
       params: new URLSearchParams(),
     });
   }
+  if (text === '獎金' || text === '業績' || text === '業績獎金') {
+    return handleSalesCommand('sales:commission', {
+      ...ctx,
+      event: pseudoEvent,
+      params: new URLSearchParams(),
+    });
+  }
+  if (text.startsWith('庫存')) {
+    const q = text.replace(/^庫存\s*/, '').trim();
+    return handleMasterCommand('master:inventory', {
+      ...ctx,
+      event: pseudoEvent,
+      params: new URLSearchParams(q ? `q=${encodeURIComponent(q)}` : ''),
+    });
+  }
 
   if (!event.replyToken) return;
   await client.replyMessage({
     replyToken: event.replyToken,
     messages: [{
       type: 'text',
-      text: '請使用選單操作，或輸入以下指令：\n• 報價 - 報價管理\n• 銷貨 - 銷貨管理\n• 進貨 - 進貨管理\n• 帳務 - 帳務查詢\n• 查詢 關鍵字 - 搜尋',
+      text: '請使用選單操作，或輸入以下指令：\n• 報價 - 報價管理\n• 銷貨 - 銷貨管理\n• 進貨 - 進貨管理\n• 帳務 - 帳務查詢\n• 獎金 - 業績獎金\n• 庫存 - 庫存查詢\n• 查詢 關鍵字 - 搜尋',
     }],
   });
 }

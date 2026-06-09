@@ -5,6 +5,7 @@ import * as supplierService from '../../modules/master/supplier/supplier.service
 import * as productService from '../../modules/master/product/product.service.js';
 import * as productDocService from '../../modules/master/product/product-document.service.js';
 import * as receivableService from '../../modules/accounting/receivable/receivable.service.js';
+import * as inventoryService from '../../modules/inventory/inventory.service.js';
 import * as session from '../session.js';
 import {
   createCustomerFromOcrSession,
@@ -639,6 +640,45 @@ export async function handleMasterCommand(action: string, ctx: any): Promise<voi
         replyToken: event.replyToken,
         messages: [{ type: 'text', text: '請輸入客戶簡稱（或輸入「全部」列出所有應收帳款）：' }],
       });
+      return;
+    }
+
+    case 'master:inventory': {
+      const q = (params.get('q') || '').trim();
+      try {
+        const all = await inventoryService.list(tenantId);
+        const items = q
+          ? all.filter((r) =>
+              r.productName.toLowerCase().includes(q.toLowerCase()) ||
+              (r.productCode || '').toLowerCase().includes(q.toLowerCase()))
+          : all;
+        if (items.length === 0) {
+          await client.replyMessage({
+            replyToken: event.replyToken,
+            messages: [{ type: 'text', text: q ? `找不到「${q}」相關庫存。` : '尚無庫存紀錄。' }],
+          });
+          return;
+        }
+        // 最多顯示 20 筆
+        const shown = items.slice(0, 20);
+        const lowIcon = (r: typeof shown[0]) =>
+          r.reorderPoint > 0 && r.quantity <= r.reorderPoint ? ' ⚠' : '';
+        const lines = shown.map((r) =>
+          `${r.productCode || '-'} ${r.productName}\n  數量：${r.quantity}${lowIcon(r)}`
+        );
+        const header = q ? `庫存查詢「${q}」` : '庫存總覽';
+        const footer = items.length > 20 ? `\n...共 ${items.length} 筆，僅顯示前 20 筆` : '';
+        await client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: `${header}\n────────────\n${lines.join('\n')}${footer}` }],
+        });
+      } catch (err) {
+        logger.error('inventory query error', err);
+        await client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: '查詢庫存失敗，請稍後再試。' }],
+        });
+      }
       return;
     }
 
