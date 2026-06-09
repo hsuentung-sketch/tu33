@@ -1,18 +1,17 @@
+/* ── 品牌 token（集中維護，此處 @import 同步） ── */
+@import './brand-tokens.css';
+
 :root {
-  --bg: #f4f6f9;
-  --panel: #ffffff;
-  --border: #d9dde3;
-  --text: #1f2937;
-  --muted: #6b7280;
-  --primary: #2563eb;
-  --primary-hover: #1d4ed8;
-  --danger: #dc2626;
-  --success: #16a34a;
-  --warning: #d97706;
+  /* ── tu33 sidebar 佈局別名 ── */
+  --bg:           var(--body-bg);
+  --panel:        var(--card-bg);
+  --muted:        var(--text-sec);
+  --primary-hover: var(--primary-lt);
+  /* border / text / primary / danger / success / warning 由 brand-tokens.css 統一提供 */
 }
 
 * { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; font-family: -apple-system, "Segoe UI", "Noto Sans TC", sans-serif; background: var(--bg); color: var(--text); }
+html, body { margin: 0; padding: 0; font-family: var(--font-sans); background: var(--bg); color: var(--text); }
 a { color: var(--primary); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
@@ -29,17 +28,33 @@ a:hover { text-decoration: underline; }
 .login-card button:hover { background: var(--primary-hover); }
 .login-card .err { color: var(--danger); font-size: 13px; margin-top: 8px; min-height: 18px; }
 
-/* ----- Shell ----- */
-.shell { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
-.sidebar { background: #0f172a; color: #cbd5e1; padding: 20px 0; }
-.sidebar .brand { padding: 0 20px 20px 20px; border-bottom: 1px solid #1e293b; color: #fff; font-weight: 600; font-size: 15px; }
-.sidebar .brand small { display: block; color: #94a3b8; font-weight: 400; font-size: 11px; margin-top: 2px; }
-.sidebar nav { padding: 12px 0; }
-.sidebar nav a { display: block; padding: 9px 20px; color: #cbd5e1; font-size: 14px; }
-.sidebar nav a:hover { background: #1e293b; text-decoration: none; color: #fff; }
-.sidebar nav a.active { background: #1e293b; color: #fff; border-left: 3px solid var(--primary); padding-left: 17px; }
-.sidebar .footer { padding: 12px 20px; border-top: 1px solid #1e293b; font-size: 12px; color: #94a3b8; position: sticky; bottom: 0; }
-.sidebar .footer button { background: transparent; color: #cbd5e1; border: 1px solid #334155; border-radius: 4px; padding: 4px 10px; margin-top: 6px; cursor: pointer; font-size: 12px; }
+/* ----- Topbar ----- */
+.topbar {
+  display: flex; align-items: center; gap: 24px;
+  padding: 12px 20px;
+  background: var(--topbar); color: var(--topbar-text);
+  position: sticky; top: 0; z-index: 100;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+}
+.topbar .brand { font-weight: 600; flex-shrink: 0; font-size: 15px; }
+.topbar .brand small { display: block; color: var(--topbar-muted); font-weight: 400; font-size: 11px; margin-top: 2px; }
+.topbar nav {
+  display: flex; gap: 16px; flex: 1;
+  flex-wrap: nowrap; overflow-x: auto;
+  -webkit-overflow-scrolling: touch; scrollbar-width: thin;
+}
+.topbar nav::-webkit-scrollbar { height: 4px; }
+.topbar nav::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 2px; }
+.topbar nav a { color: var(--topbar-muted); text-decoration: none; white-space: nowrap; padding: 4px 0; font-size: 14px; }
+.topbar nav a.active { color: #fff; border-bottom: 2px solid var(--topbar-active-ul); }
+#user { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+
+/* 漢堡按鈕 — 預設隱藏，手機顯示 */
+.hamburger {
+  display: none; background: none; border: 0;
+  color: #fff; font-size: 24px; line-height: 1;
+  cursor: pointer; padding: 4px 8px; margin-left: auto;
+}
 
 .main { padding: 24px 32px; overflow-x: auto; }
 .main h2 { margin: 0 0 4px 0; font-size: 20px; }
@@ -114,7 +129,7 @@ table.data td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .help-content table { border-collapse: collapse; margin: 12px 0; width: 100%; font-size: 13px; }
 .help-content th, .help-content td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
 .help-content th { background: #f8fafc; font-weight: 600; }
-.help-content blockquote { border-left: 4px solid var(--primary); background: #eff6ff; margin: 10px 0; padding: 8px 14px; color: #334155; }
+.help-content blockquote { border-left: 4px solid var(--primary); background: var(--primary-faint); margin: 10px 0; padding: 8px 14px; color: #334155; }
 .help-content hr { border: 0; border-top: 1px solid var(--border); margin: 24px 0; }
 
 /* ----- Tabs (group views: 管理 / 帳款 / 發票 / 紀錄) ----- */
@@ -133,9 +148,26 @@ table.data td.num { text-align: right; font-variant-numeric: tabular-nums; }
   color: var(--primary); border-bottom-color: var(--primary); font-weight: 500;
 }
 
-/* Print rules — for 「🖨 列印 / 儲存 PDF」 */
+/* ----- RWD ≤ 768px ----- */
+@media (max-width: 768px) {
+  .topbar { flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
+  .topbar .brand { font-size: 15px; flex: 1; }
+  .hamburger { display: inline-flex; align-items: center; justify-content: center; }
+  .topbar nav {
+    display: none; flex-basis: 100%; flex-direction: column; gap: 0;
+    background: var(--topbar); margin: 8px -12px -10px;
+    padding: 4px 0; border-top: 1px solid #374151; overflow-x: visible;
+  }
+  body.nav-open .topbar nav { display: flex; }
+  .topbar nav a { padding: 12px 16px; border-bottom: 1px solid #374151; border-left: 3px solid transparent; }
+  .topbar nav a.active { border-bottom: 1px solid #374151; border-left-color: var(--topbar-active-ul); background: #111827; }
+  #user { display: none; }
+  .main { padding: 12px; }
+}
+
+/* Print rules — for 「列印 / 儲存 PDF」 */
 @media print {
-  .sidebar, .toolbar { display: none !important; }
+  .topbar, .toolbar { display: none !important; }
   .main { padding: 0 !important; }
   .help-content { border: 0; box-shadow: none; padding: 0; max-width: 100%; }
   .help-content h2 { break-before: auto; }

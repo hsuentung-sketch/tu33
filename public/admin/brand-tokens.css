@@ -1,0 +1,52 @@
+/*
+ * FDE 品牌設計 Token — v1.0（2026-06-09）
+ *
+ * 所有 ERP admin、LIFF、SaaS 主控台共用此檔案。
+ * 引用方式：
+ *   HTML: <link rel="stylesheet" href="../../_templates/_shared/brand-tokens.css">
+ *   CSS:  @import '../../_templates/_shared/brand-tokens.css';
+ *
+ * 【鐵律】
+ *   - 不可在各專案 styles.css 自定義 --primary / --topbar（覆蓋此檔視為違規）
+ *   - 色碼異動需同步更新 fde-website/CLAUDE.md 和 Obsidian 知識庫
+ */
+
+:root {
+  /* ── 主色 ───────────────────────────────────────── */
+  --primary:          #4F46E5;   /* brand indigo（CTA、按鈕、active 狀態） */
+  --primary-lt:       #818CF8;   /* indigo-400：深色背景上的可讀版 / hover */
+  --primary-faint:    #E0E7FF;   /* indigo-100：選取背景、active row */
+
+  /* ── 製造業 Accent ──────────────────────────────── */
+  --accent:           #B45309;   /* copper：badge、重點小標、行業感 */
+  --accent-light:     #FEF3C7;   /* copper 淡底 */
+  --accent-mid:       #D97706;   /* copper hover */
+
+  /* ── 深色 Topbar / Hero ──────────────────────────── */
+  --topbar:           #1A1A2E;   /* brand navy（所有 admin topbar 背景） */
+  --topbar-text:      #F1F5F9;   /* topbar 文字 */
+  --topbar-muted:     #94A3B8;   /* topbar 次要文字、登出按鈕 */
+  --topbar-active-ul: var(--primary-lt); /* active nav 底線 */
+
+  /* ── 頁面底色 ────────────────────────────────────── */
+  --body-bg:          #F5F6F8;   /* 淺色 admin body background */
+  --card-bg:          #FFFFFF;
+  --border:           #E5E7EB;
+  --border-dark:      #D1D5DB;
+
+  /* ── 文字 ────────────────────────────────────────── */
+  --text:             #1E1E2E;   /* 主文字 */
+  --text-sec:         #6B7280;   /* 次要文字、label */
+  --text-muted:       #9CA3AF;   /* placeholder、disabled */
+
+  /* ── 語意色（勿改） ─────────────────────────────── */
+  --success:          #16A34A;
+  --warning:          #F59E0B;
+  --danger:           #DC2626;
+  --info:             #0EA5E9;
+
+  /* ── 字體 ────────────────────────────────────────── */
+  --font-sans:        "Inter", "Noto Sans TC", -apple-system, BlinkMacSystemFont,
+                      "Segoe UI", sans-serif;
+  --font-mono:        "Cascadia Code", Consolas, "Courier New", monospace;
+}
