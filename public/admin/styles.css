@@ -39,13 +39,10 @@ a:hover { text-decoration: underline; }
 .topbar .brand { font-weight: 600; flex-shrink: 0; font-size: 15px; }
 .topbar .brand small { display: block; color: var(--topbar-muted); font-weight: 400; font-size: 11px; margin-top: 2px; }
 .topbar nav {
-  display: flex; gap: 16px; flex: 1;
-  flex-wrap: nowrap; overflow-x: auto;
-  -webkit-overflow-scrolling: touch; scrollbar-width: thin;
+  display: flex; gap: 4px 12px; flex: 1;
+  flex-wrap: wrap; align-items: center;
 }
-.topbar nav::-webkit-scrollbar { height: 4px; }
-.topbar nav::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 2px; }
-.topbar nav a { color: var(--topbar-muted); text-decoration: none; white-space: nowrap; padding: 4px 0; font-size: 14px; }
+.topbar nav a { color: var(--topbar-muted); text-decoration: none; white-space: nowrap; padding: 4px 2px; font-size: 13px; }
 .topbar nav a.active { color: #fff; border-bottom: 2px solid var(--topbar-active-ul); }
 #user { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 
