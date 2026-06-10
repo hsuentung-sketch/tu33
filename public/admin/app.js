@@ -2676,7 +2676,11 @@ async function viewAccount(main, path, title, partyLabel) {
     for (const p of parties) partySelect.append(el('option', { value: p.id }, p.name));
   } catch (_) {}
 
-  const showOverdue = el('input', { type: 'checkbox' });
+  const statusFilter = el('select', { style: 'font-size:13px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;margin-left:12px;' });
+  statusFilter.append(el('option', { value: 'unpaid' }, '未結案'));
+  statusFilter.append(el('option', { value: 'overdue' }, '已逾期'));
+  statusFilter.append(el('option', { value: 'paid' }, '已結案'));
+  statusFilter.append(el('option', { value: '' }, '全部'));
   const tbody = el('tbody');
   const table = el('table', { class: 'data' },
     el('thead', {}, el('tr', {},
@@ -2708,14 +2712,13 @@ async function viewAccount(main, path, title, partyLabel) {
 
   async function reload() {
     const partyId = partySelect.value;
-    let list;
-    if (showOverdue.checked) {
-      list = await api.get(`/${path}/overdue`);
-      if (partyId) list = list.filter(a => (a.customerId || a.supplierId) === partyId);
-    } else {
-      const qs = partyId ? `?${partyIdKey}=${partyId}` : '';
-      list = await api.get(`/${path}${qs}`);
-    }
+    const status = statusFilter.value;
+    const params = new URLSearchParams();
+    if (partyId) params.set(partyIdKey, partyId);
+    if (status === 'unpaid' || status === 'paid') params.set('isPaid', status === 'paid' ? 'true' : 'false');
+    const qs = params.toString() ? `?${params}` : '';
+    let list = await api.get(`/${path}${status === 'overdue' ? '/overdue' : ''}${status === 'overdue' ? '' : qs}`);
+    if (status === 'overdue' && partyId) list = list.filter(a => (a.customerId || a.supplierId) === partyId);
     tbody.innerHTML = '';
     if (!list.length) {
       tbody.append(el('tr', {}, el('td', { colspan: '9', style: 'text-align:center;color:var(--muted);padding:24px;' }, '無資料')));
@@ -2848,10 +2851,10 @@ async function viewAccount(main, path, title, partyLabel) {
   }
 
   partySelect.addEventListener('change', reload);
-  showOverdue.addEventListener('change', reload);
+  statusFilter.addEventListener('change', reload);
   main.append(el('div', { class: 'toolbar' },
     partySelect,
-    el('label', { style: 'font-size:12px;color:var(--muted);margin-left:12px;' }, showOverdue, ' 僅逾期'),
+    statusFilter,
   ), table);
   reload();
 }
