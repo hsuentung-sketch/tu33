@@ -2666,6 +2666,16 @@ async function viewAccount(main, path, title, partyLabel) {
   main.append(el('h2', {}, title));
   main.append(el('div', { class: 'page-sub' }, `月結對帳。發票號碼、付款日期與結案狀態可隨時編輯。`));
 
+  const isReceivable = path === 'receivables';
+  const partyIdKey = isReceivable ? 'customerId' : 'supplierId';
+
+  const partySelect = el('select', { style: 'font-size:13px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;' });
+  partySelect.append(el('option', { value: '' }, `全部${partyLabel}`));
+  try {
+    const parties = await api.get(isReceivable ? '/customers' : '/suppliers');
+    for (const p of parties) partySelect.append(el('option', { value: p.id }, p.name));
+  } catch (_) {}
+
   const showOverdue = el('input', { type: 'checkbox' });
   const tbody = el('tbody');
   const table = el('table', { class: 'data' },
@@ -2683,81 +2693,107 @@ async function viewAccount(main, path, title, partyLabel) {
     tbody,
   );
 
+  function statusSummary(items) {
+    let paid = 0, unpaid = 0, overdue = 0;
+    for (const a of items) {
+      if (a.isPaid) { paid++; continue; }
+      unpaid++;
+      if (a.dueDate && new Date(a.dueDate) < new Date()) overdue++;
+    }
+    const parts = [];
+    if (unpaid) parts.push(`${unpaid} 未收款${overdue ? `（含 ${overdue} 逾期）` : ''}`);
+    if (paid) parts.push(`${paid} 已結案`);
+    return parts.join('　/　');
+  }
+
   async function reload() {
-    const list = await api.get(`/${path}${showOverdue.checked ? '/overdue' : ''}`);
+    const partyId = partySelect.value;
+    let list;
+    if (showOverdue.checked) {
+      list = await api.get(`/${path}/overdue`);
+      if (partyId) list = list.filter(a => (a.customerId || a.supplierId) === partyId);
+    } else {
+      const qs = partyId ? `?${partyIdKey}=${partyId}` : '';
+      list = await api.get(`/${path}${qs}`);
+    }
     tbody.innerHTML = '';
     if (!list.length) {
       tbody.append(el('tr', {}, el('td', { colspan: '9', style: 'text-align:center;color:var(--muted);padding:24px;' }, '無資料')));
       return;
     }
 
-    // Group by party + billingYear + billingMonth so the user can see each
-    // month's total per customer/supplier. Subtotal row is appended after
-    // each group's detail rows.
-    const groups = new Map();
+    // Two-level grouping: party → month
+    const partyMap = new Map();
     for (const a of list) {
       const partyName = (a.customer?.name || a.supplier?.name) ?? '(未知)';
-      const key = `${partyName}__${a.billingYear}__${a.billingMonth}`;
-      if (!groups.has(key)) {
-        groups.set(key, { partyName, billingYear: a.billingYear, billingMonth: a.billingMonth, items: [] });
-      }
-      groups.get(key).items.push(a);
+      if (!partyMap.has(partyName)) partyMap.set(partyName, []);
+      partyMap.get(partyName).push(a);
     }
 
-    const sortedGroups = [...groups.values()].sort((g1, g2) => {
-      if (g1.partyName !== g2.partyName) return g1.partyName.localeCompare(g2.partyName, 'zh-Hant');
-      if (g1.billingYear !== g2.billingYear) return g2.billingYear - g1.billingYear;
-      return g2.billingMonth - g1.billingMonth;
-    });
+    const sortedParties = [...partyMap.keys()].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
 
-    for (const group of sortedGroups) {
-      group.items.sort((x, y) => new Date(x.dueDate).getTime() - new Date(y.dueDate).getTime());
+    for (const partyName of sortedParties) {
+      const partyItems = partyMap.get(partyName);
 
-      let subtotal = 0;
-      let paidCount = 0;
-      let unpaidCount = 0;
-      let overdueCount = 0;
+      // Sub-group by month
+      const monthMap = new Map();
+      for (const a of partyItems) {
+        const mk = `${a.billingYear}__${a.billingMonth}`;
+        if (!monthMap.has(mk)) monthMap.set(mk, { year: a.billingYear, month: a.billingMonth, items: [] });
+        monthMap.get(mk).items.push(a);
+      }
+      const sortedMonths = [...monthMap.values()].sort((a, b) => a.year !== b.year ? b.year - a.year : b.month - a.month);
+      const hasMultipleMonths = sortedMonths.length > 1;
+      const partyTotal = partyItems.reduce((s, a) => s + (Number(a.amount) || 0), 0);
 
-      for (const a of group.items) {
-        const isOverdue = !a.isPaid && a.dueDate && new Date(a.dueDate) < new Date();
-        subtotal += Number(a.amount) || 0;
-        if (a.isPaid) paidCount++;
-        else { unpaidCount++; if (isOverdue) overdueCount++; }
-
+      // Party grand-total row (only if multiple months)
+      if (hasMultipleMonths) {
         tbody.append(el('tr', {},
-          el('td', {}, group.partyName),
-          el('td', {}, a.salesOrder?.orderNo || a.purchaseOrder?.orderNo || ''),
-          el('td', {}, `${a.billingYear}/${String(a.billingMonth).padStart(2, '0')}`),
-          el('td', { class: 'num' }, fmtMoney(a.amount)),
-          el('td', {}, fmtDate(a.dueDate)),
-          el('td', {}, a.isPaid
-            ? el('span', { class: 'badge ok' }, '已結案')
-            : (isOverdue ? el('span', { class: 'badge bad' }, '已逾期') : el('span', { class: 'badge warn' }, '未收款'))),
-          el('td', {}, a.invoiceNo || ''),
-          el('td', {}, fmtDate(a.paidDate)),
-          el('td', { class: 'actions' },
-            !isSales() ? el('button', { class: 'btn small', onClick: () => editAccount(a) }, '編輯') : null,
-            !isSales() && !a.isPaid ? ' ' : null,
-            !isSales() && !a.isPaid ? el('button', { class: 'btn small primary', onClick: () => markPaid(a) }, '標記已付') : null,
-            path === 'receivables' ? ' ' : null,
-            path === 'receivables' && window.__session?.employee?.role === 'ADMIN'
-              ? el('button', { class: 'btn small', onClick: () => openEinvoiceIssueModal(a, reload) }, '開立發票')
-              : null,
-          ),
+          el('td', { colspan: '3', style: 'font-weight:700;background:#dbeafe;color:#1e3a8a;border-top:2px solid #93c5fd;' },
+            `${partyName} 總計（${partyItems.length} 筆）`),
+          el('td', { class: 'num', style: 'font-weight:700;background:#dbeafe;color:#1e3a8a;border-top:2px solid #93c5fd;' }, fmtMoney(partyTotal)),
+          el('td', { colspan: '5', style: 'font-size:12px;color:#475569;background:#dbeafe;border-top:2px solid #93c5fd;' }, statusSummary(partyItems)),
         ));
       }
 
-      const statusParts = [];
-      if (unpaidCount) statusParts.push(`${unpaidCount} 未收款${overdueCount ? `（含 ${overdueCount} 逾期）` : ''}`);
-      if (paidCount) statusParts.push(`${paidCount} 已結案`);
+      for (const mg of sortedMonths) {
+        mg.items.sort((x, y) => new Date(x.dueDate).getTime() - new Date(y.dueDate).getTime());
+        const monthTotal = mg.items.reduce((s, a) => s + (Number(a.amount) || 0), 0);
+        const monthLabel = `${mg.year}/${String(mg.month).padStart(2, '0')}`;
 
-      const monthLabel = `${group.billingYear}/${String(group.billingMonth).padStart(2, '0')}`;
-      tbody.append(el('tr', { class: 'subtotal-row' },
-        el('td', { colspan: '3', style: 'text-align:right;font-weight:600;background:#eef2ff;color:#1e3a8a;' },
-          `${group.partyName} ${monthLabel} 小計（${group.items.length} 筆）`),
-        el('td', { class: 'num', style: 'font-weight:600;background:#eef2ff;color:#1e3a8a;' }, fmtMoney(subtotal)),
-        el('td', { colspan: '5', style: 'font-size:12px;color:#475569;background:#eef2ff;' }, statusParts.join('　/　')),
-      ));
+        // Month subtotal row (above detail rows)
+        tbody.append(el('tr', { class: 'subtotal-row' },
+          el('td', { colspan: '3', style: 'text-align:right;font-weight:600;background:#eef2ff;color:#1e3a8a;' },
+            `${partyName} ${monthLabel} 小計（${mg.items.length} 筆）`),
+          el('td', { class: 'num', style: 'font-weight:600;background:#eef2ff;color:#1e3a8a;' }, fmtMoney(monthTotal)),
+          el('td', { colspan: '5', style: 'font-size:12px;color:#475569;background:#eef2ff;' }, statusSummary(mg.items)),
+        ));
+
+        for (const a of mg.items) {
+          const isOverdue = !a.isPaid && a.dueDate && new Date(a.dueDate) < new Date();
+          tbody.append(el('tr', {},
+            el('td', {}, ''),
+            el('td', {}, a.salesOrder?.orderNo || a.purchaseOrder?.orderNo || ''),
+            el('td', {}, `${a.billingYear}/${String(a.billingMonth).padStart(2, '0')}`),
+            el('td', { class: 'num' }, fmtMoney(a.amount)),
+            el('td', {}, fmtDate(a.dueDate)),
+            el('td', {}, a.isPaid
+              ? el('span', { class: 'badge ok' }, '已結案')
+              : (isOverdue ? el('span', { class: 'badge bad' }, '已逾期') : el('span', { class: 'badge warn' }, '未收款'))),
+            el('td', {}, a.invoiceNo || ''),
+            el('td', {}, fmtDate(a.paidDate)),
+            el('td', { class: 'actions' },
+              !isSales() ? el('button', { class: 'btn small', onClick: () => editAccount(a) }, '編輯') : null,
+              !isSales() && !a.isPaid ? ' ' : null,
+              !isSales() && !a.isPaid ? el('button', { class: 'btn small primary', onClick: () => markPaid(a) }, '標記已付') : null,
+              path === 'receivables' ? ' ' : null,
+              path === 'receivables' && window.__session?.employee?.role === 'ADMIN'
+                ? el('button', { class: 'btn small', onClick: () => openEinvoiceIssueModal(a, reload) }, '開立發票')
+                : null,
+            ),
+          ));
+        }
+      }
     }
   }
 
@@ -2778,10 +2814,6 @@ async function viewAccount(main, path, title, partyLabel) {
     });
   }
 
-  /**
-   * Edit 發票號碼 / 付款日期 / 已結案 — 任何狀態都可改。
-   * 走 PUT /api/{receivables|payables}/:id（partial update）。
-   */
   function editAccount(a) {
     const isPayable = path === 'payables';
     openModal({
@@ -2815,9 +2847,11 @@ async function viewAccount(main, path, title, partyLabel) {
     });
   }
 
+  partySelect.addEventListener('change', reload);
   showOverdue.addEventListener('change', reload);
   main.append(el('div', { class: 'toolbar' },
-    el('label', { style: 'font-size:12px;color:var(--muted);' }, showOverdue, ' 僅逾期'),
+    partySelect,
+    el('label', { style: 'font-size:12px;color:var(--muted);margin-left:12px;' }, showOverdue, ' 僅逾期'),
   ), table);
   reload();
 }
