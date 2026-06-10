@@ -2803,7 +2803,7 @@ async function viewAccount(main, path, title, partyLabel) {
   function markPaid(a) {
     openModal({
       title: '標記為已結案',
-      initial: { paidDate: new Date().toISOString().slice(0, 10) },
+      initial: { paidDate: new Date().toISOString().slice(0, 10), invoiceNo: a.invoiceNo || '' },
       fields: [
         { name: 'paidDate', label: '付款/入帳日', type: 'date', required: true },
         { name: 'invoiceNo', label: '發票號碼' },
