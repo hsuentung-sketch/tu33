@@ -182,7 +182,6 @@ async function viewCustomers(main) {
       el('th', {}, '電話'),
       el('th', {}, 'Email'),
       el('th', {}, '建立業務'),
-      el('th', {}, '付款日期'),
       el('th', {}, '操作'),
     )),
     tbody,
@@ -193,7 +192,7 @@ async function viewCustomers(main) {
     const url = q ? `/customers?q=${encodeURIComponent(q)}` : `/customers${includeInactive.checked ? '?includeInactive=true' : ''}`;
     const list = await api.get(url);
     tbody.innerHTML = '';
-    if (!list.length) tbody.append(el('tr', {}, el('td', { colspan: '8', style: 'text-align:center;color:var(--muted);padding:24px;' }, '無資料')));
+    if (!list.length) tbody.append(el('tr', {}, el('td', { colspan: '7', style: 'text-align:center;color:var(--muted);padding:24px;' }, '無資料')));
     for (const c of list) {
       // 付款日期描述
       const payDesc = (() => {
@@ -211,7 +210,6 @@ async function viewCustomers(main) {
         el('td', {}, c.phone || ''),
         el('td', { style: 'font-size:12px;color:#555;' }, c.email || ''),
         el('td', {}, empName),
-        el('td', { style: 'font-size:12px;' }, payDesc),
         el('td', { class: 'actions' },
           el('button', { class: 'btn small', onClick: () => editCustomer(c, reload) }, '編輯'),
           ' ',
@@ -4577,8 +4575,10 @@ const GROUPS = {
   sales: {
     title: '業務功能',
     tabs: [
-      { key: 'visit-logs',   label: '工作日誌', view: 'visit-logs' },
-      { key: 'bonus-report', label: '業績獎金', view: 'bonus-report', roles: ['ADMIN', 'ACCOUNTING', 'SALES'] },
+      { key: 'quotations',    label: '報價單',   view: 'quotations' },
+      { key: 'sales-orders',  label: '銷貨單',   view: 'sales-orders' },
+      { key: 'visit-logs',    label: '工作日誌', view: 'visit-logs' },
+      { key: 'bonus-report',  label: '業績獎金', view: 'bonus-report', roles: ['ADMIN', 'ACCOUNTING', 'SALES'] },
     ],
   },
   accounts: {
@@ -4618,6 +4618,7 @@ const GROUPS = {
 
 // Legacy single hashes → new group/tab hash. Preserves existing bookmarks.
 const LEGACY_REDIRECT = {
+  dashboard: 'sales',
   customers: 'management/customers',
   products: 'management/products',
   suppliers: 'management/suppliers',
@@ -4626,6 +4627,8 @@ const LEGACY_REDIRECT = {
   payables: 'accounts/payables',
   einvoices: 'invoices/einvoices',
   'einvoice-pools': 'invoices/einvoice-pools',
+  quotations: 'sales/quotations',
+  'sales-orders': 'sales/sales-orders',
   'visit-logs': 'sales/visit-logs',
   'bonus-report': 'sales/bonus-report',
   'audit-logs': 'logs/audit-logs',
@@ -4709,7 +4712,7 @@ const LEAF_VIEWS = {
 };
 
 async function route() {
-  let raw = (location.hash || '#dashboard').slice(1);
+  let raw = (location.hash || '#sales').slice(1);
   // Legacy redirect (bookmark-safe): old single hash → group/tab hash.
   if (LEGACY_REDIRECT[raw]) {
     location.replace('#' + LEGACY_REDIRECT[raw]);
@@ -4729,7 +4732,8 @@ async function route() {
     return;
   }
 
-  const fn = LEAF_VIEWS[head] || viewDashboard;
+  const fn = LEAF_VIEWS[head];
+  if (!fn) { location.replace('#sales'); return; }
   try { await fn(main); }
   catch (e) { main.innerHTML = ''; main.append(el('div', { class: 'err' }, e.message)); }
 }
