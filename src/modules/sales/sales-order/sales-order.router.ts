@@ -19,8 +19,8 @@ const itemSchema = z.object({
 const createSchema = z.object({
   customerId: z.string().min(1),
   salesPerson: z.string().min(1),
-  salesPhone: z.string().optional(),
-  deliveryNote: z.string().optional(),
+  salesPhone: z.string().nullable().optional(),
+  deliveryNote: z.string().nullable().optional(),
   createdBy: z.string().min(1),
   items: z.array(itemSchema).min(1),
 });

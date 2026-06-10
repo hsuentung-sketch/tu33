@@ -22,7 +22,7 @@ const itemSchema = z.object({
 const createSchema = z.object({
   customerId: z.string().min(1),
   salesPerson: z.string().min(1),
-  salesPhone: z.string().optional(),
+  salesPhone: z.string().nullable().optional(),
   supplyTime: z.string().optional(),
   paymentTerms: z.string().optional(),
   validUntil: z.string().optional(),

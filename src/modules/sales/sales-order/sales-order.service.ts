@@ -21,8 +21,8 @@ export interface SalesItemInput {
 export interface SalesOrderCreateInput {
   customerId: string;
   salesPerson: string;
-  salesPhone?: string;
-  deliveryNote?: string;
+  salesPhone?: string | null;
+  deliveryNote?: string | null;
   createdBy: string;
   items: SalesItemInput[];
   /** v2.12.0+：電子發票載具/捐贈預填（B2C 流程收集，B2B 留空） */

@@ -23,8 +23,8 @@ export interface PurchaseItemInput {
 export interface PurchaseOrderCreateInput {
   supplierId: string;
   internalStaff: string;
-  staffPhone?: string;
-  deliveryNote?: string;
+  staffPhone?: string | null;
+  deliveryNote?: string | null;
   createdBy: string;
   items: PurchaseItemInput[];
 }

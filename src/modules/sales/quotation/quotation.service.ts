@@ -22,7 +22,7 @@ export interface QuotationItemInput {
 export interface QuotationCreateInput {
   customerId: string;
   salesPerson: string;
-  salesPhone?: string;
+  salesPhone?: string | null;
   supplyTime?: string;
   paymentTerms?: string;
   validUntil?: string;
