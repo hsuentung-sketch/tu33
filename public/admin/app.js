@@ -181,10 +181,8 @@ async function viewCustomers(main) {
       el('th', {}, '職稱'),
       el('th', {}, '電話'),
       el('th', {}, 'Email'),
-      el('th', {}, '統編'),
-      el('th', { class: 'num' }, '付款天數'),
-      el('th', {}, '等級'),
-      el('th', {}, '狀態'),
+      el('th', {}, '建立業務'),
+      el('th', {}, '付款日期'),
       el('th', {}, '操作'),
     )),
     tbody,
@@ -195,18 +193,25 @@ async function viewCustomers(main) {
     const url = q ? `/customers?q=${encodeURIComponent(q)}` : `/customers${includeInactive.checked ? '?includeInactive=true' : ''}`;
     const list = await api.get(url);
     tbody.innerHTML = '';
-    if (!list.length) tbody.append(el('tr', {}, el('td', { colspan: '10', style: 'text-align:center;color:var(--muted);padding:24px;' }, '無資料')));
+    if (!list.length) tbody.append(el('tr', {}, el('td', { colspan: '8', style: 'text-align:center;color:var(--muted);padding:24px;' }, '無資料')));
     for (const c of list) {
+      // 付款日期描述
+      const payDesc = (() => {
+        const parts = [];
+        if (c.paymentDays) parts.push(`月結${c.paymentDays}天`);
+        if (c.statementDay) parts.push(`結帳日${c.statementDay}日`);
+        if (c.fixedPaymentDay) parts.push(`付款日${c.fixedPaymentDay}日`);
+        return parts.join(' / ') || '';
+      })();
+      const empName = c.createdByEmployee?.name || '';
       tbody.append(el('tr', {},
         el('td', {}, c.name),
         el('td', {}, c.contactName || ''),
         el('td', {}, c.title || ''),
         el('td', {}, c.phone || ''),
         el('td', { style: 'font-size:12px;color:#555;' }, c.email || ''),
-        el('td', {}, c.taxId || ''),
-        el('td', { class: 'num' }, c.paymentDays ?? ''),
-        el('td', {}, c.grade || ''),
-        el('td', {}, el('span', { class: 'badge ' + (c.isActive === false ? 'mute' : 'ok') }, c.isActive === false ? '停用' : '啟用')),
+        el('td', {}, empName),
+        el('td', { style: 'font-size:12px;' }, payDesc),
         el('td', { class: 'actions' },
           el('button', { class: 'btn small', onClick: () => editCustomer(c, reload) }, '編輯'),
           ' ',

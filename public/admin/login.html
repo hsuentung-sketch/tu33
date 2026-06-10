@@ -12,10 +12,6 @@
       <h1>ERP 後台</h1>
       <div class="sub">請使用您的員工編號與密碼登入</div>
       <div class="field">
-        <label>公司名稱（可選，多租戶時填寫關鍵字）</label>
-        <input name="tenantCompany" autocomplete="organization" placeholder="例：潤樋" />
-      </div>
-      <div class="field">
         <label>員工編號</label>
         <input name="employeeId" required autocomplete="username" />
       </div>
@@ -39,7 +35,6 @@
       errBox.textContent = '';
       const fd = new FormData(form);
       const payload = {
-        tenantCompany: fd.get('tenantCompany') || undefined,
         employeeId: fd.get('employeeId'),
         password: fd.get('password'),
       };

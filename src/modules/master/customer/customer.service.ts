@@ -41,6 +41,7 @@ export async function list(
       bankAccountLast5: true,
       createdByEmployeeId: true,
       createdBy: true,
+      createdByEmployee: { select: { name: true, employeeId: true } },
       grade: true,
       tags: true,
       isActive: true,
