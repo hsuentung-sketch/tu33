@@ -585,6 +585,13 @@ function rootMenu(employee?: { role?: string }) {
   items.push(btn('客戶管理', 'action=management:customer', '#2E7D32'));
   items.push(btn('工作日誌', 'action=visitlog:menu', '#00897B'));
   items.push(btn('公司匯款帳號', 'action=management:bank-doc', '#795548'));
+  const adminUrl = config.publicBaseUrl.replace(/\/$/, '') + '/admin/';
+  items.push({
+    type: 'button' as const,
+    style: 'primary' as const,
+    color: '#37474F',
+    action: { type: 'uri' as const, label: 'ERP 後台', uri: adminUrl },
+  });
   return {
     type: 'bubble' as const,
     body: {

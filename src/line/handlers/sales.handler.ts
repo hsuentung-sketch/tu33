@@ -351,7 +351,7 @@ export async function handleSalesCommand(action: string, ctx: any): Promise<void
     case 'sales:list': {
       const orders = await prisma.salesOrder.findMany({
         where: { tenantId },
-        include: { customer: { select: { name: true } } },
+        include: { customer: { select: { name: true } }, items: { orderBy: { sortOrder: 'asc' } } },
         orderBy: { createdAt: 'desc' },
         take: 5,
       });
@@ -401,6 +401,14 @@ export async function handleSalesCommand(action: string, ctx: any): Promise<void
                   { type: 'text', text: o.status, size: 'sm', align: 'end', flex: 3 },
                 ],
               },
+              { type: 'separator', margin: 'sm' },
+              ...o.items.slice(0, 5).map((it: any) => ({
+                type: 'box' as const, layout: 'baseline' as const, spacing: 'sm', contents: [
+                  { type: 'text', text: it.productName, size: 'xs', color: '#555555', flex: 4, wrap: false },
+                  { type: 'text', text: `${it.quantity}x$${Number(it.unitPrice).toLocaleString('zh-TW')}`, size: 'xs', color: '#888888', align: 'end', flex: 3 },
+                ],
+              })),
+              ...(o.items.length > 5 ? [{ type: 'text' as const, text: `...共 ${o.items.length} 項`, size: 'xs' as const, color: '#aaaaaa' }] : []),
             ],
           },
           footer: {

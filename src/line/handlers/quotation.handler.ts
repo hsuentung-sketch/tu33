@@ -98,7 +98,7 @@ export async function handleQuotationCommand(action: string, ctx: any): Promise<
       if (employee?.role === 'SALES') where.createdBy = employee.id;
       const rows = await prisma.quotation.findMany({
         where,
-        include: { customer: { select: { name: true } } },
+        include: { customer: { select: { name: true } }, items: { orderBy: { sortOrder: 'asc' } } },
         orderBy: { createdAt: 'desc' },
         take: 10,
       });
@@ -153,6 +153,14 @@ export async function handleQuotationCommand(action: string, ctx: any): Promise<
               { type: 'text', text: r.quotationNo, weight: 'bold', size: 'md' },
               { type: 'text', text: r.customer.name, size: 'sm', color: '#555555' },
               { type: 'text', text: `$${Number(r.totalAmount).toLocaleString('zh-TW')}  [${r.status}]`, size: 'sm', color: '#888888' },
+              { type: 'separator', margin: 'sm' },
+              ...r.items.slice(0, 5).map((it: any) => ({
+                type: 'box' as const, layout: 'baseline' as const, spacing: 'sm', contents: [
+                  { type: 'text', text: it.productName, size: 'xs', color: '#555555', flex: 4, wrap: false },
+                  { type: 'text', text: `${it.quantity}x$${Number(it.unitPrice).toLocaleString('zh-TW')}`, size: 'xs', color: '#888888', align: 'end', flex: 3 },
+                ],
+              })),
+              ...(r.items.length > 5 ? [{ type: 'text' as const, text: `...共 ${r.items.length} 項`, size: 'xs' as const, color: '#aaaaaa' }] : []),
             ],
           },
           footer: {
