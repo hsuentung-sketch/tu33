@@ -142,6 +142,12 @@ async function onPurchaseOrderCreated(payload: ERPEventMap['purchaseOrder:create
     source: 'purchase',
     sourceId: purchaseOrderId,
     status: 'posted',
+    ...(tax > 0 ? {
+      vatDeductType: 'deductible',
+      vatInputAmount: tax,
+      deductibleVat: tax,
+      withholdingTax: 0,
+    } : {}),
     lines,
   });
 

@@ -405,7 +405,7 @@ export async function taxDeductionReport(
   const entries = await prisma.journalEntry.findMany({
     where: {
       tenantId,
-      source: 'expense',
+      source: { in: ['expense', 'purchase'] },
       status: 'posted',
       entryDate: { gte: from, lte: to },
     },
