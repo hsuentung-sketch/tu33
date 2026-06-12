@@ -31,6 +31,11 @@ interface JournalEntryInput {
   source?: string;
   sourceId?: string | null;
   status?: 'pending' | 'posted'; // 預設 pending；自動分錄/期初開帳可帶 posted
+  // 稅務扣抵欄位（由 expense.service 填入）
+  vatDeductType?: string | null;
+  vatInputAmount?: number | null;
+  deductibleVat?: number | null;
+  withholdingTax?: number | null;
 }
 
 function toDecimal(n: number | undefined): number {
@@ -87,6 +92,11 @@ export async function create(tenantId: string, createdBy: string | null, input: 
       status,
       ...(status === 'posted' ? { postedAt: new Date(), postedBy: createdBy } : {}),
       createdBy,
+      // 稅務扣抵欄位
+      vatDeductType: input.vatDeductType ?? null,
+      vatInputAmount: input.vatInputAmount != null ? new Prisma.Decimal(input.vatInputAmount) : null,
+      deductibleVat: input.deductibleVat != null ? new Prisma.Decimal(input.deductibleVat) : null,
+      withholdingTax: input.withholdingTax != null ? new Prisma.Decimal(input.withholdingTax) : null,
       lines: {
         create: input.lines.map((l, i) => ({
           sequence: i + 1,
@@ -208,7 +218,7 @@ export async function reverse(tenantId: string, id: string, reversedBy: string, 
             credit: l.debit,
             description: l.description,
             departmentId: l.departmentId,
-          })),
+               })),
         },
       },
       include: { lines: true },

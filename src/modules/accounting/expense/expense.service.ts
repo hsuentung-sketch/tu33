@@ -9,14 +9,126 @@
  *     依「用途說明」自動判斷費用科目（關鍵字規則表 EXPENSE_KEYWORDS）。
  *     付款方式三選一：現金 (1101) / 銀行存款 (1111) / 應付帳款 (2101)。
  *     產 JE：Dr <費用科目> / Cr <付款帳戶>
+ *     同時自動填入稅務扣抵欄位（依 TAX_RULES）。
  *
  *  2. pettyCashTransfer — 零用金調撥
  *     direction='withdraw'：從銀行提領補充零用金 → Dr 1101 現金 / Cr 1111 銀行
  *     direction='deposit'：零用金繳回銀行 → Dr 1111 銀行 / Cr 1101 現金
+ *
+ * ── 稅務扣抵規則（台灣稅法）──────────────────────────────────────────────────
+ *  vatDeductType:
+ *    'deductible'     — 進項稅額可全額扣抵（水電/文具/郵電/租金有統一發票）
+ *    'non_deductible' — 進項稅額不可扣抵（交際費、個人費用）
+ *    'withholding'    — 需代扣繳稅款（薪資5%、自然人租金10%）
+ *    'review'         — 需人工審核（計程車收據 vs ETC、雜項）
+ *
+ *  含稅金額（amount）計算邏輯：
+ *    進項稅額 = amount × 5 / 105（內含稅5%）
+ *    扣繳稅額 = amount × withholdingRate（外加稅，直接對全額）
  */
 import { ValidationError, NotFoundError } from '../../../shared/errors.js';
 import * as coaService from '../coa/coa.service.js';
 import * as journalService from '../journal/journal.service.js';
+
+// ─────────────────────────────────────────────────────────────
+// 稅務扣抵規則表（台灣稅法）
+// ─────────────────────────────────────────────────────────────
+
+/** 稅務扣抵類型 */
+export type VatDeductType = 'deductible' | 'non_deductible' | 'withholding' | 'review';
+
+/** 各費用科目對應的稅務規則 */
+export interface TaxRule {
+  vatDeductType: VatDeductType;
+  /** 扣繳稅率（0~1），0=不需扣繳 */
+  withholdingRate: number;
+  /** 給會計師的說明 */
+  note: string;
+}
+
+/**
+ * 費用科目代碼 → 稅務規則。
+ * 規則依台灣《加值型及非加值型營業稅法》及《所得稅法》第88條。
+ */
+export const TAX_RULES: Record<string, TaxRule> = {
+  '6101': {
+    vatDeductType: 'withholding',
+    withholdingRate: 0.05,
+    note: '薪資所得：月薪 ≤ 88,501 免扣繳；超過依稅率表；需申報各類所得扣繳憑單（50A）',
+  },
+  '6201': {
+    vatDeductType: 'deductible',
+    withholdingRate: 0,
+    note: '租金：承租自營利事業且有統一發票→進項可扣抵；自然人出租→不發票但須代扣繳10%（另計）',
+  },
+  '6211': {
+    vatDeductType: 'deductible',
+    withholdingRate: 0,
+    note: '水電瓦斯：台電/台水/瓦斯公司帳單即為合法進項憑證，5%進項可扣抵',
+  },
+  '6221': {
+    vatDeductType: 'deductible',
+    withholdingRate: 0,
+    note: '文具用品：需收集統一發票，5%進項可扣抵；三聯式發票填公司統編始有效',
+  },
+  '6231': {
+    vatDeductType: 'review',
+    withholdingRate: 0,
+    note: '交通：ETC扣款/高鐵電子票/台鐵電子票→進項可扣抵；計程車手寫收據→不可扣抵；請逐筆審核',
+  },
+  '6241': {
+    vatDeductType: 'deductible',
+    withholdingRate: 0,
+    note: '郵電通訊：中華電信/遠傳等帳單為合法進項，5%進項可扣抵',
+  },
+  '6291': {
+    vatDeductType: 'review',
+    withholdingRate: 0,
+    note: '雜項：交際費進項不可扣抵且有上限（收入0.625% vs 費用1%取低）；其餘需人工判斷',
+  },
+};
+
+/**
+ * 依金額與稅務規則計算各稅務欄位。
+ * amount 為「含稅」金額（客戶付出的總額，5%稅內含）。
+ */
+export function calcTaxDeduction(amount: number, rule: TaxRule): {
+  vatDeductType: VatDeductType;
+  vatInputAmount: number;
+  deductibleVat: number;
+  withholdingTax: number;
+} {
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+
+  if (rule.vatDeductType === 'deductible') {
+    const vat = round2(amount * 5 / 105);
+    return { vatDeductType: 'deductible', vatInputAmount: vat, deductibleVat: vat, withholdingTax: 0 };
+  }
+  if (rule.vatDeductType === 'withholding') {
+    const wht = round2(amount * rule.withholdingRate);
+    return { vatDeductType: 'withholding', vatInputAmount: 0, deductibleVat: 0, withholdingTax: wht };
+  }
+  if (rule.vatDeductType === 'non_deductible') {
+    return { vatDeductType: 'non_deductible', vatInputAmount: 0, deductibleVat: 0, withholdingTax: 0 };
+  }
+  // review
+  return { vatDeductType: 'review', vatInputAmount: 0, deductibleVat: 0, withholdingTax: 0 };
+}
+
+/**
+ * 給前端用的稅務規則說明（含 label）。
+ */
+export function getTaxRules(): Array<{ code: string; label: string; vatDeductType: VatDeductType; note: string }> {
+  const labelMap: Record<string, string> = {
+    '6101': '薪資費用', '6201': '租金', '6211': '水電瓦斯',
+    '6221': '文具', '6231': '交通', '6241': '郵電', '6291': '雜項',
+  };
+  return Object.entries(TAX_RULES).map(([code, r]) => ({
+    code, label: labelMap[code] ?? code, vatDeductType: r.vatDeductType, note: r.note,
+  }));
+}
+
+// ─────────────────────────────────────────────────────────────
 
 /**
  * 費用關鍵字 → 科目代碼映射表。
@@ -123,13 +235,23 @@ export async function quickExpense(
     throw new NotFoundError(`找不到付款帳戶 ${paymentCode}（請確認會計模組已啟用）`);
   }
 
-  // 3. 產 JE：Dr 費用 / Cr 付款帳戶
+  // 3. 計算稅務扣抵
+  const taxRule = TAX_RULES[expenseAcct.code];
+  const taxCalc = taxRule
+    ? calcTaxDeduction(input.amount, taxRule)
+    : { vatDeductType: 'review' as VatDeductType, vatInputAmount: 0, deductibleVat: 0, withholdingTax: 0 };
+
+  // 4. 產 JE：Dr 費用 / Cr 付款帳戶，附稅務欄位
   const entry = await journalService.create(tenantId, createdBy, {
     entryDate: input.date,
     description: input.description.trim(),
     source: 'expense',
     sourceId: input.voucherNo?.trim() || null,
     status: input.status === 'posted' ? 'posted' : 'pending',
+    vatDeductType: taxCalc.vatDeductType,
+    vatInputAmount: taxCalc.vatInputAmount,
+    deductibleVat: taxCalc.deductibleVat,
+    withholdingTax: taxCalc.withholdingTax,
     lines: [
       { accountId: expenseAcct.id, debit: input.amount, description: input.description.trim() },
       { accountId: paymentAcct.id, credit: input.amount, description: input.description.trim() },
@@ -144,6 +266,13 @@ export async function quickExpense(
       matchedKeyword: expenseAcct.matchedKeyword ?? null,
       paymentCode: paymentAcct.code,
       paymentName: paymentAcct.name,
+    },
+    tax: {
+      vatDeductType: taxCalc.vatDeductType,
+      vatInputAmount: taxCalc.vatInputAmount,
+      deductibleVat: taxCalc.deductibleVat,
+      withholdingTax: taxCalc.withholdingTax,
+      note: taxRule?.note ?? '未知科目，請人工審核',
     },
   };
 }
@@ -193,7 +322,6 @@ export async function pettyCashTransfer(
     description: desc,
     source: 'petty_cash',
     sourceId: null,
-    // 零用金調撥屬資金內部移轉，直接過帳（無爭議性）
     status: 'posted',
     lines,
   });
@@ -201,12 +329,26 @@ export async function pettyCashTransfer(
   return { entry };
 }
 
-/** 給前端 live preview 用：傳描述回推測科目，不建立任何資料。 */
+/**
+ * 給前端 live preview 用：傳描述回推測科目 + 稅務規則，不建立任何資料。
+ */
 export async function previewExpenseAccount(tenantId: string, description: string) {
-  return inferExpenseAccount(tenantId, description);
+  const acct = await inferExpenseAccount(tenantId, description);
+  const taxRule = TAX_RULES[acct.code];
+  return {
+    ...acct,
+    vatDeductType: taxRule?.vatDeductType ?? 'review',
+    taxNote: taxRule?.note ?? '未知科目，請人工審核',
+  };
 }
 
 /** 公開鎖定的關鍵字規則（給前端 UI hint 顯示，使用者不可改）。 */
 export function getExpenseRules() {
-  return EXPENSE_KEYWORDS.map((r) => ({ code: r.code, label: r.label, keywords: r.keywords }));
+  return EXPENSE_KEYWORDS.map((r) => ({
+    code: r.code,
+    label: r.label,
+    keywords: r.keywords,
+    vatDeductType: TAX_RULES[r.code]?.vatDeductType ?? 'review',
+    taxNote: TAX_RULES[r.code]?.note ?? '',
+  }));
 }

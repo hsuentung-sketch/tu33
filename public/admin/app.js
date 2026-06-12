@@ -3610,19 +3610,63 @@ async function viewAcctJournal(main) {
     const list = await api.get('/accounting/journal' + (params.toString() ? '?' + params : ''));
     tblBox.innerHTML = '';
     if (!list.length) { tblBox.append(el('div', { class: 'empty' }, '尚無傳票')); return; }
+    // 稅務扣抵類型標籤
+    const VAT_TYPE_LABEL = {
+      deductible:     { text: '可扣抵', color: '#0a6' },
+      non_deductible: { text: '不可扣', color: '#e53' },
+      withholding:    { text: '扣繳',   color: '#a60' },
+      review:         { text: '待審核', color: '#888' },
+    };
+
     const tbl = el('table', { class: 'data-table' });
     tbl.append(el('thead', {}, el('tr', {},
       el('th', {}, '編號'),
       el('th', {}, '日期'),
       el('th', {}, '說明'),
       el('th', {}, '來源'),
-      el('th', {}, '借合計'),
+      el('th', { class: 'num' }, '金額'),
+      el('th', { class: 'num', title: '進項稅額（含稅金額 × 5/105）' }, '進項稅額'),
+      el('th', { class: 'num', title: '可申報扣抵的進項稅額' }, '可扣抵'),
+      el('th', { class: 'num', title: '應代扣繳稅款' }, '扣繳稅額'),
+      el('th', {}, '扣抵類型'),
       el('th', {}, '狀態'),
       el('th', {}, '動作'),
     )));
     const tb = el('tbody');
-    list.forEach((e) => {
+
+    // 月份小計累計
+    let monthTotals = { amount: 0, vatInput: 0, deductible: 0, withholding: 0 };
+    let lastMonth = '';
+
+    list.forEach((e, idx) => {
       const totalDebit = e.lines.reduce((s, l) => s + Number(l.debit), 0);
+      const vatInput = Number(e.vatInputAmount ?? 0);
+      const deductVat = Number(e.deductibleVat ?? 0);
+      const withholding = Number(e.withholdingTax ?? 0);
+      const vatType = e.vatDeductType ?? null;
+      const vatLabel = vatType ? (VAT_TYPE_LABEL[vatType] || { text: vatType, color: '#888' }) : null;
+
+      // 日期換月時插入上月小計行
+      const entryMonth = new Date(e.entryDate).toLocaleDateString('zh-TW', { year: 'numeric', month: '2-digit' });
+      if (lastMonth && lastMonth !== entryMonth && (monthTotals.amount || monthTotals.vatInput)) {
+        tb.append(el('tr', { style: 'background:#f8f4e8;font-weight:600;font-size:12px;' },
+          el('td', { colspan: '4', style: 'text-align:right;color:#666;' }, `${lastMonth} 小計`),
+          el('td', { class: 'num' }, fmtMoney(monthTotals.amount)),
+          el('td', { class: 'num', style: 'color:#0a6;' }, fmtMoney(monthTotals.vatInput)),
+          el('td', { class: 'num', style: 'color:#0a6;' }, fmtMoney(monthTotals.deductible)),
+          el('td', { class: 'num', style: 'color:#a60;' }, fmtMoney(monthTotals.withholding)),
+          el('td', { colspan: '3' }, ''),
+        ));
+        monthTotals = { amount: 0, vatInput: 0, deductible: 0, withholding: 0 };
+      }
+      lastMonth = entryMonth;
+      if (e.source === 'expense') {
+        monthTotals.amount += totalDebit;
+        monthTotals.vatInput += vatInput;
+        monthTotals.deductible += deductVat;
+        monthTotals.withholding += withholding;
+      }
+
       const actCell = el('td', { style: 'display:flex;gap:4px;' });
       if (e.status === 'pending') {
         const postBtn = el('button', { class: 'btn primary', style: 'font-size:12px;' }, '過帳');
@@ -3657,12 +3701,36 @@ async function viewAcctJournal(main) {
         el('td', {}, e.entryNo),
         el('td', {}, new Date(e.entryDate).toLocaleDateString('zh-TW')),
         el('td', {}, e.description),
-        el('td', {}, e.source),
-        el('td', { style: 'text-align:right;' }, fmtMoney(totalDebit)),
+        el('td', { style: 'font-size:11px;color:#888;' }, e.source),
+        el('td', { class: 'num' }, fmtMoney(totalDebit)),
+        el('td', { class: 'num', style: vatInput > 0 ? 'color:#0a6;' : 'color:#ccc;' },
+          vatInput > 0 ? fmtMoney(vatInput) : '—'),
+        el('td', { class: 'num', style: deductVat > 0 ? 'color:#0a6;font-weight:600;' : 'color:#ccc;' },
+          deductVat > 0 ? fmtMoney(deductVat) : '—'),
+        el('td', { class: 'num', style: withholding > 0 ? 'color:#a60;' : 'color:#ccc;' },
+          withholding > 0 ? fmtMoney(withholding) : '—'),
+        el('td', {},
+          vatLabel
+            ? el('span', { style: `font-size:11px;padding:2px 6px;border-radius:3px;background:${vatLabel.color}22;color:${vatLabel.color};border:1px solid ${vatLabel.color}66;` }, vatLabel.text)
+            : el('span', { style: 'color:#ccc;font-size:11px;' }, '—')
+        ),
         el('td', {}, e.status === 'pending' ? '待審核' : e.status === 'posted' ? '已過帳' : '已反沖'),
         actCell,
       ));
     });
+
+    // 最後一個月的小計
+    if (monthTotals.amount) {
+      tb.append(el('tr', { style: 'background:#f8f4e8;font-weight:600;font-size:12px;' },
+        el('td', { colspan: '4', style: 'text-align:right;color:#666;' }, `${lastMonth} 小計`),
+        el('td', { class: 'num' }, fmtMoney(monthTotals.amount)),
+        el('td', { class: 'num', style: 'color:#0a6;' }, fmtMoney(monthTotals.vatInput)),
+        el('td', { class: 'num', style: 'color:#0a6;' }, fmtMoney(monthTotals.deductible)),
+        el('td', { class: 'num', style: 'color:#a60;' }, fmtMoney(monthTotals.withholding)),
+        el('td', { colspan: '3' }, ''),
+      ));
+    }
+
     tbl.append(tb);
     tblBox.append(tbl);
   }
@@ -3912,10 +3980,17 @@ async function openQuickExpenseModal(onSaved, prefill) {
       const r = await api.get('/accounting/expense/preview?description=' + encodeURIComponent(desc));
       lastInferred = r;
       const kw = r.matchedKeyword ? `（命中關鍵字：${r.matchedKeyword}）` : '（無命中，預設雜項）';
+      const vatColors = { deductible: '#0a6', non_deductible: '#e53', withholding: '#a60', review: '#888' };
+      const vatLabels = { deductible: '進項可扣抵', non_deductible: '進項不可扣', withholding: '需代扣繳', review: '請人工審核' };
+      const vatColor = vatColors[r.vatDeductType] || '#888';
+      const vatLabel = vatLabels[r.vatDeductType] || r.vatDeductType || '';
       inferredBadge.innerHTML = '';
       inferredBadge.append(
         el('span', { style: 'color:#0a4d99;font-weight:600;' }, `${r.code} ${r.name}`),
         el('span', { style: 'color:#666;margin-left:8px;' }, kw),
+        el('br'),
+        el('span', { style: `font-size:11px;padding:1px 5px;border-radius:3px;background:${vatColor}22;color:${vatColor};border:1px solid ${vatColor}66;margin-right:6px;` }, vatLabel),
+        el('span', { style: 'font-size:11px;color:#888;' }, r.taxNote || ''),
       );
     } catch (e) {
       inferredBadge.textContent = '判斷失敗：' + (e.message || e);
@@ -4182,6 +4257,258 @@ async function viewAcctBalance(main) {
   reload();
 }
 
+// ─────────────────────────────────────────────────────────────
+// 稅務扣抵報表 view
+// ─────────────────────────────────────────────────────────────
+async function viewAcctTaxDeduct(main) {
+  main.innerHTML = '';
+  main.append(el('h2', {}, '稅務扣抵報表'));
+  const status = await loadAcctStatus();
+  if (!status.enabled) { main.append(el('div', { class: 'empty' }, '會計模組尚未啟用。')); return; }
+
+  main.append(el('p', { style: 'font-size:13px;color:#666;margin-bottom:12px;' },
+    '僅計入來源為「快速費用登記（expense）」且已過帳的傳票。進項稅額採含稅金額 × 5/105 計算。'
+  ));
+
+  const now = new Date();
+  const yearInput = el('input', { type: 'number', value: String(now.getFullYear()), min: '2020', max: '2100', style: 'width:90px;' });
+  const monthSel = el('select', {},
+    el('option', { value: '' }, '全年'),
+    ...[1,2,3,4,5,6,7,8,9,10,11,12].map((m) => el('option', { value: String(m), selected: m === now.getMonth()+1 }, `${m} 月`)),
+  );
+  const queryBtn = el('button', { class: 'btn primary' }, '查詢');
+  const filters = el('div', { style: 'display:flex;gap:8px;align-items:center;margin-bottom:16px;' },
+    el('span', { style: 'font-size:13px;' }, '年度'), yearInput,
+    el('span', { style: 'font-size:13px;' }, '月份'), monthSel,
+    queryBtn,
+  );
+  main.append(filters);
+
+  const reportBox = el('div');
+  main.append(reportBox);
+
+  const VAT_TYPE_LABEL = {
+    deductible:     { text: '進項可扣', color: '#0a6' },
+    non_deductible: { text: '不可扣',   color: '#e53' },
+    withholding:    { text: '扣繳',     color: '#a60' },
+    review:         { text: '待審核',   color: '#888' },
+  };
+
+  async function runReport() {
+    reportBox.innerHTML = '';
+    const year = Number(yearInput.value);
+    const month = monthSel.value ? Number(monthSel.value) : undefined;
+    if (!year) { toast('請輸入年度', 'err'); return; }
+    try {
+      const data = await api.get(`/accounting/reports/tax-deduction?year=${year}${month ? '&month=' + month : ''}`);
+
+      // 年度總計卡片
+      const ann = data.annual;
+      const annCard = el('div', { style: 'display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px;' });
+      const kpi = (label, val, color) => el('div', {
+        style: `padding:12px 18px;border-radius:6px;background:#f5f5f5;border-left:4px solid ${color};min-width:140px;`
+      },
+        el('div', { style: 'font-size:12px;color:#666;' }, label),
+        el('div', { style: `font-size:18px;font-weight:700;color:${color};margin-top:4px;` }, fmtMoney(val)),
+      );
+      annCard.append(
+        kpi('費用總額', ann.totalAmount, '#333'),
+        kpi('進項稅額合計', ann.totalVatInput, '#4a9'),
+        kpi('可扣抵進項稅額', ann.totalDeductibleVat, '#0a6'),
+        kpi('扣繳稅額合計', ann.totalWithholding, '#a60'),
+      );
+      reportBox.append(annCard);
+
+      // 每月明細
+      for (const ms of data.monthly) {
+        if (!ms.entries.length) continue;
+        const sec = el('div', { style: 'margin-bottom:24px;' });
+        sec.append(el('h4', { style: 'margin:0 0 8px;color:#444;' }, `${ms.year} 年 ${ms.month} 月`));
+
+        // 本月小計列
+        const monthSummary = el('div', { style: 'display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px;font-size:13px;background:#f0f8f4;padding:8px 12px;border-radius:4px;' },
+          el('span', {}, `費用總額 `), el('strong', {}, fmtMoney(ms.totalAmount)),
+          el('span', { style: 'color:#ccc;' }, '｜'),
+          el('span', {}, `進項稅額 `), el('strong', { style: 'color:#0a6;' }, fmtMoney(ms.totalVatInput)),
+          el('span', { style: 'color:#ccc;' }, '｜'),
+          el('span', {}, `可扣抵 `), el('strong', { style: 'color:#0a6;' }, fmtMoney(ms.totalDeductibleVat)),
+          el('span', { style: 'color:#ccc;' }, '｜'),
+          el('span', {}, `扣繳 `), el('strong', { style: 'color:#a60;' }, fmtMoney(ms.totalWithholding)),
+          el('span', { style: 'color:#999;font-size:11px;' }, `（可扣抵比率 ${ms.deductRatio}%）`),
+        );
+        sec.append(monthSummary);
+
+        const tbl = el('table', { class: 'data-table' });
+        tbl.append(el('thead', {}, el('tr', {},
+          el('th', {}, '傳票號'),
+          el('th', {}, '日期'),
+          el('th', {}, '說明'),
+          el('th', {}, '憑證號'),
+          el('th', { class: 'num' }, '費用金額'),
+          el('th', { class: 'num' }, '進項稅額'),
+          el('th', { class: 'num' }, '可扣抵'),
+          el('th', { class: 'num' }, '扣繳稅額'),
+          el('th', {}, '扣抵類型'),
+        )));
+        const tb = el('tbody');
+        ms.entries.forEach((r) => {
+          const lbl = VAT_TYPE_LABEL[r.vatDeductType] || { text: r.vatDeductType, color: '#888' };
+          tb.append(el('tr', {},
+            el('td', { style: 'font-size:12px;' }, r.entryNo),
+            el('td', {}, new Date(r.entryDate).toLocaleDateString('zh-TW')),
+            el('td', {}, r.description),
+            el('td', { style: 'font-size:12px;color:#888;' }, r.voucherNo || '—'),
+            el('td', { class: 'num' }, fmtMoney(r.amount)),
+            el('td', { class: 'num', style: r.vatInputAmount > 0 ? 'color:#0a6;' : 'color:#ccc;' },
+              r.vatInputAmount > 0 ? fmtMoney(r.vatInputAmount) : '—'),
+            el('td', { class: 'num', style: r.deductibleVat > 0 ? 'color:#0a6;font-weight:600;' : 'color:#ccc;' },
+              r.deductibleVat > 0 ? fmtMoney(r.deductibleVat) : '—'),
+            el('td', { class: 'num', style: r.withholdingTax > 0 ? 'color:#a60;' : 'color:#ccc;' },
+              r.withholdingTax > 0 ? fmtMoney(r.withholdingTax) : '—'),
+            el('td', {},
+              el('span', { style: `font-size:11px;padding:2px 6px;border-radius:3px;background:${lbl.color}22;color:${lbl.color};border:1px solid ${lbl.color}66;` }, lbl.text)
+            ),
+          ));
+        });
+        tbl.append(tb);
+        sec.append(tbl);
+        reportBox.append(sec);
+      }
+
+      if (!data.monthly.some((m) => m.entries.length)) {
+        reportBox.append(el('div', { class: 'empty' }, '此期間無費用傳票記錄'));
+      }
+    } catch (err) { toast(err.message, 'err'); }
+  }
+
+  queryBtn.addEventListener('click', runReport);
+  runReport();
+}
+
+// ─────────────────────────────────────────────────────────────
+// 零用金月結報表 view
+// ─────────────────────────────────────────────────────────────
+async function viewAcctPettyCash(main) {
+  main.innerHTML = '';
+  main.append(el('h2', {}, '零用金月結'));
+  const status = await loadAcctStatus();
+  if (!status.enabled) { main.append(el('div', { class: 'empty' }, '會計模組尚未啟用。')); return; }
+
+  main.append(el('p', { style: 'font-size:13px;color:#666;margin-bottom:12px;' },
+    '以 1101 現金科目為基準，顯示月初餘額、逐筆異動與月末餘額。僅計入已過帳傳票。'
+  ));
+
+  const now = new Date();
+  const yearInput = el('input', { type: 'number', value: String(now.getFullYear()), min: '2020', max: '2100', style: 'width:90px;' });
+  const monthSel = el('select', {},
+    ...[1,2,3,4,5,6,7,8,9,10,11,12].map((m) => el('option', { value: String(m), selected: m === now.getMonth()+1 }, `${m} 月`)),
+  );
+  const queryBtn = el('button', { class: 'btn primary' }, '查詢');
+  const filters = el('div', { style: 'display:flex;gap:8px;align-items:center;margin-bottom:16px;' },
+    el('span', { style: 'font-size:13px;' }, '年度'), yearInput,
+    el('span', { style: 'font-size:13px;' }, '月份'), monthSel,
+    queryBtn,
+  );
+  main.append(filters);
+
+  const reportBox = el('div');
+  main.append(reportBox);
+
+  const SOURCE_LABEL = {
+    expense: '費用支出',
+    petty_cash: '零用金調撥',
+    manual: '手動',
+    sales: '銷貨',
+    purchase: '進貨',
+  };
+
+  async function runReport() {
+    reportBox.innerHTML = '';
+    const year = Number(yearInput.value);
+    const month = Number(monthSel.value);
+    try {
+      const d = await api.get(`/accounting/reports/petty-cash-monthly?year=${year}&month=${month}`);
+
+      // KPI 卡片
+      const kpiRow = el('div', { style: 'display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px;' });
+      const kpi = (label, val, color, sub) => {
+        const card = el('div', { style: `padding:12px 18px;border-radius:6px;background:#f5f5f5;border-left:4px solid ${color};min-width:150px;` });
+        card.append(
+          el('div', { style: 'font-size:12px;color:#666;' }, label),
+          el('div', { style: `font-size:18px;font-weight:700;color:${color};margin-top:4px;` }, fmtMoney(val)),
+        );
+        if (sub) card.append(el('div', { style: 'font-size:11px;color:#999;margin-top:2px;' }, sub));
+        return card;
+      };
+      kpiRow.append(
+        kpi('月初餘額', d.openingBalance, '#555'),
+        kpi('本月費用支出', d.totalExpense, '#e53', '（現金付出）'),
+        kpi('本月零用金補充', d.totalReplenishment, '#4a9', '（銀行提領）'),
+        kpi('月末餘額', d.closingBalance, d.closingBalance < 0 ? '#e53' : '#0a6',
+          d.closingBalance < 0 ? '⚠ 餘額為負，請核實' : ''),
+      );
+      reportBox.append(kpiRow);
+
+      if (!d.lines.length) {
+        reportBox.append(el('div', { class: 'empty' }, '本月無現金科目異動記錄'));
+        return;
+      }
+
+      const tbl = el('table', { class: 'data-table' });
+      tbl.append(el('thead', {}, el('tr', {},
+        el('th', {}, '傳票號'),
+        el('th', {}, '日期'),
+        el('th', {}, '說明'),
+        el('th', {}, '來源'),
+        el('th', { class: 'num', title: '現金流入（補充零用金）' }, '收入'),
+        el('th', { class: 'num', title: '現金流出（費用支付）' }, '支出'),
+        el('th', { class: 'num' }, '累計餘額'),
+      )));
+      const tb = el('tbody');
+
+      // 期初列
+      tb.append(el('tr', { style: 'background:#f0f4ff;font-weight:600;' },
+        el('td', { colspan: '4', style: 'color:#666;' }, '月初餘額（期初）'),
+        el('td', { class: 'num' }, '—'),
+        el('td', { class: 'num' }, '—'),
+        el('td', { class: 'num' }, fmtMoney(d.openingBalance)),
+      ));
+
+      d.lines.forEach((l) => {
+        const srcLabel = SOURCE_LABEL[l.source] || l.source;
+        const isExpense = l.source === 'expense';
+        tb.append(el('tr', { style: isExpense ? '' : 'background:#f8fff8;' },
+          el('td', { style: 'font-size:12px;' }, l.entryNo),
+          el('td', {}, new Date(l.entryDate).toLocaleDateString('zh-TW')),
+          el('td', {}, l.description),
+          el('td', { style: 'font-size:11px;color:#888;' }, srcLabel),
+          el('td', { class: 'num', style: l.debit > 0 ? 'color:#4a9;' : 'color:#ccc;' },
+            l.debit > 0 ? fmtMoney(l.debit) : '—'),
+          el('td', { class: 'num', style: l.credit > 0 ? 'color:#e53;' : 'color:#ccc;' },
+            l.credit > 0 ? fmtMoney(l.credit) : '—'),
+          el('td', { class: 'num', style: `font-weight:600;color:${l.balance < 0 ? '#e53' : '#333'};` },
+            fmtMoney(l.balance)),
+        ));
+      });
+
+      // 月末合計列
+      tb.append(el('tr', { style: 'background:#f0f8f4;font-weight:700;border-top:2px solid #ddd;' },
+        el('td', { colspan: '4', style: 'text-align:right;color:#444;' }, '月末合計'),
+        el('td', { class: 'num', style: 'color:#4a9;' }, fmtMoney(d.totalDebit)),
+        el('td', { class: 'num', style: 'color:#e53;' }, fmtMoney(d.totalCredit)),
+        el('td', { class: 'num', style: `font-weight:700;color:${d.closingBalance < 0 ? '#e53' : '#0a6'};` },
+          fmtMoney(d.closingBalance)),
+      ));
+
+      tbl.append(tb);
+      reportBox.append(tbl);
+    } catch (err) { toast(err.message, 'err'); }
+  }
+
+  queryBtn.addEventListener('click', runReport);
+  runReport();
+}
+
 async function viewAuditLogs(main) {
   if (window.__session?.employee?.role !== 'ADMIN') {
     main.innerHTML = '';
@@ -4410,174 +4737,213 @@ async function viewErrorLogs(main) {
         for (const row of data.items) {
           const u = row.userId ? usersById.get(row.userId) : null;
           const userLabel = u ? `${u.employeeId} ${u.name}` : (row.userId || '—');
-          const time = new Date(row.createdAt).toLocaleString('zh-TW');
-          const levelBadge = row.level === 'warn'
-            ? el('span', { class: 'badge warn' }, 'warn')
-            : el('span', { class: 'badge bad' }, 'error');
-          const msgCell = el('td', { style: 'max-width:420px;font-size:12px;word-break:break-all;' });
-          const shortMsg = (row.message || '').length > 120 ? row.message.slice(0, 120) + '…' : (row.message || '');
-          const msgSpan = el('span', { title: row.message || '' }, shortMsg);
-          msgCell.append(msgSpan);
-          if (row.stack) {
-            const toggle = el('a', { href: 'javascript:void(0)', style: 'margin-left:8px;font-size:11px;color:#1565C0;' }, '[stack]');
-            const stackBox = el('pre', { style: 'display:none;margin-top:6px;padding:8px;background:#f8f8f8;border:1px solid #eee;font-size:11px;white-space:pre-wrap;max-height:240px;overflow:auto;' }, row.stack);
-            toggle.addEventListener('click', () => {
-              stackBox.style.display = stackBox.style.display === 'none' ? 'block' : 'none';
-            });
-            msgCell.append(toggle, stackBox);
-          }
-          const tr = el('tr', {},
-            el('td', { style: 'white-space:nowrap;' }, time),
-            el('td', {}, levelBadge),
-            el('td', { style: 'font-family:monospace;font-size:11px;' }, row.source || '—'),
-            el('td', { style: 'font-family:monospace;font-size:11px;color:#666;' }, row.route || '—'),
-            msgCell,
-            el('td', {}, userLabel),
-            el('td', { style: 'font-family:monospace;font-size:10px;color:#999;' }, row.requestId ? row.requestId.slice(0, 8) : '—'),
-          );
-          tbody.append(tr);
-        }
-      }
-      const totalPages = Math.max(1, Math.ceil(data.total / data.pageSize));
-      const prev = el('button', { class: 'btn small' }, '上一頁');
-      prev.disabled = state.page <= 1;
-      prev.addEventListener('click', () => { state.page = Math.max(1, state.page - 1); load(); });
-      const next = el('button', { class: 'btn small' }, '下一頁');
-      next.disabled = state.page >= totalPages;
-      next.addEventListener('click', () => { state.page = Math.min(totalPages, state.page + 1); load(); });
-      pager.append(prev, el('span', { style: 'font-size:12px;color:#666;' }, ` ${state.page} / ${totalPages} `), next);
-    } catch (e) {
-      meta.textContent = '';
-      tbody.append(el('tr', {}, el('td', { colspan: '7' }, el('div', { class: 'err' }, e.message))));
-    }
-  }
+          
+// ----- Group views (tab-based consolidation) -----
 
-  refreshBtn.addEventListener('click', () => { state.page = 1; load(); });
-  searchInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { state.page = 1; load(); } });
-  sourceInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { state.page = 1; load(); } });
+function isAdmin() { return window.__session?.employee?.role === 'ADMIN'; }
+function isSales() { return window.__session?.employee?.role === 'SALES'; }
 
-  await load();
-}
+const GROUPS = {
+  management: {
+    title: '管理',
+    tabs: [
+      { key: 'customers',  label: '客戶',   view: 'customers' },
+      { key: 'products',   label: '產品',   view: 'products' },
+      { key: 'suppliers',  label: '供應商', view: 'suppliers', denySales: true },
+      { key: 'employees',  label: '員工',   view: 'employees', adminOnly: true },
+    ],
+  },
+  sales: {
+    title: '業務功能',
+    tabs: [
+      { key: 'quotations',    label: '報價單',   view: 'quotations' },
+      { key: 'sales-orders',  label: '銷貨單',   view: 'sales-orders' },
+      { key: 'visit-logs',    label: '工作日誌', view: 'visit-logs' },
+      { key: 'bonus-report',  label: '業績獎金', view: 'bonus-report', roles: ['ADMIN', 'ACCOUNTING', 'SALES'] },
+    ],
+  },
+  accounts: {
+    title: '帳款',
+    tabs: [
+      { key: 'receivables', label: '應收帳款', view: 'receivables' },
+      { key: 'payables',    label: '應付帳款', view: 'payables', denySales: true },
+    ],
+  },
+  invoices: {
+    title: '發票',
+    tabs: [
+      { key: 'einvoices',       label: '電子發票', view: 'einvoices' },
+      { key: 'einvoice-pools',  label: '發票配號', view: 'einvoice-pools', adminOnly: true },
+    ],
+  },
+  accounting: {
+    title: '會計',
+    tabs: [
+      { key: 'overview',      label: '總覽',     view: 'acct-overview',       denySales: true },
+      { key: 'coa',           label: '科目表',   view: 'acct-coa',            denySales: true },
+      { key: 'periods',       label: '會計期間', view: 'acct-periods',        denySales: true },
+      { key: 'journal',       label: '傳票',     view: 'acct-journal',        denySales: true },
+      { key: 'trial-balance', label: '試算表',   view: 'acct-trial-balance',  denySales: true },
+      { key: 'income',        label: '損益表',   view: 'acct-income',         denySales: true },
+      { key: 'balance',       label: '資產負債', view: 'acct-balance',        denySales: true },
+      { key: 'tax-deduct',    label: '稅務扣抵', view: 'acct-tax-deduct',     denySales: true },
+      { key: 'petty-cash',    label: '零用金月結', view: 'acct-petty-cash',   denySales: true },
+    ],
+  },
+  logs: {
+    title: '紀錄',
+    tabs: [
+      { key: 'audit-logs', label: '操作紀錄', view: 'audit-logs', adminOnly: true },
+      { key: 'error-logs', label: '異常紀錄', view: 'error-logs', adminOnly: true },
+    ],
+  },
+};
 
-async function viewInventory(main) {
-  main.innerHTML = '';
-  main.append(el('h2', {}, '庫存'));
-  main.append(el('div', { class: 'page-sub' }, '目前庫存量與再訂購點。'));
-  const tbody = el('tbody');
-  main.append(el('table', { class: 'data' },
-    el('thead', {}, el('tr', {},
-      el('th', {}, '產品編號'), el('th', {}, '產品名稱'),
-      el('th', { class: 'num' }, '庫存量'), el('th', { class: 'num' }, '再訂購點'),
-      el('th', {}, '狀態'),
-    )),
-    tbody,
-  ));
-  try {
-    const list = await api.get('/inventory');
-    if (!list.length) tbody.append(el('tr', {}, el('td', { colspan: '5', style: 'text-align:center;color:var(--muted);padding:24px;' }, '無資料')));
-    for (const inv of list) {
-      const low = inv.reorderPoint > 0 && inv.quantity <= inv.reorderPoint;
-      tbody.append(el('tr', {},
-        el('td', {}, inv.product?.code || ''),
-        el('td', {}, inv.product?.name || ''),
-        el('td', { class: 'num' }, inv.quantity),
-        el('td', { class: 'num' }, inv.reorderPoint),
-        el('td', {}, low ? el('span', { class: 'badge bad' }, '低於再訂購點') : el('span', { class: 'badge ok' }, '正常')),
-      ));
-    }
-  } catch (e) { main.append(el('div', { class: 'err' }, e.message)); }
-}
+const LEGACY_REDIRECT = {
+  dashboard: 'sales',
+  customers: 'management/customers',
+  products: 'management/products',
+  suppliers: 'management/suppliers',
+  employees: 'management/employees',
+  receivables: 'accounts/receivables',
+  payables: 'accounts/payables',
+  einvoices: 'invoices/einvoices',
+  'einvoice-pools': 'invoices/einvoice-pools',
+  quotations: 'sales/quotations',
+  'sales-orders': 'sales/sales-orders',
+  'visit-logs': 'sales/visit-logs',
+  'bonus-report': 'sales/bonus-report',
+  'audit-logs': 'logs/audit-logs',
+  'error-logs': 'logs/error-logs',
+};
 
-// ----- Utilities -----
-
-function cleanObj(src, keys) {
-  const out = {};
-  for (const k of keys) {
-    const v = src[k];
-    if (v === undefined || v === '' || v === null) continue;
-    out[k] = v;
-  }
-  return out;
-}
-
-function badgeForStatus(s) {
-  const ok = ['WON','COMPLETED','DELIVERED','RECEIVED','PAID'];
-  const warn = ['SENT','TRACKING','PENDING','DRAFT'];
-  const bad = ['LOST','CANCELLED'];
-  if (ok.includes(s)) return 'ok';
-  if (warn.includes(s)) return 'warn';
-  if (bad.includes(s)) return 'bad';
-  return 'mute';
-}
-
-// Load marked.js (markdown renderer) on demand — used by the help view only.
-// CDN version is tiny (~40KB) and cached by browser. If offline / blocked,
-// falls back to plain <pre> rendering so the manual is still readable.
-let _markedPromise = null;
-function loadMarked() {
-  if (window.marked) return Promise.resolve(window.marked);
-  if (_markedPromise) return _markedPromise;
-  _markedPromise = new Promise((resolve, reject) => {
-    const s = document.createElement('script');
-    s.src = 'https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js';
-    s.onload = () => resolve(window.marked);
-    s.onerror = () => reject(new Error('markdown renderer offline'));
-    document.head.appendChild(s);
+function visibleTabs(group) {
+  const role = window.__session?.employee?.role;
+  return group.tabs.filter((t) => {
+    if (t.adminOnly && !isAdmin()) return false;
+    if (t.denySales && isSales()) return false;
+    if (t.roles && !t.roles.includes(role)) return false;
+    return true;
   });
-  return _markedPromise;
 }
 
-async function viewHelp(main) {
-  main.innerHTML = '';
-  const toolbar = el('div', { class: 'toolbar', style: 'display:flex;gap:8px;justify-content:space-between;align-items:center;margin-bottom:12px;' },
-    el('h2', { style: 'margin:0;' }, '使用說明'),
-    el('div', {},
-      el('button', { class: 'btn', onClick: () => window.print() }, '🖨 列印 / 儲存 PDF'),
-      ' ',
-      el('a', { class: 'btn', href: './manual.md', target: '_blank', style: 'margin-left:6px;' }, '📄 下載原始 Markdown'),
-    ),
-  );
-  const content = el('div', { class: 'help-content markdown-body' }, el('div', { class: 'empty' }, '載入中…'));
-  main.append(toolbar, content);
-
-  let md;
-  let ver = { version: '?', commit: '?', deployedAt: null };
-  try {
-    const [mdRes, verRes] = await Promise.all([
-      fetch('./manual.md?v=' + Date.now()).then((r) => r.text()),
-      fetch('/api/version').then((r) => r.json()).catch(() => ver),
-    ]);
-    md = mdRes;
-    ver = verRes || ver;
-  } catch (e) {
-    content.innerHTML = '';
-    content.append(el('div', { class: 'err' }, '無法載入手冊：' + e.message));
+async function renderGroup(main, groupKey, selectedTabKey) {
+  const group = GROUPS[groupKey];
+  const tabs = visibleTabs(group);
+  if (!tabs.length) {
+    main.innerHTML = '';
+    main.append(el('h2', {}, group.title));
+    main.append(el('div', { class: 'empty' }, '此區塊僅 ADMIN 可檢視。'));
     return;
   }
+  const active = tabs.find((t) => t.key === selectedTabKey) || tabs[0];
+  main.innerHTML = '';
+  const tabBar = el('div', { class: 'tabs' });
+  tabs.forEach((t) => {
+    const btn = el('button', {
+      class: t.key === active.key ? 'active' : '',
+      onClick: () => { location.hash = `#${groupKey}/${t.key}`; },
+    }, t.label);
+    tabBar.append(btn);
+  });
+  const body = el('div', { class: 'tab-body' });
+  main.append(tabBar, body);
+  const viewFn = LEAF_VIEWS[active.view];
+  if (!viewFn) { body.append(el('div', { class: 'err' }, `未知檢視：${active.view}`)); return; }
+  try { await viewFn(body); }
+  catch (e) { body.innerHTML = ''; body.append(el('div', { class: 'err' }, e.message)); }
+}
 
-  // Substitute {{APP_VERSION}} / {{APP_COMMIT}} / {{APP_DEPLOYED_AT}} placeholders
-  // so the manual always reflects the currently-deployed version without requiring
-  // a manual.md edit on every release.
-  const deployedDisplay = ver.deployedAt
-    ? new Date(ver.deployedAt).toLocaleString('zh-TW', { hour12: false })
-    : '—';
-  md = md
-    .replace(/\{\{APP_VERSION\}\}/g, ver.version || '?')
-    .replace(/\{\{APP_COMMIT\}\}/g, ver.commit || '?')
-    .replace(/\{\{APP_DEPLOYED_AT\}\}/g, deployedDisplay);
+const LEAF_VIEWS = {
+  dashboard: viewDashboard,
+  customers: viewCustomers,
+  products: viewProducts,
+  suppliers: viewSuppliers,
+  employees: viewEmployees,
+  quotations: viewQuotations,
+  'sales-orders': viewSalesOrders,
+  'visit-logs': viewVisitLogs,
+  'bonus-report': viewBonusReport,
+  'purchase-orders': viewPurchaseOrders,
+  receivables: viewReceivables,
+  payables: viewPayables,
+  einvoices: viewEinvoices,
+  'einvoice-pools': viewEinvoicePools,
+  inventory: viewInventory,
+  'acct-overview':       viewAcctOverview,
+  'acct-coa':            viewAcctCoa,
+  'acct-periods':        viewAcctPeriods,
+  'acct-journal':        viewAcctJournal,
+  'acct-trial-balance':  viewAcctTrialBalance,
+  'acct-income':         viewAcctIncome,
+  'acct-balance':        viewAcctBalance,
+  'acct-tax-deduct':     viewAcctTaxDeduct,
+  'acct-petty-cash':     viewAcctPettyCash,
+  'audit-logs': viewAuditLogs,
+  'error-logs': viewErrorLogs,
+  company: viewCompany,
+  help: viewHelp,
+};
 
+async function route() {
+  let raw = (location.hash || '#sales').slice(1);
+  if (LEGACY_REDIRECT[raw]) { location.replace('#' + LEGACY_REDIRECT[raw]); return; }
+  const [head, sub] = raw.split('/');
+  const main = document.getElementById('main');
+  for (const a of document.querySelectorAll('#nav a')) {
+    a.classList.toggle('active', a.dataset.view === head);
+  }
+  if (GROUPS[head]) {
+    try { await renderGroup(main, head, sub); }
+    catch (e) { main.innerHTML = ''; main.append(el('div', { class: 'err' }, e.message)); }
+    return;
+  }
+  const fn = LEAF_VIEWS[head];
+  if (!fn) { location.replace('#sales'); return; }
+  try { await fn(main); }
+  catch (e) { main.innerHTML = ''; main.append(el('div', { class: 'err' }, e.message)); }
+}
+
+async function boot() {
+  let session;
   try {
-    const marked = await loadMarked();
-    content.innerHTML = marked.parse(md);
-    // Anchor-style links inside the TOC reference #section — rewrite to
-    // plain in-page scroll so they don't collide with the SPA's hash router.
-    for (const a of content.querySelectorAll('a[href^="#"]')) {
-      a.addEventListener('click', (ev) => {
-        ev.preventDefault();
-        const id = decodeURIComponent(a.getAttribute('href').slice(1));
-        const target = content.querySelector(`[id="${CSS.escape(id)}"]`)
-          || [...content.querySelectorAll('h1,h2,h3,h4')].find((h) => h.textContent.trim() === id);
-        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const r = await fetch('/api/auth/web/session');
+    if (!r.ok) { location.href = './login.html'; return; }
+    session = await r.json();
+  } catch { location.href = './login.html'; return; }
+
+  window.__session = session;
+  document.getElementById('brandSub').textContent = session.tenant?.companyName || '';
+  document.getElementById('meLabel').textContent = `${session.employee?.name}（${session.employee?.role}）`;
+  document.getElementById('logoutBtn').addEventListener('click', async () => {
+    try { await fetch('/api/auth/web/logout', { method: 'POST' }); } catch {}
+    location.href = './login.html';
+  });
+  if (session.employee?.role !== 'ADMIN') {
+    for (const a of document.querySelectorAll('#nav a[data-admin-only]')) a.style.display = 'none';
+  }
+  if (session.employee?.role === 'SALES') {
+    for (const a of document.querySelectorAll('#nav a[data-deny-sales]')) a.style.display = 'none';
+  }
+  try {
+    const v = await (await fetch('/api/version')).json();
+    const el = document.getElementById('versionInfo');
+    if (el) {
+      const deployDate = v.deployedAt ? new Date(v.deployedAt).toLocaleString('zh-TW', {
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', hour12: false,
+      }) : '';
+      el.textContent = `v${v.version} · ${v.commit} · ${deployDate}`;
+      el.title = `版本：v${v.version}\ncommit：${v.commit}\n部署時間：${deployDate}`;
+    }
+  } catch { /* non-fatal */ }
+
+  window.addEventListener('hashchange', route);
+  route();
+}
+
+boot();
+t.scrollIntoView({ behavior: 'smooth', block: 'start' });
       });
     }
   } catch {
@@ -4642,6 +5008,8 @@ const GROUPS = {
       { key: 'trial-balance', label: '試算表',   view: 'acct-trial-balance', denySales: true },
       { key: 'income',        label: '損益表',   view: 'acct-income', denySales: true },
       { key: 'balance',       label: '資產負債', view: 'acct-balance', denySales: true },
+      { key: 'tax-deduct',    label: '稅務扣抵', view: 'acct-tax-deduct', denySales: true },
+      { key: 'petty-cash',    label: '零用金月結', view: 'acct-petty-cash', denySales: true },
     ],
   },
   logs: {
@@ -4742,6 +5110,8 @@ const LEAF_VIEWS = {
   'acct-trial-balance':  viewAcctTrialBalance,
   'acct-income':         viewAcctIncome,
   'acct-balance':        viewAcctBalance,
+  'acct-tax-deduct':     viewAcctTaxDeduct,
+  'acct-petty-cash':     viewAcctPettyCash,
   'audit-logs': viewAuditLogs,
   'error-logs': viewErrorLogs,
   company: viewCompany,

@@ -315,3 +315,38 @@ accountingRouter.get('/reports/ap-aging', async (req: Request, res: Response, ne
     res.json(await reports.apAging(req.tenantId, asOf));
   } catch (err) { next(err); }
 });
+
+/**
+ * 稅務扣抵報表
+ * GET /api/accounting/reports/tax-deduction?year=2026&month=6
+ * month 可省略（省略 = 整年）
+ */
+accountingRouter.get('/reports/tax-deduction', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const year = req.query.year ? Number(req.query.year) : new Date().getFullYear();
+    const month = req.query.month ? Number(req.query.month) : undefined;
+    if (!Number.isFinite(year) || year < 2000 || year > 2100) {
+      res.status(400).json({ error: { message: '年份不合法' } }); return;
+    }
+    if (month !== undefined && (!Number.isFinite(month) || month < 1 || month > 12)) {
+      res.status(400).json({ error: { message: '月份需介於 1~12' } }); return;
+    }
+    res.json(await reports.taxDeductionReport(req.tenantId, year, month));
+  } catch (err) { next(err); }
+});
+
+/**
+ * 零用金月結報表
+ * GET /api/accounting/reports/petty-cash-monthly?year=2026&month=6
+ */
+accountingRouter.get('/reports/petty-cash-monthly', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const now = new Date();
+    const year = req.query.year ? Number(req.query.year) : now.getFullYear();
+    const month = req.query.month ? Number(req.query.month) : now.getMonth() + 1;
+    if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) {
+      res.status(400).json({ error: { message: '年份或月份不合法' } }); return;
+    }
+    res.json(await reports.pettyCashMonthly(req.tenantId, year, month));
+  } catch (err) { next(err); }
+});

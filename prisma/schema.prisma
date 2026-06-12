@@ -885,6 +885,16 @@ model JournalEntry {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  // ── 稅務扣抵欄位（expense source 時由系統自動填入）──────────────────────
+  /** deductible=進項稅額可扣 / non_deductible=不可扣 / withholding=應扣繳 / review=需人工審核 */
+  vatDeductType   String?
+  /** 進項稅額（含稅金額 × 5/105）；deductible 時自動計算 */
+  vatInputAmount  Decimal?  @db.Decimal(12,2)
+  /** 可扣抵進項稅額（交際費=0；一般費用=vatInputAmount） */
+  deductibleVat   Decimal?  @db.Decimal(12,2)
+  /** 扣繳稅額（薪資/租金代扣）；withholding 時自動計算 */
+  withholdingTax  Decimal?  @db.Decimal(12,2)
+
   lines JournalLine[]
 
   @@unique([tenantId, entryNo])
