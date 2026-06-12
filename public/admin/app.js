@@ -4737,217 +4737,169 @@ async function viewErrorLogs(main) {
         for (const row of data.items) {
           const u = row.userId ? usersById.get(row.userId) : null;
           const userLabel = u ? `${u.employeeId} ${u.name}` : (row.userId || '—');
-          
-// ----- Group views (tab-based consolidation) -----
-
-function isAdmin() { return window.__session?.employee?.role === 'ADMIN'; }
-function isSales() { return window.__session?.employee?.role === 'SALES'; }
-
-const GROUPS = {
-  management: {
-    title: '管理',
-    tabs: [
-      { key: 'customers',  label: '客戶',   view: 'customers' },
-      { key: 'products',   label: '產品',   view: 'products' },
-      { key: 'suppliers',  label: '供應商', view: 'suppliers', denySales: true },
-      { key: 'employees',  label: '員工',   view: 'employees', adminOnly: true },
-    ],
-  },
-  sales: {
-    title: '業務功能',
-    tabs: [
-      { key: 'quotations',    label: '報價單',   view: 'quotations' },
-      { key: 'sales-orders',  label: '銷貨單',   view: 'sales-orders' },
-      { key: 'visit-logs',    label: '工作日誌', view: 'visit-logs' },
-      { key: 'bonus-report',  label: '業績獎金', view: 'bonus-report', roles: ['ADMIN', 'ACCOUNTING', 'SALES'] },
-    ],
-  },
-  accounts: {
-    title: '帳款',
-    tabs: [
-      { key: 'receivables', label: '應收帳款', view: 'receivables' },
-      { key: 'payables',    label: '應付帳款', view: 'payables', denySales: true },
-    ],
-  },
-  invoices: {
-    title: '發票',
-    tabs: [
-      { key: 'einvoices',       label: '電子發票', view: 'einvoices' },
-      { key: 'einvoice-pools',  label: '發票配號', view: 'einvoice-pools', adminOnly: true },
-    ],
-  },
-  accounting: {
-    title: '會計',
-    tabs: [
-      { key: 'overview',      label: '總覽',     view: 'acct-overview',       denySales: true },
-      { key: 'coa',           label: '科目表',   view: 'acct-coa',            denySales: true },
-      { key: 'periods',       label: '會計期間', view: 'acct-periods',        denySales: true },
-      { key: 'journal',       label: '傳票',     view: 'acct-journal',        denySales: true },
-      { key: 'trial-balance', label: '試算表',   view: 'acct-trial-balance',  denySales: true },
-      { key: 'income',        label: '損益表',   view: 'acct-income',         denySales: true },
-      { key: 'balance',       label: '資產負債', view: 'acct-balance',        denySales: true },
-      { key: 'tax-deduct',    label: '稅務扣抵', view: 'acct-tax-deduct',     denySales: true },
-      { key: 'petty-cash',    label: '零用金月結', view: 'acct-petty-cash',   denySales: true },
-    ],
-  },
-  logs: {
-    title: '紀錄',
-    tabs: [
-      { key: 'audit-logs', label: '操作紀錄', view: 'audit-logs', adminOnly: true },
-      { key: 'error-logs', label: '異常紀錄', view: 'error-logs', adminOnly: true },
-    ],
-  },
-};
-
-const LEGACY_REDIRECT = {
-  dashboard: 'sales',
-  customers: 'management/customers',
-  products: 'management/products',
-  suppliers: 'management/suppliers',
-  employees: 'management/employees',
-  receivables: 'accounts/receivables',
-  payables: 'accounts/payables',
-  einvoices: 'invoices/einvoices',
-  'einvoice-pools': 'invoices/einvoice-pools',
-  quotations: 'sales/quotations',
-  'sales-orders': 'sales/sales-orders',
-  'visit-logs': 'sales/visit-logs',
-  'bonus-report': 'sales/bonus-report',
-  'audit-logs': 'logs/audit-logs',
-  'error-logs': 'logs/error-logs',
-};
-
-function visibleTabs(group) {
-  const role = window.__session?.employee?.role;
-  return group.tabs.filter((t) => {
-    if (t.adminOnly && !isAdmin()) return false;
-    if (t.denySales && isSales()) return false;
-    if (t.roles && !t.roles.includes(role)) return false;
-    return true;
-  });
-}
-
-async function renderGroup(main, groupKey, selectedTabKey) {
-  const group = GROUPS[groupKey];
-  const tabs = visibleTabs(group);
-  if (!tabs.length) {
-    main.innerHTML = '';
-    main.append(el('h2', {}, group.title));
-    main.append(el('div', { class: 'empty' }, '此區塊僅 ADMIN 可檢視。'));
-    return;
-  }
-  const active = tabs.find((t) => t.key === selectedTabKey) || tabs[0];
-  main.innerHTML = '';
-  const tabBar = el('div', { class: 'tabs' });
-  tabs.forEach((t) => {
-    const btn = el('button', {
-      class: t.key === active.key ? 'active' : '',
-      onClick: () => { location.hash = `#${groupKey}/${t.key}`; },
-    }, t.label);
-    tabBar.append(btn);
-  });
-  const body = el('div', { class: 'tab-body' });
-  main.append(tabBar, body);
-  const viewFn = LEAF_VIEWS[active.view];
-  if (!viewFn) { body.append(el('div', { class: 'err' }, `未知檢視：${active.view}`)); return; }
-  try { await viewFn(body); }
-  catch (e) { body.innerHTML = ''; body.append(el('div', { class: 'err' }, e.message)); }
-}
-
-const LEAF_VIEWS = {
-  dashboard: viewDashboard,
-  customers: viewCustomers,
-  products: viewProducts,
-  suppliers: viewSuppliers,
-  employees: viewEmployees,
-  quotations: viewQuotations,
-  'sales-orders': viewSalesOrders,
-  'visit-logs': viewVisitLogs,
-  'bonus-report': viewBonusReport,
-  'purchase-orders': viewPurchaseOrders,
-  receivables: viewReceivables,
-  payables: viewPayables,
-  einvoices: viewEinvoices,
-  'einvoice-pools': viewEinvoicePools,
-  inventory: viewInventory,
-  'acct-overview':       viewAcctOverview,
-  'acct-coa':            viewAcctCoa,
-  'acct-periods':        viewAcctPeriods,
-  'acct-journal':        viewAcctJournal,
-  'acct-trial-balance':  viewAcctTrialBalance,
-  'acct-income':         viewAcctIncome,
-  'acct-balance':        viewAcctBalance,
-  'acct-tax-deduct':     viewAcctTaxDeduct,
-  'acct-petty-cash':     viewAcctPettyCash,
-  'audit-logs': viewAuditLogs,
-  'error-logs': viewErrorLogs,
-  company: viewCompany,
-  help: viewHelp,
-};
-
-async function route() {
-  let raw = (location.hash || '#sales').slice(1);
-  if (LEGACY_REDIRECT[raw]) { location.replace('#' + LEGACY_REDIRECT[raw]); return; }
-  const [head, sub] = raw.split('/');
-  const main = document.getElementById('main');
-  for (const a of document.querySelectorAll('#nav a')) {
-    a.classList.toggle('active', a.dataset.view === head);
-  }
-  if (GROUPS[head]) {
-    try { await renderGroup(main, head, sub); }
-    catch (e) { main.innerHTML = ''; main.append(el('div', { class: 'err' }, e.message)); }
-    return;
-  }
-  const fn = LEAF_VIEWS[head];
-  if (!fn) { location.replace('#sales'); return; }
-  try { await fn(main); }
-  catch (e) { main.innerHTML = ''; main.append(el('div', { class: 'err' }, e.message)); }
-}
-
-async function boot() {
-  let session;
-  try {
-    const r = await fetch('/api/auth/web/session');
-    if (!r.ok) { location.href = './login.html'; return; }
-    session = await r.json();
-  } catch { location.href = './login.html'; return; }
-
-  window.__session = session;
-  document.getElementById('brandSub').textContent = session.tenant?.companyName || '';
-  document.getElementById('meLabel').textContent = `${session.employee?.name}（${session.employee?.role}）`;
-  document.getElementById('logoutBtn').addEventListener('click', async () => {
-    try { await fetch('/api/auth/web/logout', { method: 'POST' }); } catch {}
-    location.href = './login.html';
-  });
-  if (session.employee?.role !== 'ADMIN') {
-    for (const a of document.querySelectorAll('#nav a[data-admin-only]')) a.style.display = 'none';
-  }
-  if (session.employee?.role === 'SALES') {
-    for (const a of document.querySelectorAll('#nav a[data-deny-sales]')) a.style.display = 'none';
-  }
-  try {
-    const v = await (await fetch('/api/version')).json();
-    const el = document.getElementById('versionInfo');
-    if (el) {
-      const deployDate = v.deployedAt ? new Date(v.deployedAt).toLocaleString('zh-TW', {
-        year: 'numeric', month: '2-digit', day: '2-digit',
-        hour: '2-digit', minute: '2-digit', hour12: false,
-      }) : '';
-      el.textContent = `v${v.version} · ${v.commit} · ${deployDate}`;
-      el.title = `版本：v${v.version}\ncommit：${v.commit}\n部署時間：${deployDate}`;
+          const time = new Date(row.createdAt).toLocaleString('zh-TW');
+          const levelBadge = row.level === 'warn'
+            ? el('span', { class: 'badge warn' }, 'warn')
+            : el('span', { class: 'badge bad' }, 'error');
+          const msgCell = el('td', { style: 'max-width:420px;font-size:12px;word-break:break-all;' });
+          const shortMsg = (row.message || '').length > 120 ? row.message.slice(0, 120) + '…' : (row.message || '');
+          const msgSpan = el('span', { title: row.message || '' }, shortMsg);
+          msgCell.append(msgSpan);
+          if (row.stack) {
+            const toggle = el('a', { href: 'javascript:void(0)', style: 'margin-left:8px;font-size:11px;color:#1565C0;' }, '[stack]');
+            const stackBox = el('pre', { style: 'display:none;margin-top:6px;padding:8px;background:#f8f8f8;border:1px solid #eee;font-size:11px;white-space:pre-wrap;max-height:240px;overflow:auto;' }, row.stack);
+            toggle.addEventListener('click', () => {
+              stackBox.style.display = stackBox.style.display === 'none' ? 'block' : 'none';
+            });
+            msgCell.append(toggle, stackBox);
+          }
+          const tr = el('tr', {},
+            el('td', { style: 'white-space:nowrap;' }, time),
+            el('td', {}, levelBadge),
+            el('td', { style: 'font-family:monospace;font-size:11px;' }, row.source || '—'),
+            el('td', { style: 'font-family:monospace;font-size:11px;color:#666;' }, row.route || '—'),
+            msgCell,
+            el('td', {}, userLabel),
+            el('td', { style: 'font-family:monospace;font-size:10px;color:#999;' }, row.requestId ? row.requestId.slice(0, 8) : '—'),
+          );
+          tbody.append(tr);
+        }
+      }
+      const totalPages = Math.max(1, Math.ceil(data.total / data.pageSize));
+      const prev = el('button', { class: 'btn small' }, '上一頁');
+      prev.disabled = state.page <= 1;
+      prev.addEventListener('click', () => { state.page = Math.max(1, state.page - 1); load(); });
+      const next = el('button', { class: 'btn small' }, '下一頁');
+      next.disabled = state.page >= totalPages;
+      next.addEventListener('click', () => { state.page = Math.min(totalPages, state.page + 1); load(); });
+      pager.append(prev, el('span', { style: 'font-size:12px;color:#666;' }, ` ${state.page} / ${totalPages} `), next);
+    } catch (e) {
+      meta.textContent = '';
+      tbody.append(el('tr', {}, el('td', { colspan: '7' }, el('div', { class: 'err' }, e.message))));
     }
-  } catch { /* non-fatal */ }
+  }
 
-  window.addEventListener('hashchange', route);
-  route();
+  refreshBtn.addEventListener('click', () => { state.page = 1; load(); });
+  searchInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { state.page = 1; load(); } });
+  sourceInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { state.page = 1; load(); } });
+
+  await load();
 }
 
-boot();
-t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+async function viewInventory(main) {
+  main.innerHTML = '';
+  main.append(el('h2', {}, '庫存'));
+  main.append(el('div', { class: 'page-sub' }, '目前庫存量與再訂購點。'));
+  const tbody = el('tbody');
+  main.append(el('table', { class: 'data' },
+    el('thead', {}, el('tr', {},
+      el('th', {}, '產品編號'), el('th', {}, '產品名稱'),
+      el('th', { class: 'num' }, '庫存量'), el('th', { class: 'num' }, '再訂購點'),
+      el('th', {}, '狀態'),
+    )),
+    tbody,
+  ));
+  try {
+    const list = await api.get('/inventory');
+    if (!list.length) tbody.append(el('tr', {}, el('td', { colspan: '5', style: 'text-align:center;color:var(--muted);padding:24px;' }, '無資料')));
+    for (const inv of list) {
+      const low = inv.reorderPoint > 0 && inv.quantity <= inv.reorderPoint;
+      tbody.append(el('tr', {},
+        el('td', {}, inv.product?.code || ''),
+        el('td', {}, inv.product?.name || ''),
+        el('td', { class: 'num' }, inv.quantity),
+        el('td', { class: 'num' }, inv.reorderPoint),
+        el('td', {}, low ? el('span', { class: 'badge bad' }, '低於再訂購點') : el('span', { class: 'badge ok' }, '正常')),
+      ));
+    }
+  } catch (e) { main.append(el('div', { class: 'err' }, e.message)); }
+}
+
+// ----- Utilities -----
+
+function cleanObj(src, keys) {
+  const out = {};
+  for (const k of keys) {
+    const v = src[k];
+    if (v === undefined || v === '' || v === null) continue;
+    out[k] = v;
+  }
+  return out;
+}
+
+function badgeForStatus(s) {
+  const ok = ['WON','COMPLETED','DELIVERED','RECEIVED','PAID'];
+  const warn = ['SENT','TRACKING','PENDING','DRAFT'];
+  const bad = ['LOST','CANCELLED'];
+  if (ok.includes(s)) return 'ok';
+  if (warn.includes(s)) return 'warn';
+  if (bad.includes(s)) return 'bad';
+  return 'mute';
+}
+
+let _markedPromise = null;
+function loadMarked() {
+  if (window.marked) return Promise.resolve(window.marked);
+  if (_markedPromise) return _markedPromise;
+  _markedPromise = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js';
+    s.onload = () => resolve(window.marked);
+    s.onerror = () => reject(new Error('markdown renderer offline'));
+    document.head.appendChild(s);
+  });
+  return _markedPromise;
+}
+
+async function viewHelp(main) {
+  main.innerHTML = '';
+  const toolbar = el('div', { class: 'toolbar', style: 'display:flex;gap:8px;justify-content:space-between;align-items:center;margin-bottom:12px;' },
+    el('h2', { style: 'margin:0;' }, '使用說明'),
+    el('div', {},
+      el('button', { class: 'btn', onClick: () => window.print() }, '🖨 列印 / 儲存 PDF'),
+      ' ',
+      el('a', { class: 'btn', href: './manual.md', target: '_blank', style: 'margin-left:6px;' }, '📄 下載原始 Markdown'),
+    ),
+  );
+  const content = el('div', { class: 'help-content markdown-body' }, el('div', { class: 'empty' }, '載入中…'));
+  main.append(toolbar, content);
+
+  let md;
+  let ver = { version: '?', commit: '?', deployedAt: null };
+  try {
+    const [mdRes, verRes] = await Promise.all([
+      fetch('./manual.md?v=' + Date.now()).then((r) => r.text()),
+      fetch('/api/version').then((r) => r.json()).catch(() => ver),
+    ]);
+    md = mdRes;
+    ver = verRes || ver;
+  } catch (e) {
+    content.innerHTML = '';
+    content.append(el('div', { class: 'err' }, '無法載入手冊：' + e.message));
+    return;
+  }
+
+  const deployedDisplay = ver.deployedAt
+    ? new Date(ver.deployedAt).toLocaleString('zh-TW', { hour12: false })
+    : '—';
+  md = md
+    .replace(/\{\{APP_VERSION\}\}/g, ver.version || '?')
+    .replace(/\{\{APP_COMMIT\}\}/g, ver.commit || '?')
+    .replace(/\{\{APP_DEPLOYED_AT\}\}/g, deployedDisplay);
+
+  try {
+    const marked = await loadMarked();
+    content.innerHTML = marked.parse(md);
+    for (const a of content.querySelectorAll('a[href^="#"]')) {
+      a.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        const id = decodeURIComponent(a.getAttribute('href').slice(1));
+        const target = content.querySelector(`[id="${CSS.escape(id)}"]`)
+          || [...content.querySelectorAll('h1,h2,h3,h4')].find((h) => h.textContent.trim() === id);
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
       });
     }
   } catch {
-    // Fallback: show raw markdown in a <pre> if CDN blocked.
     content.innerHTML = '';
     content.append(el('pre', { style: 'white-space:pre-wrap;font-family:system-ui;font-size:14px;line-height:1.6;' }, md));
   }
