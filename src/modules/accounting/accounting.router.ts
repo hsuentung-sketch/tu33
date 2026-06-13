@@ -243,6 +243,20 @@ accountingRouter.post('/journal/:id/reverse', requireRole('ADMIN'),
   },
 );
 
+accountingRouter.patch('/journal/:id/vat-type', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const schema = z.object({
+      vatDeductType: z.enum(['deductible', 'non_deductible', 'withholding', 'review']),
+      vatInputAmount: z.number().nonnegative().optional(),
+      deductibleVat: z.number().nonnegative().optional(),
+      withholdingTax: z.number().nonnegative().optional(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) throw new ValidationError(parsed.error.issues.map((i) => i.message).join(', '));
+    res.json(await journalService.updateVatType(req.tenantId, String(req.params.id), parsed.data));
+  } catch (err) { next(err); }
+});
+
 accountingRouter.delete('/journal/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
     await journalService.remove(req.tenantId, String(req.params.id));

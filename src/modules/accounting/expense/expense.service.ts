@@ -128,6 +128,70 @@ export function getTaxRules(): Array<{ code: string; label: string; vatDeductTyp
   }));
 }
 
+/**
+ * 描述關鍵字 → 稅務類型覆寫（優先於科目代碼規則）。
+ * 依會計師事務所「可扣抵/不可扣抵」清單整理。
+ * 順序：先匹配的優先。
+ */
+const DESCRIPTION_TAX_OVERRIDES: Array<{
+  keywords: string[];
+  vatDeductType: VatDeductType;
+}> = [
+  // ── 明確可扣抵（取得統一發票打公司統編）──
+  { keywords: ['加油', '油資', '中油', '台塑石油', '加油站'], vatDeductType: 'deductible' },
+  { keywords: ['停車', '嘟嘟房', '停車場', '停車費'], vatDeductType: 'deductible' },
+  { keywords: ['ETC', 'eTag', '過路費', '高速公路', '國道'], vatDeductType: 'deductible' },
+  { keywords: ['高鐵', '台鐵', '火車票'], vatDeductType: 'deductible' },
+  { keywords: ['名片', '印刷', 'DM', '印製', '輸出'], vatDeductType: 'deductible' },
+  { keywords: ['修繕', '維修', '修理', '裝修', '裝潢'], vatDeductType: 'deductible' },
+  { keywords: ['廣告', '行銷', '宣傳'], vatDeductType: 'deductible' },
+  { keywords: ['運費', '宅配', '快遞', '貨運'], vatDeductType: 'deductible' },
+  { keywords: ['訓練', '課程', '研習', '講習'], vatDeductType: 'deductible' },
+  { keywords: ['清潔', '衛生', '消毒', '五金', '零件'], vatDeductType: 'deductible' },
+  { keywords: ['辦公', '事務機', '電腦', '電話機', '冷氣', '電扇'], vatDeductType: 'deductible' },
+  // ── 明確不可扣抵 ──
+  { keywords: ['禮品', '贈品', '伴手禮', '禮盒', '禮品費'], vatDeductType: 'non_deductible' },
+  { keywords: ['應酬', '餐敘', '宴客', '招待', '交際'], vatDeductType: 'non_deductible' },
+  { keywords: ['員工餐', '伙食', '便當', '團膳', '員工餐飲'], vatDeductType: 'non_deductible' },
+  { keywords: ['福利', '慶生', '尾牙', '春酒', '員工旅遊', '康樂'], vatDeductType: 'non_deductible' },
+  { keywords: ['計程車', 'Uber', '叫車'], vatDeductType: 'non_deductible' },
+  { keywords: ['捐贈', '捐款', '善款'], vatDeductType: 'non_deductible' },
+];
+
+/**
+ * 綜合分析稅務扣抵：先查描述關鍵字覆寫，再查科目代碼規則。
+ * 比純科目代碼判斷更精確（例：6231 交通含「加油→可扣」與「計程車→不可扣」）。
+ */
+export function analyzeTaxDeduction(accountCode: string, description: string, amount: number): {
+  vatDeductType: VatDeductType;
+  vatInputAmount: number;
+  deductibleVat: number;
+  withholdingTax: number;
+} {
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  const desc = description || '';
+
+  // Step 1: description override
+  for (const rule of DESCRIPTION_TAX_OVERRIDES) {
+    if (rule.keywords.some(k => desc.includes(k))) {
+      if (rule.vatDeductType === 'deductible') {
+        const vat = round2(amount * 5 / 105);
+        return { vatDeductType: 'deductible', vatInputAmount: vat, deductibleVat: vat, withholdingTax: 0 };
+      }
+      if (rule.vatDeductType === 'non_deductible') {
+        return { vatDeductType: 'non_deductible', vatInputAmount: 0, deductibleVat: 0, withholdingTax: 0 };
+      }
+    }
+  }
+
+  // Step 2: account code rule
+  const rule = TAX_RULES[accountCode];
+  if (rule) return calcTaxDeduction(amount, rule);
+
+  // Step 3: default to review
+  return { vatDeductType: 'review', vatInputAmount: 0, deductibleVat: 0, withholdingTax: 0 };
+}
+
 // ─────────────────────────────────────────────────────────────
 
 /**
@@ -235,11 +299,8 @@ export async function quickExpense(
     throw new NotFoundError(`找不到付款帳戶 ${paymentCode}（請確認會計模組已啟用）`);
   }
 
-  // 3. 計算稅務扣抵
-  const taxRule = TAX_RULES[expenseAcct.code];
-  const taxCalc = taxRule
-    ? calcTaxDeduction(input.amount, taxRule)
-    : { vatDeductType: 'review' as VatDeductType, vatInputAmount: 0, deductibleVat: 0, withholdingTax: 0 };
+  // 3. 計算稅務扣抵（描述 + 科目代碼綜合分析）
+  const taxCalc = analyzeTaxDeduction(expenseAcct.code, input.description, input.amount);
 
   // 4. 產 JE：Dr 費用 / Cr 付款帳戶，附稅務欄位
   const entry = await journalService.create(tenantId, createdBy, {
@@ -272,7 +333,7 @@ export async function quickExpense(
       vatInputAmount: taxCalc.vatInputAmount,
       deductibleVat: taxCalc.deductibleVat,
       withholdingTax: taxCalc.withholdingTax,
-      note: taxRule?.note ?? '未知科目，請人工審核',
+      note: TAX_RULES[expenseAcct.code]?.note ?? '未知科目，請人工審核',
     },
   };
 }

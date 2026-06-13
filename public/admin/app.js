@@ -23,6 +23,7 @@ const api = {
   get: (p) => api.req('GET', p),
   post: (p, b) => api.req('POST', p, b ?? {}),
   put: (p, b) => api.req('PUT', p, b ?? {}),
+  patch: (p, b) => api.req('PATCH', p, b ?? {}),
   del: (p) => api.req('DELETE', p),
 };
 
@@ -3625,7 +3626,6 @@ async function viewAcctJournal(main) {
       el('th', {}, '說明'),
       el('th', {}, '來源'),
       el('th', { class: 'num' }, '金額'),
-      el('th', { class: 'num', title: '進項稅額（含稅金額 × 5/105）' }, '進項稅額'),
       el('th', { class: 'num', title: '可申報扣抵的進項稅額' }, '可扣抵'),
       el('th', { class: 'num', title: '應代扣繳稅款' }, '扣繳稅額'),
       el('th', {}, '扣抵類型'),
@@ -3635,12 +3635,11 @@ async function viewAcctJournal(main) {
     const tb = el('tbody');
 
     // 月份小計累計
-    let monthTotals = { amount: 0, vatInput: 0, deductible: 0, withholding: 0 };
+    let monthTotals = { amount: 0, deductible: 0, withholding: 0 };
     let lastMonth = '';
 
     list.forEach((e, idx) => {
       const totalDebit = e.lines.reduce((s, l) => s + Number(l.debit), 0);
-      const vatInput = Number(e.vatInputAmount ?? 0);
       const deductVat = Number(e.deductibleVat ?? 0);
       const withholding = Number(e.withholdingTax ?? 0);
       const vatType = e.vatDeductType ?? null;
@@ -3650,21 +3649,19 @@ async function viewAcctJournal(main) {
 
       // 日期換月時插入上月小計行
       const entryMonth = new Date(e.entryDate).toLocaleDateString('zh-TW', { year: 'numeric', month: '2-digit' });
-      if (lastMonth && lastMonth !== entryMonth && (monthTotals.amount || monthTotals.vatInput)) {
+      if (lastMonth && lastMonth !== entryMonth && (monthTotals.amount || monthTotals.deductible)) {
         tb.append(el('tr', { style: 'background:#f8f4e8;font-weight:600;font-size:12px;' },
           el('td', { colspan: '4', style: 'text-align:right;color:#666;' }, `${lastMonth} 小計`),
           el('td', { class: 'num' }, fmtMoney(monthTotals.amount)),
-          el('td', { class: 'num', style: 'color:#0a6;' }, fmtMoney(monthTotals.vatInput)),
           el('td', { class: 'num', style: 'color:#0a6;' }, fmtMoney(monthTotals.deductible)),
           el('td', { class: 'num', style: 'color:#a60;' }, fmtMoney(monthTotals.withholding)),
           el('td', { colspan: '3' }, ''),
         ));
-        monthTotals = { amount: 0, vatInput: 0, deductible: 0, withholding: 0 };
+        monthTotals = { amount: 0, deductible: 0, withholding: 0 };
       }
       lastMonth = entryMonth;
-      if (e.source === 'expense') {
+      if (e.source === 'expense' || e.source === 'purchase') {
         monthTotals.amount += totalDebit;
-        monthTotals.vatInput += vatInput;
         monthTotals.deductible += deductVat;
         monthTotals.withholding += withholding;
       }
@@ -3699,21 +3696,71 @@ async function viewAcctJournal(main) {
         });
         actCell.append(revBtn);
       }
+
+      // 扣抵類型 cell — 可點擊修改（expense/purchase 來源）
+      const vatCell = el('td', {});
+      const canEditVat = (e.source === 'expense' || e.source === 'purchase');
+      const badge = el('span', {
+        style: `font-size:11px;padding:2px 6px;border-radius:3px;background:${vatLabel.color}22;color:${vatLabel.color};border:1px solid ${vatLabel.color}66;${canEditVat ? 'cursor:pointer;' : ''}`,
+        ...(canEditVat ? { title: '點擊修改扣抵類型' } : {}),
+      }, vatLabel.text);
+      if (canEditVat) {
+        badge.addEventListener('click', () => {
+          vatCell.innerHTML = '';
+          const sel = el('select', { style: 'font-size:11px;padding:2px;' });
+          [
+            { value: 'deductible', text: '營業+營所' },
+            { value: 'non_deductible', text: '僅營所' },
+            { value: 'withholding', text: '營所+扣繳' },
+            { value: 'review', text: '待審核' },
+          ].forEach(opt => {
+            const o = el('option', { value: opt.value }, opt.text);
+            if (opt.value === vatType) o.selected = true;
+            sel.append(o);
+          });
+          sel.addEventListener('change', async () => {
+            const newType = sel.value;
+            const amount = totalDebit;
+            const round2 = n => Math.round(n * 100) / 100;
+            let body = { vatDeductType: newType };
+            if (newType === 'deductible') {
+              const vat = round2(amount * 5 / 105);
+              body.vatInputAmount = vat;
+              body.deductibleVat = vat;
+              body.withholdingTax = 0;
+            } else if (newType === 'withholding') {
+              body.vatInputAmount = 0;
+              body.deductibleVat = 0;
+              body.withholdingTax = round2(amount * 0.05);
+            } else {
+              body.vatInputAmount = 0;
+              body.deductibleVat = 0;
+              body.withholdingTax = 0;
+            }
+            try {
+              await api.patch(`/accounting/journal/${e.id}/vat-type`, body);
+              toast('扣抵類型已更新', 'ok');
+              reload();
+            } catch (err) { toast(err.message, 'err'); }
+          });
+          sel.addEventListener('blur', () => reload());
+          vatCell.append(sel);
+          sel.focus();
+        });
+      }
+      vatCell.append(badge);
+
       tb.append(el('tr', {},
         el('td', {}, e.entryNo),
         el('td', {}, new Date(e.entryDate).toLocaleDateString('zh-TW')),
         el('td', {}, e.description),
         el('td', { style: 'font-size:11px;color:#888;' }, e.source),
         el('td', { class: 'num' }, fmtMoney(totalDebit)),
-        el('td', { class: 'num', style: vatInput > 0 ? 'color:#0a6;' : 'color:#ccc;' },
-          vatInput > 0 ? fmtMoney(vatInput) : '—'),
         el('td', { class: 'num', style: deductVat > 0 ? 'color:#0a6;font-weight:600;' : 'color:#ccc;' },
           deductVat > 0 ? fmtMoney(deductVat) : '—'),
         el('td', { class: 'num', style: withholding > 0 ? 'color:#a60;' : 'color:#ccc;' },
           withholding > 0 ? fmtMoney(withholding) : '—'),
-        el('td', {},
-          el('span', { style: `font-size:11px;padding:2px 6px;border-radius:3px;background:${vatLabel.color}22;color:${vatLabel.color};border:1px solid ${vatLabel.color}66;` }, vatLabel.text)
-        ),
+        vatCell,
         el('td', {}, e.status === 'pending' ? '待審核' : e.status === 'posted' ? '已過帳' : '已反沖'),
         actCell,
       ));
@@ -3724,7 +3771,6 @@ async function viewAcctJournal(main) {
       tb.append(el('tr', { style: 'background:#f8f4e8;font-weight:600;font-size:12px;' },
         el('td', { colspan: '4', style: 'text-align:right;color:#666;' }, `${lastMonth} 小計`),
         el('td', { class: 'num' }, fmtMoney(monthTotals.amount)),
-        el('td', { class: 'num', style: 'color:#0a6;' }, fmtMoney(monthTotals.vatInput)),
         el('td', { class: 'num', style: 'color:#0a6;' }, fmtMoney(monthTotals.deductible)),
         el('td', { class: 'num', style: 'color:#a60;' }, fmtMoney(monthTotals.withholding)),
         el('td', { colspan: '3' }, ''),
@@ -4267,7 +4313,7 @@ async function viewAcctTaxDeduct(main) {
   if (!status.enabled) { main.append(el('div', { class: 'empty' }, '會計模組尚未啟用。')); return; }
 
   main.append(el('p', { style: 'font-size:13px;color:#666;margin-bottom:12px;' },
-    '僅計入來源為「快速費用登記（expense）」且已過帳的傳票。進項稅額採含稅金額 × 5/105 計算。'
+    '費用/進貨已過帳傳票的稅務扣抵分析。可扣抵稅額採含稅金額 × 5/105 計算。'
   ));
 
   const now = new Date();
@@ -4313,7 +4359,6 @@ async function viewAcctTaxDeduct(main) {
       );
       annCard.append(
         kpi('費用總額', ann.totalAmount, '#333'),
-        kpi('進項稅額合計', ann.totalVatInput, '#4a9'),
         kpi('可扣抵進項稅額', ann.totalDeductibleVat, '#0a6'),
         kpi('扣繳稅額合計', ann.totalWithholding, '#a60'),
       );
@@ -4329,8 +4374,6 @@ async function viewAcctTaxDeduct(main) {
         const monthSummary = el('div', { style: 'display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px;font-size:13px;background:#f0f8f4;padding:8px 12px;border-radius:4px;' },
           el('span', {}, `費用總額 `), el('strong', {}, fmtMoney(ms.totalAmount)),
           el('span', { style: 'color:#ccc;' }, '｜'),
-          el('span', {}, `進項稅額 `), el('strong', { style: 'color:#0a6;' }, fmtMoney(ms.totalVatInput)),
-          el('span', { style: 'color:#ccc;' }, '｜'),
           el('span', {}, `可扣抵 `), el('strong', { style: 'color:#0a6;' }, fmtMoney(ms.totalDeductibleVat)),
           el('span', { style: 'color:#ccc;' }, '｜'),
           el('span', {}, `扣繳 `), el('strong', { style: 'color:#a60;' }, fmtMoney(ms.totalWithholding)),
@@ -4345,7 +4388,6 @@ async function viewAcctTaxDeduct(main) {
           el('th', {}, '說明'),
           el('th', {}, '憑證號'),
           el('th', { class: 'num' }, '費用金額'),
-          el('th', { class: 'num' }, '進項稅額'),
           el('th', { class: 'num' }, '可扣抵'),
           el('th', { class: 'num' }, '扣繳稅額'),
           el('th', {}, '扣抵類型'),
@@ -4359,8 +4401,6 @@ async function viewAcctTaxDeduct(main) {
             el('td', {}, r.description),
             el('td', { style: 'font-size:12px;color:#888;' }, r.voucherNo || '—'),
             el('td', { class: 'num' }, fmtMoney(r.amount)),
-            el('td', { class: 'num', style: r.vatInputAmount > 0 ? 'color:#0a6;' : 'color:#ccc;' },
-              r.vatInputAmount > 0 ? fmtMoney(r.vatInputAmount) : '—'),
             el('td', { class: 'num', style: r.deductibleVat > 0 ? 'color:#0a6;font-weight:600;' : 'color:#ccc;' },
               r.deductibleVat > 0 ? fmtMoney(r.deductibleVat) : '—'),
             el('td', { class: 'num', style: r.withholdingTax > 0 ? 'color:#a60;' : 'color:#ccc;' },

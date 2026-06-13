@@ -236,6 +236,26 @@ export async function reverse(tenantId: string, id: string, reversedBy: string, 
   });
 }
 
+export async function updateVatType(tenantId: string, id: string, data: {
+  vatDeductType: string;
+  vatInputAmount?: number;
+  deductibleVat?: number;
+  withholdingTax?: number;
+}) {
+  const e = await prisma.journalEntry.findFirst({ where: { id, tenantId } });
+  if (!e) throw new NotFoundError('傳票不存在');
+  return prisma.journalEntry.update({
+    where: { id },
+    data: {
+      vatDeductType: data.vatDeductType,
+      vatInputAmount: data.vatInputAmount != null ? new Prisma.Decimal(data.vatInputAmount) : e.vatInputAmount,
+      deductibleVat: data.deductibleVat != null ? new Prisma.Decimal(data.deductibleVat) : e.deductibleVat,
+      withholdingTax: data.withholdingTax != null ? new Prisma.Decimal(data.withholdingTax) : e.withholdingTax,
+    },
+    include: { lines: { orderBy: { sequence: 'asc' } } },
+  });
+}
+
 export async function remove(tenantId: string, id: string) {
   const e = await getById(tenantId, id);
   if (e.status !== 'pending') throw new ValidationError('只能刪除 pending 傳票');
