@@ -3612,10 +3612,10 @@ async function viewAcctJournal(main) {
     if (!list.length) { tblBox.append(el('div', { class: 'empty' }, '尚無傳票')); return; }
     // 稅務扣抵類型標籤
     const VAT_TYPE_LABEL = {
-      deductible:     { text: '可扣抵', color: '#0a6' },
-      non_deductible: { text: '不可扣', color: '#e53' },
-      withholding:    { text: '扣繳',   color: '#a60' },
-      review:         { text: '待審核', color: '#888' },
+      deductible:     { text: '營業+營所', color: '#0a6' },
+      non_deductible: { text: '僅營所',   color: '#e53' },
+      withholding:    { text: '營所+扣繳', color: '#a60' },
+      review:         { text: '待審核',   color: '#888' },
     };
 
     const tbl = el('table', { class: 'data-table' });
@@ -3644,7 +3644,9 @@ async function viewAcctJournal(main) {
       const deductVat = Number(e.deductibleVat ?? 0);
       const withholding = Number(e.withholdingTax ?? 0);
       const vatType = e.vatDeductType ?? null;
-      const vatLabel = vatType ? (VAT_TYPE_LABEL[vatType] || { text: vatType, color: '#888' }) : null;
+      const vatLabel = vatType
+        ? (VAT_TYPE_LABEL[vatType] || { text: vatType, color: '#888' })
+        : { text: '不適用', color: '#bbb' };
 
       // 日期換月時插入上月小計行
       const entryMonth = new Date(e.entryDate).toLocaleDateString('zh-TW', { year: 'numeric', month: '2-digit' });
@@ -3710,9 +3712,7 @@ async function viewAcctJournal(main) {
         el('td', { class: 'num', style: withholding > 0 ? 'color:#a60;' : 'color:#ccc;' },
           withholding > 0 ? fmtMoney(withholding) : '—'),
         el('td', {},
-          vatLabel
-            ? el('span', { style: `font-size:11px;padding:2px 6px;border-radius:3px;background:${vatLabel.color}22;color:${vatLabel.color};border:1px solid ${vatLabel.color}66;` }, vatLabel.text)
-            : el('span', { style: 'color:#ccc;font-size:11px;' }, '—')
+          el('span', { style: `font-size:11px;padding:2px 6px;border-radius:3px;background:${vatLabel.color}22;color:${vatLabel.color};border:1px solid ${vatLabel.color}66;` }, vatLabel.text)
         ),
         el('td', {}, e.status === 'pending' ? '待審核' : e.status === 'posted' ? '已過帳' : '已反沖'),
         actCell,
@@ -3981,7 +3981,7 @@ async function openQuickExpenseModal(onSaved, prefill) {
       lastInferred = r;
       const kw = r.matchedKeyword ? `（命中關鍵字：${r.matchedKeyword}）` : '（無命中，預設雜項）';
       const vatColors = { deductible: '#0a6', non_deductible: '#e53', withholding: '#a60', review: '#888' };
-      const vatLabels = { deductible: '進項可扣抵', non_deductible: '進項不可扣', withholding: '需代扣繳', review: '請人工審核' };
+      const vatLabels = { deductible: '營業+營所', non_deductible: '僅營所', withholding: '營所+扣繳', review: '待審核' };
       const vatColor = vatColors[r.vatDeductType] || '#888';
       const vatLabel = vatLabels[r.vatDeductType] || r.vatDeductType || '';
       inferredBadge.innerHTML = '';
@@ -4288,9 +4288,9 @@ async function viewAcctTaxDeduct(main) {
   main.append(reportBox);
 
   const VAT_TYPE_LABEL = {
-    deductible:     { text: '進項可扣', color: '#0a6' },
-    non_deductible: { text: '不可扣',   color: '#e53' },
-    withholding:    { text: '扣繳',     color: '#a60' },
+    deductible:     { text: '營業+營所', color: '#0a6' },
+    non_deductible: { text: '僅營所',   color: '#e53' },
+    withholding:    { text: '營所+扣繳', color: '#a60' },
     review:         { text: '待審核',   color: '#888' },
   };
 
