@@ -23,7 +23,7 @@ a:hover { text-decoration: underline; }
 .login-card .field { margin-bottom: 14px; }
 .login-card label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
 .login-card input { width: 100%; padding: 9px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; }
-.login-card input:focus { outline: 2px solid var(--primary); outline-offset: -1px; border-color: var(--primary); }
+.login-card input:focus { outline: 2px solid var(--primary); outline-offset: -1px; border-color: var(--primary); transition: border-color 150ms, outline 150ms; }
 .login-card button { width: 100%; padding: 10px; background: var(--primary); color: #fff; border: 0; border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 500; }
 .login-card button:hover { background: var(--primary-hover); }
 .login-card .err { color: var(--danger); font-size: 13px; margin-top: 8px; min-height: 18px; }
@@ -59,9 +59,11 @@ a:hover { text-decoration: underline; }
 
 /* Toolbar */
 .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
-.toolbar input[type=text], .toolbar select { padding: 7px 9px; border: 1px solid var(--border); border-radius: 5px; font-size: 13px; background: #fff; }
-.btn { padding: 7px 14px; border: 1px solid var(--border); background: #fff; color: var(--text); border-radius: 5px; cursor: pointer; font-size: 13px; }
+.toolbar input[type=text], .toolbar select { padding: 7px 9px; border: 1px solid var(--border); border-radius: 5px; font-size: 13px; background: #fff; transition: border-color 150ms; }
+.toolbar input[type=text]:focus, .toolbar select:focus { outline: 2px solid var(--primary); outline-offset: -1px; border-color: var(--primary); }
+.btn { padding: 7px 14px; border: 1px solid var(--border); background: #fff; color: var(--text); border-radius: 5px; cursor: pointer; font-size: 13px; transition: background 150ms, box-shadow 150ms; }
 .btn:hover { background: #f9fafb; }
+.btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .btn.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
 .btn.primary:hover { background: var(--primary-hover); }
 .btn.danger { color: var(--danger); }
@@ -73,7 +75,8 @@ table.data thead { background: #f9fafb; }
 table.data th, table.data td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
 table.data th { font-weight: 600; color: var(--muted); font-size: 12px; }
 table.data tr:last-child td { border-bottom: 0; }
-table.data tr:hover td { background: #fafbfc; }
+table.data tr { transition: background 150ms; }
+table.data tr:hover td { background: #f0f4ff; }
 table.data td.actions { white-space: nowrap; }
 table.data td.actions.wrap { white-space: normal; display: flex; flex-wrap: wrap; gap: 4px; max-width: 260px; }
 table.data td.num { text-align: right; font-variant-numeric: tabular-nums; }
@@ -93,7 +96,8 @@ table.data td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .modal .body { padding: 20px; }
 .modal .field { margin-bottom: 12px; }
 .modal .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 3px; }
-.modal .field input, .modal .field select, .modal .field textarea { width: 100%; padding: 7px 9px; border: 1px solid var(--border); border-radius: 5px; font-size: 13px; font-family: inherit; }
+.modal .field input, .modal .field select, .modal .field textarea { width: 100%; padding: 7px 9px; border: 1px solid var(--border); border-radius: 5px; font-size: 13px; font-family: inherit; transition: border-color 150ms; }
+.modal .field input:focus, .modal .field select:focus, .modal .field textarea:focus { outline: 2px solid var(--primary); outline-offset: -1px; border-color: var(--primary); }
 .modal .field.row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .modal .actions { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
 .modal .err { color: var(--danger); font-size: 12px; margin-top: 8px; }
@@ -145,6 +149,41 @@ table.data td.num { text-align: right; font-variant-numeric: tabular-nums; }
   color: var(--primary); border-bottom-color: var(--primary); font-weight: 500;
 }
 
+/* ----- KPI cards ----- */
+.kpi-card {
+  background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 14px;
+  transition: transform 200ms, box-shadow 200ms;
+}
+.kpi-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+.kpi-card .kpi-label { color: var(--muted); font-size: 12px; }
+.kpi-card .kpi-val { font-size: 22px; font-weight: 600; margin-top: 4px; }
+
+/* ----- Skeleton loading ----- */
+.skeleton {
+  background: linear-gradient(90deg, #e5e7eb 25%, #f3f4f6 50%, #e5e7eb 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+  border-radius: 4px;
+}
+@keyframes skeleton-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+/* ----- Modal animation ----- */
+.modal-backdrop {
+  animation: backdrop-in 200ms ease-out;
+}
+@keyframes backdrop-in { from { opacity: 0; } to { opacity: 1; } }
+.modal {
+  animation: modal-in 250ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes modal-in { from { opacity: 0; transform: scale(0.95) translateY(-8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+
+/* ----- Focus visible for nav links ----- */
+.topbar nav a:focus-visible { outline: 2px solid var(--primary-lt); outline-offset: 2px; border-radius: 3px; }
+a:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* ----- Tabs focus ----- */
+.tabs button:focus-visible { outline: 2px solid var(--primary); outline-offset: -1px; }
+
 /* ----- RWD ≤ 768px ----- */
 @media (max-width: 768px) {
   .topbar { flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
@@ -160,6 +199,12 @@ table.data td.num { text-align: right; font-variant-numeric: tabular-nums; }
   .topbar nav a.active { border-bottom: 1px solid #374151; border-left-color: var(--topbar-active-ul); background: #111827; }
   #user { display: none; }
   .main { padding: 12px; }
+}
+
+/* ----- Reduced motion ----- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  .skeleton { animation: none; background: #e5e7eb; }
 }
 
 /* Print rules — for 「列印 / 儲存 PDF」 */

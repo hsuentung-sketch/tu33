@@ -46,12 +46,25 @@ const fmtDate = (d) => { if (!d) return ''; try { return new Date(d).toLocaleDat
 const fmtMoney = (n) => { if (n == null) return ''; const num = Number(n); return isNaN(num) ? String(n) : num.toLocaleString('zh-TW', { minimumFractionDigits: 0, maximumFractionDigits: 2 }); };
 
 function toast(msg, kind) {
-  const t = el('div', { class: 'toast ' + (kind || '') }, msg);
+  const t = el('div', { class: 'toast ' + (kind || ''), role: 'alert', 'aria-live': 'polite' }, msg);
   document.body.appendChild(t);
-  setTimeout(() => t.remove(), 2200);
+  setTimeout(() => t.remove(), 3000);
 }
 
 function confirmBox(msg) { return window.confirm(msg); }
+
+function skeletonRows(cols, rows = 5) {
+  const frag = document.createDocumentFragment();
+  for (let i = 0; i < rows; i++) {
+    const tr = el('tr');
+    for (let j = 0; j < cols; j++) {
+      const w = 40 + Math.floor(((i * 7 + j * 13) % 5) * 15);
+      tr.append(el('td', {}, el('div', { class: 'skeleton', style: `height:14px;width:${w}px;` })));
+    }
+    frag.append(tr);
+  }
+  return frag;
+}
 
 // Employee 選單快取（給 customer / visit-log 等 select 共用，避免每開 modal 都打 API）
 let _employeeOptionsCache = null;
@@ -101,7 +114,10 @@ function openModal({ title, fields, initial = {}, onSubmit }) {
   );
   backdrop.append(modal);
   backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
+  backdrop.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') backdrop.remove(); });
   document.body.append(backdrop);
+  const firstInput = modal.querySelector('input, select, textarea');
+  if (firstInput) setTimeout(() => firstInput.focus(), 50);
 }
 
 function buildField(f, values) {
@@ -141,19 +157,28 @@ async function viewDashboard(main) {
   main.append(el('h2', {}, '總覽'));
   main.append(el('div', { class: 'page-sub' }, '系統目前狀況一覽。'));
 
-  const grid = el('div', { style: 'display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px;' });
+  const grid = el('div', { style: 'display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:18px;' });
   main.append(grid);
 
   async function card(label, fetcher) {
-    const box = el('div', { style: 'background:#fff;border:1px solid var(--border);border-radius:8px;padding:14px;' },
-      el('div', { style: 'color:var(--muted);font-size:12px;' }, label),
-      el('div', { class: 'val', style: 'font-size:22px;font-weight:600;margin-top:4px;' }, '—'),
+    const valEl = el('div', { class: 'kpi-val skeleton', style: 'width:60px;height:28px;' });
+    const box = el('div', { class: 'kpi-card' },
+      el('div', { class: 'kpi-label' }, label),
+      valEl,
     );
     grid.append(box);
     try {
       const v = await fetcher();
-      box.querySelector('.val').textContent = String(v);
-    } catch { box.querySelector('.val').textContent = 'N/A'; }
+      valEl.className = 'kpi-val';
+      valEl.style.width = '';
+      valEl.style.height = '';
+      valEl.textContent = String(v);
+    } catch {
+      valEl.className = 'kpi-val';
+      valEl.style.width = '';
+      valEl.style.height = '';
+      valEl.textContent = 'N/A';
+    }
   }
 
   await Promise.all([
@@ -187,6 +212,8 @@ async function viewCustomers(main) {
     )),
     tbody,
   );
+
+  tbody.append(skeletonRows(7));
 
   async function reload() {
     const q = search.value.trim();
