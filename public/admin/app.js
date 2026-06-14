@@ -4901,6 +4901,141 @@ async function viewInventory(main) {
   } catch (e) { main.append(el('div', { class: 'err' }, e.message)); }
 }
 
+async function viewRefurbish(main) {
+  main.innerHTML = '';
+  main.append(el('h2', {}, '二手機整備'));
+  main.append(el('div', { class: 'page-sub' }, '整備工單管理：建立、加零件、完成計算成本。'));
+  const statusFilter = el('select', {});
+  for (const [v, l] of [['', '全部'], ['IN_PROGRESS', '進行中'], ['COMPLETED', '已完成'], ['CANCELLED', '已取消']]) {
+    statusFilter.append(el('option', { value: v }, l));
+  }
+  const tbody = el('tbody');
+  const table = el('table', { class: 'data' },
+    el('thead', {}, el('tr', {},
+      el('th', {}, '機台'), el('th', {}, '狀態'),
+      el('th', { class: 'num' }, '零件數'), el('th', { class: 'num' }, '整備成本'),
+      el('th', { class: 'num' }, '進價'), el('th', { class: 'num' }, '底價'),
+      el('th', {}, '建立日期'),
+    )),
+    tbody,
+  );
+
+  async function reload() {
+    tbody.innerHTML = '';
+    try {
+      const qs = statusFilter.value ? `?status=${statusFilter.value}` : '';
+      const list = await api.get('/refurbish-orders' + qs);
+      if (!list.length) {
+        tbody.append(el('tr', {}, el('td', { colspan: '7', style: 'text-align:center;color:var(--muted);padding:24px;' }, '無資料')));
+        return;
+      }
+      for (const r of list) {
+        const purchaseCost = Number(r.usedMachine?.purchaseCost ?? 0);
+        const refurbishCost = Number(r.totalCost ?? 0);
+        const floorPrice = purchaseCost + refurbishCost;
+        const badge = r.status === 'COMPLETED' ? 'ok' : r.status === 'CANCELLED' ? 'bad' : 'warn';
+        const statusLabel = r.status === 'COMPLETED' ? '已完成' : r.status === 'CANCELLED' ? '已取消' : '進行中';
+        tbody.append(el('tr', { style: 'cursor:pointer;', onClick: () => showRefurbishDetail(r) },
+          el('td', {}, r.usedMachine?.name || ''),
+          el('td', {}, el('span', { class: `badge ${badge}` }, statusLabel)),
+          el('td', { class: 'num' }, r.items?.length ?? 0),
+          el('td', { class: 'num' }, `$${refurbishCost.toLocaleString('zh-TW')}`),
+          el('td', { class: 'num' }, `$${purchaseCost.toLocaleString('zh-TW')}`),
+          el('td', { class: 'num' }, `$${floorPrice.toLocaleString('zh-TW')}`),
+          el('td', {}, new Date(r.createdAt).toLocaleDateString('zh-TW')),
+        ));
+      }
+    } catch (e) { main.append(el('div', { class: 'err' }, e.message)); }
+  }
+
+  function showRefurbishDetail(r) {
+    const backdrop = el('div', { class: 'modal-backdrop' });
+    const itemRows = (r.items || []).map(it =>
+      el('tr', {},
+        el('td', {}, it.product?.name || it.productId),
+        el('td', { class: 'num' }, it.quantity),
+        el('td', { class: 'num' }, `$${Number(it.unitCost).toLocaleString('zh-TW')}`),
+        el('td', { class: 'num' }, `$${(it.quantity * Number(it.unitCost)).toLocaleString('zh-TW')}`),
+      )
+    );
+    const modal = el('div', { class: 'modal' },
+      el('h3', {}, `整備明細：${r.usedMachine?.name || ''}`),
+      el('div', { class: 'body' },
+        el('table', { class: 'data' },
+          el('thead', {}, el('tr', {},
+            el('th', {}, '零件'), el('th', { class: 'num' }, '數量'),
+            el('th', { class: 'num' }, '單價'), el('th', { class: 'num' }, '小計'),
+          )),
+          el('tbody', {}, ...itemRows),
+        ),
+        el('div', { style: 'margin-top:12px;font-weight:600;' },
+          `合計整備成本：$${Number(r.totalCost).toLocaleString('zh-TW')}`),
+      ),
+      el('div', { class: 'actions' },
+        el('button', { class: 'btn', onClick: () => backdrop.remove() }, '關閉'),
+      ),
+    );
+    backdrop.append(modal);
+    backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
+    document.body.append(backdrop);
+  }
+
+  statusFilter.addEventListener('change', reload);
+  main.append(el('div', { class: 'toolbar' }, statusFilter), table);
+  reload();
+}
+
+async function viewMachines(main) {
+  main.innerHTML = '';
+  main.append(el('h2', {}, '序號管理'));
+  main.append(el('div', { class: 'page-sub' }, '機台序號登記與保固狀態追蹤。'));
+  const statusFilter = el('select', {});
+  for (const [v, l] of [['', '全部'], ['active', '保固中'], ['expiring', '即將到期'], ['expired', '已過期']]) {
+    statusFilter.append(el('option', { value: v }, l));
+  }
+  const tbody = el('tbody');
+  const table = el('table', { class: 'data' },
+    el('thead', {}, el('tr', {},
+      el('th', {}, '序號'), el('th', {}, '產品'),
+      el('th', {}, '保固開始'), el('th', {}, '保固結束'),
+      el('th', {}, '狀態'),
+    )),
+    tbody,
+  );
+
+  async function reload() {
+    tbody.innerHTML = '';
+    try {
+      const qs = statusFilter.value ? `?warrantyStatus=${statusFilter.value}` : '';
+      const list = await api.get('/machine-records' + qs);
+      if (!list.length) {
+        tbody.append(el('tr', {}, el('td', { colspan: '5', style: 'text-align:center;color:var(--muted);padding:24px;' }, '無資料')));
+        return;
+      }
+      const now = new Date();
+      const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+      for (const m of list) {
+        const end = new Date(m.warrantyEndAt);
+        const isExpired = end <= now;
+        const isExpiring = !isExpired && (end.getTime() - now.getTime()) <= thirtyDays;
+        const badge = isExpired ? 'bad' : isExpiring ? 'warn' : 'ok';
+        const statusLabel = isExpired ? '已過期' : isExpiring ? '即將到期' : '保固中';
+        tbody.append(el('tr', {},
+          el('td', { style: 'font-family:monospace;' }, m.serialNumber),
+          el('td', {}, m.product?.name || ''),
+          el('td', {}, new Date(m.warrantyStartAt).toLocaleDateString('zh-TW')),
+          el('td', {}, end.toLocaleDateString('zh-TW')),
+          el('td', {}, el('span', { class: `badge ${badge}` }, statusLabel)),
+        ));
+      }
+    } catch (e) { main.append(el('div', { class: 'err' }, e.message)); }
+  }
+
+  statusFilter.addEventListener('change', reload);
+  main.append(el('div', { class: 'toolbar' }, statusFilter), table);
+  reload();
+}
+
 // ----- Utilities -----
 
 function cleanObj(src, keys) {
@@ -5050,6 +5185,14 @@ const GROUPS = {
       { key: 'petty-cash',    label: '零用金月結', view: 'acct-petty-cash', denySales: true },
     ],
   },
+  warehouse: {
+    title: '倉庫',
+    tabs: [
+      { key: 'inventory',  label: '庫存',       view: 'inventory', denySales: true },
+      { key: 'refurbish',  label: '二手機整備', view: 'refurbish', denySales: true },
+      { key: 'machines',   label: '序號管理',   view: 'machines' },
+    ],
+  },
   logs: {
     title: '紀錄',
     tabs: [
@@ -5074,6 +5217,9 @@ const LEGACY_REDIRECT = {
   'sales-orders': 'sales/sales-orders',
   'visit-logs': 'sales/visit-logs',
   'bonus-report': 'sales/bonus-report',
+  inventory: 'warehouse/inventory',
+  refurbish: 'warehouse/refurbish',
+  machines: 'warehouse/machines',
   'audit-logs': 'logs/audit-logs',
   'error-logs': 'logs/error-logs',
 };
@@ -5141,6 +5287,8 @@ const LEAF_VIEWS = {
   einvoices: viewEinvoices,
   'einvoice-pools': viewEinvoicePools,
   inventory: viewInventory,
+  refurbish: viewRefurbish,
+  machines: viewMachines,
   'acct-overview':       viewAcctOverview,
   'acct-coa':            viewAcctCoa,
   'acct-periods':        viewAcctPeriods,

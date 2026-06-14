@@ -18,6 +18,8 @@ import { einvoicePoolRouter } from '../modules/accounting/einvoice/number-pool.r
 import { allowanceRouter } from '../modules/accounting/einvoice/allowance.router.js';
 import { accountingRouter } from '../modules/accounting/accounting.router.js';
 import { inventoryRouter } from '../modules/inventory/inventory.router.js';
+import { refurbishRouter } from '../modules/inventory/refurbish/refurbish.router.js';
+import { machineRecordRouter } from '../modules/master/machine-record/machine-record.router.js';
 import { statementsRouter } from './statements.router.js';
 import { auditLogRouter } from '../modules/core/audit-log/audit-log.router.js';
 import { errorLogRouter } from '../modules/core/error-log/error-log.router.js';
@@ -74,6 +76,8 @@ apiRouter.use('/einvoice-number-pools', requireModule('accounting'), einvoicePoo
 apiRouter.use('/einvoice-allowances', requireModule('accounting'), allowanceRouter);
 apiRouter.use('/accounting', requireModule('accounting'), accountingRouter);
 apiRouter.use('/inventory', requireModule('inventory'), inventoryRouter);
+apiRouter.use('/refurbish-orders', requireModule('inventory'), refurbishRouter);
+apiRouter.use('/machine-records', machineRecordRouter);
 apiRouter.use('/statements', statementsRouter);
 apiRouter.use('/audit-logs', auditLogRouter);
 apiRouter.use('/error-logs', errorLogRouter);

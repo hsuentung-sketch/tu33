@@ -17,6 +17,8 @@
 | `inventory` | ✅ 擋 | `/inventory` | 庫存 |
 | `customers` | ⛔ 不擋 | `/customers` | 客戶主檔（基礎功能，可列入方案但路由不 gate） |
 | `suppliers` | ⛔ 不擋 | `/suppliers` | 供應商主檔（基礎功能，路由不 gate） |
+| `machine-record` | ⛔ 不擋 | `/machine-records` | 機台序號登記（基礎主檔，路由不 gate） |
+| `refurbish-order` | ✅ 擋 | `/refurbish-orders`（掛 `inventory`） | 二手機整備工單（跟隨 inventory gate） |
 
 **永遠不 gate 的基礎/核心路由**（不需列入方案、所有租戶皆可用）：
 `employees`、`products`、`customers`、`suppliers`、`visit-logs`、`tenant`、

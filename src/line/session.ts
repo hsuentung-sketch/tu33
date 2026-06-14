@@ -66,9 +66,12 @@ export interface Session {
     | 'mgmt:sup:add'
     | 'je:create'
     | 'visitlog:create'
-    | 'visitlog:search';
+    | 'visitlog:search'
+    | 'refurbish:create'
+    | 'machine:register';
   step:
     | 'party' | 'items' | 'confirm' | 'item-await-note' | 'await-delivery-note'
+    | 'machine-select-product' | 'machine-enter-serial' | 'machine-warranty-start' | 'machine-warranty-months'
     | 'je-method' | 'je-ocr-wait-image'
     | 'je-describe' | 'je-amount' | 'je-payment' | 'je-confirm'
     | 'visitlog-date' | 'visitlog-customer' | 'visitlog-content' | 'visitlog-next' | 'visitlog-confirm'
@@ -105,6 +108,14 @@ export interface Session {
     productListIds?: string[];
     /** v2.7.5: 快速建立傳票草稿 */
     jeDraft?: JeDraft;
+    /** 整備工單 ID（refurbish:create flow） */
+    refurbishOrderId?: string;
+    refurbishMachineName?: string;
+    /** 機台序號登記（machine:register flow） */
+    machineSerial?: string;
+    machineProductId?: string;
+    machineProductName?: string;
+    machineWarrantyStart?: string;
     /** v2.8.0: 工作日誌草稿 */
     visitDraft?: VisitLogDraft;
     /**
