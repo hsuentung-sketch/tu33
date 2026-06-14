@@ -58,6 +58,8 @@ export async function create(
     category?: string;
     salePrice: number;
     costPrice: number;
+    shippingFee?: number;
+    laborFee?: number;
     note?: string;
   },
 ) {
@@ -70,6 +72,8 @@ export async function create(
         category: data.category,
         salePrice: data.salePrice,
         costPrice: data.costPrice,
+        shippingFee: data.shippingFee,
+        laborFee: data.laborFee,
         note: data.note,
       },
     });

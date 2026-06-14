@@ -38,6 +38,7 @@ const createSchema = z.object({
   lineUserId: z.string().optional(),
   email: z.string().email().optional(),
   grade: z.enum(['A', 'B', 'C']).optional(),
+  priceTier: z.number().int().min(1).max(5).optional(),
   tags: z.array(z.string()).optional(),
   ...bankFields,
 });
@@ -58,6 +59,7 @@ const updateSchema = z.object({
   lineUserId: z.string().optional(),
   email: z.string().email().optional(),
   grade: z.enum(['A', 'B', 'C']).optional(),
+  priceTier: z.number().int().min(1).max(5).optional(),
   tags: z.array(z.string()).optional(),
   ...bankFields,
 });

@@ -46,6 +46,8 @@ const createSchema = z.object({
   category: z.string().optional(),
   salePrice: z.number().nonnegative(),
   costPrice: z.number().nonnegative(),
+  shippingFee: z.number().nonnegative().optional(),
+  laborFee: z.number().nonnegative().optional(),
   note: z.string().optional(),
 });
 
@@ -54,6 +56,8 @@ const updateSchema = z.object({
   category: z.string().optional(),
   salePrice: z.number().nonnegative().optional(),
   costPrice: z.number().nonnegative().optional(),
+  shippingFee: z.number().nonnegative().optional(),
+  laborFee: z.number().nonnegative().optional(),
   note: z.string().optional(),
 });
 

@@ -5,16 +5,21 @@ import { getOverdueStatus, getTenantSettings } from '../../../shared/utils.js';
 
 export async function list(
   tenantId: string,
-  filters: { isPaid?: boolean; customerId?: string; createdBy?: string } = {},
+  filters: { isPaid?: boolean; customerId?: string; createdBy?: string; invoiceType?: string } = {},
 ) {
   const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
   const settings = getTenantSettings(tenant?.settings);
+
+  const invoiceTypeFilter = filters.invoiceType === 'none'
+    ? { invoiceType: null }
+    : filters.invoiceType ? { invoiceType: filters.invoiceType } : {};
 
   const rows = await prisma.accountReceivable.findMany({
     where: {
       tenantId,
       ...(filters.isPaid !== undefined ? { isPaid: filters.isPaid } : {}),
       ...(filters.customerId ? { customerId: filters.customerId } : {}),
+      ...invoiceTypeFilter,
       // SALES 自我過濾：AR 關聯的 SO 必須由自己建立。AR.salesOrderId 是必填，
       // 所以透過 relation filter 過濾不會排除合法 AR。
       ...(filters.createdBy ? { salesOrder: { createdBy: filters.createdBy } } : {}),

@@ -21,6 +21,7 @@ const updateSchema = z.object({
   isPaid: z.boolean().optional(),
   paidDate: z.coerce.date().nullable().optional(),
   invoiceNo: z.string().nullable().optional(),
+  invoiceType: z.enum(['RECEIPT', 'TAX_INVOICE']).nullable().optional(),
   note: z.string().nullable().optional(),
 });
 
@@ -29,9 +30,10 @@ receivableRouter.get('/', async (req: Request, res: Response, next: NextFunction
     const isPaidParam = req.query.isPaid as string | undefined;
     const isPaid = isPaidParam === undefined ? undefined : isPaidParam === 'true';
     const customerId = req.query.customerId as string | undefined;
+    const invoiceType = req.query.invoiceType as string | undefined;
     // SALES 自動過濾：只能看自己建立的銷貨單對應的 AR（v2.9.2+）
     const createdBy = req.employee?.role === 'SALES' ? req.employee.id : undefined;
-    const result = await receivableService.list(req.tenantId, { isPaid, customerId, createdBy });
+    const result = await receivableService.list(req.tenantId, { isPaid, customerId, createdBy, invoiceType });
     res.json(result);
   } catch (err) {
     next(err);

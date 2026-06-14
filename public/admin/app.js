@@ -296,6 +296,13 @@ async function viewCustomers(main) {
           { name: 'fixedPaymentDay', label: '固定付款日（1-31）', type: 'number' },
           { name: 'grade', label: '等級', type: 'select', options: [{value:'A',label:'A'},{value:'B',label:'B'},{value:'C',label:'C'}], default: 'B' },
         ]},
+        { name: 'priceTier', label: '價格級距', type: 'select', options: [
+          { value: '1', label: '1 — 一般（牌價）' },
+          { value: '2', label: '2 — 常客（9折）' },
+          { value: '3', label: '3 — 熟客（8折）' },
+          { value: '4', label: '4 — 職業客戶（7折）' },
+          { value: '5', label: '5 — 五金客戶（6折）' },
+        ], default: '1' },
         { type: 'row', fields: [
           { name: 'paymentMethod', label: '付款方式', type: 'select', options: [
             { value: '', label: '未指定' },
@@ -313,14 +320,14 @@ async function viewCustomers(main) {
         { name: 'bankAccountLast5', label: '匯款帳號末五碼' },
       ],
       onSubmit: async (v) => {
-        const body = cleanObj(v, ['name','contactName','title','phone','taxId','email','zipCode','address','paymentDays','statementDay','fixedPaymentDay','paymentMethod','createdByEmployeeId','grade','bankCode','bankName','bankAccountLast5']);
+        const body = cleanObj(v, ['name','contactName','title','phone','taxId','email','zipCode','address','paymentDays','statementDay','fixedPaymentDay','paymentMethod','createdByEmployeeId','grade','priceTier','bankCode','bankName','bankAccountLast5']);
         if (!body.name) throw new Error('公司名稱必填');
         // 空字串 select → null
         if (body.paymentMethod === '') body.paymentMethod = null;
         if (body.createdByEmployeeId === '') body.createdByEmployeeId = null;
         // 數字欄位
-        for (const k of ['paymentDays','statementDay','fixedPaymentDay']) {
-          if (body[k] === '' || body[k] == null) { if (k !== 'paymentDays') body[k] = null; else delete body[k]; }
+        for (const k of ['paymentDays','statementDay','fixedPaymentDay','priceTier']) {
+          if (body[k] === '' || body[k] == null) { if (k === 'priceTier') body[k] = 1; else if (k !== 'paymentDays') body[k] = null; else delete body[k]; }
           else body[k] = Number(body[k]);
         }
         if (body.statementDay != null && (body.statementDay < 1 || body.statementDay > 31)) throw new Error('結帳日須介於 1-31');
@@ -435,20 +442,32 @@ async function viewProducts(main) {
   function edit(p) {
     openModal({
       title: p ? '編輯產品' : '新增產品',
-      initial: p ? { ...p, salePrice: Number(p.salePrice), costPrice: Number(p.costPrice) } : { salePrice: 0, costPrice: 0 },
+      initial: p ? { ...p, salePrice: Number(p.salePrice), costPrice: Number(p.costPrice), shippingFee: Number(p.shippingFee || 0), laborFee: Number(p.laborFee || 0) } : { salePrice: 0, costPrice: 0, shippingFee: 0, laborFee: 0 },
       fields: [
         { name: 'code', label: '產品編號', required: true },
         { name: 'name', label: '產品名稱', required: true },
-        { name: 'category', label: '類別' },
+        { name: 'category', label: '類別', type: 'select', options: [
+          { value: '', label: '— 未分類 —' },
+          { value: 'PART', label: '零件' },
+          { value: 'NEW_MACHINE', label: '新機' },
+          { value: 'USED_MACHINE', label: '二手機' },
+          { value: 'SERVICE', label: '服務/工時' },
+          { value: 'OTHER', label: '其他' },
+        ] },
         { type: 'row', fields: [
           { name: 'salePrice', label: '售價', type: 'number', required: true },
           { name: 'costPrice', label: '進價', type: 'number', required: true },
+        ]},
+        { type: 'row', fields: [
+          { name: 'shippingFee', label: '運費', type: 'number' },
+          { name: 'laborFee', label: '工資', type: 'number' },
         ]},
         { name: 'note', label: '備註', type: 'textarea' },
       ],
       onSubmit: async (v) => {
         if (!v.code || !v.name) throw new Error('編號/名稱必填');
-        const body = cleanObj(v, ['code','name','category','salePrice','costPrice','note']);
+        const body = cleanObj(v, ['code','name','category','salePrice','costPrice','shippingFee','laborFee','note']);
+        if (body.category === '') body.category = null;
         if (p) { delete body.code; await api.put('/products/' + p.id, body); }
         else await api.post('/products', body);
         toast(p ? '已更新' : '已新增', 'ok');
