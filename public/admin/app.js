@@ -2728,6 +2728,18 @@ async function viewAccount(main, path, title, partyLabel) {
   statusFilter.append(el('option', { value: 'overdue' }, '已逾期'));
   statusFilter.append(el('option', { value: 'paid' }, '已結案'));
   statusFilter.append(el('option', { value: '' }, '全部'));
+
+  const invoiceTypeFilter = isReceivable
+    ? (() => {
+        const sel = el('select', { style: 'font-size:13px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;margin-left:12px;' });
+        sel.append(el('option', { value: '' }, '全部發票'));
+        sel.append(el('option', { value: 'RECEIPT' }, '收據'));
+        sel.append(el('option', { value: 'TAX_INVOICE' }, '電子發票'));
+        sel.append(el('option', { value: 'none' }, '未開立'));
+        sel.addEventListener('change', reload);
+        return sel;
+      })()
+    : null;
   const tbody = el('tbody');
   const table = el('table', { class: 'data' },
     el('thead', {}, el('tr', {},
@@ -2763,6 +2775,8 @@ async function viewAccount(main, path, title, partyLabel) {
     const params = new URLSearchParams();
     if (partyId) params.set(partyIdKey, partyId);
     if (status === 'unpaid' || status === 'paid') params.set('isPaid', status === 'paid' ? 'true' : 'false');
+    const invType = invoiceTypeFilter?.value;
+    if (invType) params.set('invoiceType', invType);
     const qs = params.toString() ? `?${params}` : '';
     let list = await api.get(`/${path}${status === 'overdue' ? '/overdue' : ''}${status === 'overdue' ? '' : qs}`);
     if (status === 'overdue' && partyId) list = list.filter(a => (a.customerId || a.supplierId) === partyId);
@@ -2830,14 +2844,22 @@ async function viewAccount(main, path, title, partyLabel) {
             el('td', {}, a.isPaid
               ? el('span', { class: 'badge ok' }, '已結案')
               : (isOverdue ? el('span', { class: 'badge bad' }, '已逾期') : el('span', { class: 'badge warn' }, '未收款'))),
-            el('td', {}, a.invoiceNo || ''),
+            el('td', {},
+              a.invoiceType === 'RECEIPT' ? el('span', { class: 'badge ok', style: 'margin-right:4px;' }, '收據')
+                : a.invoiceType === 'TAX_INVOICE' ? el('span', { class: 'badge', style: 'margin-right:4px;background:#dbeafe;color:#1e40af;' }, '發票')
+                : '',
+              a.invoiceNo || ''),
             el('td', {}, fmtDate(a.paidDate)),
             el('td', { class: 'actions' },
               !isSales() ? el('button', { class: 'btn small', onClick: () => editAccount(a) }, '編輯') : null,
               !isSales() && !a.isPaid ? ' ' : null,
               !isSales() && !a.isPaid ? el('button', { class: 'btn small primary', onClick: () => markPaid(a) }, '標記已付') : null,
+              path === 'receivables' && !isSales() && !a.invoiceType ? ' ' : null,
+              path === 'receivables' && !isSales() && !a.invoiceType
+                ? el('button', { class: 'btn small', onClick: () => issueReceipt(a) }, '開立收據')
+                : null,
               path === 'receivables' ? ' ' : null,
-              path === 'receivables' && window.__session?.employee?.role === 'ADMIN'
+              path === 'receivables' && window.__session?.employee?.role === 'ADMIN' && !a.invoiceType
                 ? el('button', { class: 'btn small', onClick: () => openEinvoiceIssueModal(a, reload) }, '開立發票')
                 : null,
             ),
@@ -2862,6 +2884,17 @@ async function viewAccount(main, path, title, partyLabel) {
         reload();
       },
     });
+  }
+
+  async function issueReceipt(a) {
+    if (!confirm(`確定將此筆 $${Number(a.amount).toLocaleString()} 標記為「收據」？`)) return;
+    try {
+      await api.put(`/${path}/${a.id}`, { invoiceType: 'RECEIPT' });
+      toast('已開立收據', 'ok');
+      reload();
+    } catch (err) {
+      toast(err.message, 'err');
+    }
   }
 
   function editAccount(a) {
@@ -2902,6 +2935,7 @@ async function viewAccount(main, path, title, partyLabel) {
   main.append(el('div', { class: 'toolbar' },
     partySelect,
     statusFilter,
+    invoiceTypeFilter,
   ), table);
   reload();
 }
