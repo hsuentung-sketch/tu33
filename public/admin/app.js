@@ -3167,18 +3167,6 @@ async function viewAccount(main, path, title, partyLabel) {
   statusFilter.append(el('option', { value: 'overdue' }, '已逾期'));
   statusFilter.append(el('option', { value: 'paid' }, '已結案'));
   statusFilter.append(el('option', { value: '' }, '全部'));
-
-  const invoiceTypeFilter = isReceivable
-    ? (() => {
-        const sel = el('select', { style: 'font-size:13px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;margin-left:12px;' });
-        sel.append(el('option', { value: '' }, '全部發票'));
-        sel.append(el('option', { value: 'RECEIPT' }, '收據'));
-        sel.append(el('option', { value: 'TAX_INVOICE' }, '電子發票'));
-        sel.append(el('option', { value: 'none' }, '未開立'));
-        sel.addEventListener('change', reload);
-        return sel;
-      })()
-    : null;
   const tbody = el('tbody');
   const table = el('table', { class: 'data' },
     el('thead', {}, el('tr', {},
@@ -3214,8 +3202,6 @@ async function viewAccount(main, path, title, partyLabel) {
     const params = new URLSearchParams();
     if (partyId) params.set(partyIdKey, partyId);
     if (status === 'unpaid' || status === 'paid') params.set('isPaid', status === 'paid' ? 'true' : 'false');
-    const invType = invoiceTypeFilter?.value;
-    if (invType) params.set('invoiceType', invType);
     const qs = params.toString() ? `?${params}` : '';
     let list = await api.get(`/${path}${status === 'overdue' ? '/overdue' : ''}${status === 'overdue' ? '' : qs}`);
     if (status === 'overdue' && partyId) list = list.filter(a => (a.customerId || a.supplierId) === partyId);
@@ -3283,26 +3269,14 @@ async function viewAccount(main, path, title, partyLabel) {
             el('td', {}, a.isPaid
               ? el('span', { class: 'badge ok' }, '已結案')
               : (isOverdue ? el('span', { class: 'badge bad' }, '已逾期') : el('span', { class: 'badge warn' }, '未收款'))),
-            el('td', {},
-              a.invoiceType === 'RECEIPT' ? el('span', { class: 'badge ok', style: 'margin-right:4px;' }, '收據')
-                : a.invoiceType === 'TAX_INVOICE' ? el('span', { class: 'badge', style: 'margin-right:4px;background:#dbeafe;color:#1e40af;' }, '發票')
-                : '',
-              a.invoiceNo || ''),
+            el('td', {}, a.invoiceNo || ''),
             el('td', {}, fmtDate(a.paidDate)),
             el('td', { class: 'actions' },
               !isSales() ? el('button', { class: 'btn small', onClick: () => editAccount(a) }, '編輯') : null,
               !isSales() && !a.isPaid ? ' ' : null,
               !isSales() && !a.isPaid ? el('button', { class: 'btn small primary', onClick: () => markPaid(a) }, '標記已付') : null,
-              path === 'receivables' && !isSales() && !a.invoiceType ? ' ' : null,
-              path === 'receivables' && !isSales() && !a.invoiceType
-                ? el('button', { class: 'btn small', onClick: () => issueReceipt(a) }, '開立收據')
-                : null,
-              path === 'receivables' && a.invoiceType === 'RECEIPT' ? ' ' : null,
-              path === 'receivables' && a.invoiceType === 'RECEIPT'
-                ? el('button', { class: 'btn small', onClick: () => viewReceipt(a) }, '檢視收據')
-                : null,
               path === 'receivables' ? ' ' : null,
-              path === 'receivables' && window.__session?.employee?.role === 'ADMIN' && !a.invoiceType
+              path === 'receivables' && window.__session?.employee?.role === 'ADMIN'
                 ? el('button', { class: 'btn small', onClick: () => openEinvoiceIssueModal(a, reload) }, '開立發票')
                 : null,
             ),
@@ -3327,126 +3301,6 @@ async function viewAccount(main, path, title, partyLabel) {
         reload();
       },
     });
-  }
-
-  async function issueReceipt(a) {
-    const backdrop = el('div', { class: 'modal-backdrop' });
-    const errBox = el('div', { class: 'err' });
-    let detail, tenant;
-    try {
-      detail = await api.get(`/receivables/${a.id}`);
-      tenant = await api.get('/tenant/me');
-    } catch (e) { toast(e.message, 'err'); return; }
-    const so = detail.salesOrder;
-    const items = so?.items || [];
-    const now = new Date();
-    const rocYear = now.getFullYear() - 1911;
-    const dateStr = `${rocYear} 年 ${now.getMonth() + 1} 月 ${now.getDate()} 日`;
-
-    // Receipt content (printable)
-    const receiptDiv = el('div', { id: 'receipt-print-area', style: 'padding:24px;font-family:"Noto Sans TC",sans-serif;max-width:600px;margin:0 auto;' });
-
-    // Header: title
-    receiptDiv.append(
-      el('div', { style: 'text-align:center;margin-bottom:4px;' },
-        el('h2', { style: 'margin:0;font-size:24px;letter-spacing:12px;border-bottom:2px solid #000;display:inline-block;padding-bottom:4px;' }, '收　據'),
-      ),
-    );
-
-    // Info row: left = date/order/customer, right = company info (top-aligned)
-    receiptDiv.append(
-      el('div', { style: 'display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;' },
-        el('div', { style: 'font-size:13px;line-height:1.8;' },
-          el('div', {}, `中華民國 ${dateStr}`),
-          el('div', {}, `單號：${so?.orderNo || a.salesOrderId || ''}`),
-          el('div', {}, `客戶：${detail.customer?.name || ''}`),
-        ),
-        el('div', { style: 'text-align:right;font-size:13px;line-height:1.6;' },
-          el('div', { style: 'font-weight:700;font-size:15px;' }, tenant.companyName || ''),
-          tenant.phone ? el('div', {}, tenant.phone) : null,
-          tenant.address ? el('div', {}, tenant.address) : null,
-          tenant.taxId ? el('div', {}, `統編：${tenant.taxId}`) : null,
-        ),
-      ),
-    );
-
-    // Items table
-    const cellBorder = 'padding:4px 6px;border:1px solid #333;';
-    const itemsHead = el('thead', {}, el('tr', { style: 'background:#333;color:#fff;' },
-      el('th', { style: cellBorder + 'text-align:center;width:24px;' }, '#'),
-      el('th', { style: cellBorder + 'text-align:left;' }, '品名'),
-      el('th', { style: cellBorder + 'text-align:right;width:45px;' }, '數量'),
-      el('th', { style: cellBorder + 'text-align:right;width:65px;' }, '單價'),
-      el('th', { style: cellBorder + 'text-align:right;width:75px;' }, '金額'),
-      el('th', { style: cellBorder + 'text-align:left;width:55px;' }, '備註'),
-    ));
-    const itemsTbody = el('tbody');
-    let subtotal = 0;
-    items.forEach((it, i) => {
-      const amt = (it.quantity || 0) * (Number(it.unitPrice) || 0);
-      subtotal += amt;
-      itemsTbody.append(el('tr', {},
-        el('td', { style: cellBorder + 'text-align:center;' }, String(i + 1)),
-        el('td', { style: cellBorder }, it.productName || ''),
-        el('td', { style: cellBorder + 'text-align:right;' }, String(it.quantity || 0)),
-        el('td', { style: cellBorder + 'text-align:right;' }, fmtMoney(Number(it.unitPrice) || 0)),
-        el('td', { style: cellBorder + 'text-align:right;' }, fmtMoney(amt)),
-        el('td', { style: cellBorder }, it.note || ''),
-      ));
-    });
-    const totalRows = 15;
-    for (let i = items.length; i < totalRows; i++) {
-      itemsTbody.append(el('tr', {},
-        el('td', { style: cellBorder + 'text-align:center;color:#ccc;' }, String(i + 1)),
-        el('td', { style: cellBorder }, ''), el('td', { style: cellBorder }, ''),
-        el('td', { style: cellBorder }, ''), el('td', { style: cellBorder }, ''),
-        el('td', { style: cellBorder }, ''),
-      ));
-    }
-    const itemsTable = el('table', { style: 'width:100%;border-collapse:collapse;font-size:13px;' }, itemsHead, itemsTbody);
-    receiptDiv.append(itemsTable);
-
-    // Total row
-    receiptDiv.append(
-      el('div', { style: 'text-align:right;margin-top:0;font-size:15px;font-weight:700;border:1px solid #333;border-top:2px solid #000;padding:6px 8px;' },
-        `合計　NT$ ${subtotal.toLocaleString('zh-TW')}`),
-    );
-
-
-    // Print button + issue receipt
-    const printBtn = el('button', { class: 'btn', onClick: () => {
-      const printWin = window.open('', '_blank', 'width=700,height=900');
-      printWin.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>收據</title>
-        <style>body{font-family:"Noto Sans TC",sans-serif;margin:0;padding:20px;}
-        table{width:100%;border-collapse:collapse;}th,td{padding:4px 8px;}
-        @media print{button{display:none!important;}}</style></head><body>`);
-      printWin.document.write(receiptDiv.outerHTML);
-      printWin.document.write('</body></html>');
-      printWin.document.close();
-      printWin.focus();
-      setTimeout(() => printWin.print(), 300);
-    } }, '列印');
-    const issueBtn = el('button', { class: 'btn primary', onClick: async () => {
-      try {
-        await api.put(`/receivables/${a.id}`, { invoiceType: 'RECEIPT' });
-        toast('已開立收據', 'ok');
-        backdrop.remove();
-        reload();
-      } catch (e) { errBox.textContent = e.message; }
-    } }, '確認開立收據');
-
-    const modal = el('div', { class: 'modal', style: 'max-width:680px;width:95%;max-height:calc(100vh - 100px);display:flex;flex-direction:column;overflow:hidden;' },
-      el('h3', {}, '收據預覽'),
-      el('div', { class: 'body', style: 'flex:1;overflow-y:auto;' }, receiptDiv),
-      errBox,
-      el('div', { class: 'actions', style: 'flex-shrink:0;' },
-        el('button', { class: 'btn', onClick: () => backdrop.remove() }, '取消'),
-        ' ', printBtn, ' ', issueBtn,
-      ),
-    );
-    backdrop.append(modal);
-    backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
-    document.body.append(backdrop);
   }
 
   function editAccount(a) {
@@ -3487,7 +3341,6 @@ async function viewAccount(main, path, title, partyLabel) {
   main.append(el('div', { class: 'toolbar' },
     partySelect,
     statusFilter,
-    invoiceTypeFilter,
   ), table);
   reload();
 }

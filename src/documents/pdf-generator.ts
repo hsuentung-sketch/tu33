@@ -526,19 +526,23 @@ export function generateQuotationPdf(data: QuotationPdfData): InstanceType<typeo
   if (data.note) terms.push(`備註：${data.note}`);
   terms.forEach((t) => { doc.text(t, PAGE.left, y); y += 18; });
 
-  // 發票章（蓋在右下角總計表下方，terms 區的右側）
+  // pdfFooter（租戶備註條款）：緊接 terms 下方，靠左
+  if (data.pdfFooter) {
+    y += 6;
+    doc.fontSize(FS.footer).fillColor('#555').text(data.pdfFooter, PAGE.left, y, { width: PAGE.contentWidth * 0.6, align: 'left' });
+    y += doc.heightOfString(data.pdfFooter, { width: PAGE.contentWidth * 0.6 }) + 4;
+  }
+
+  // 發票章（蓋在右側，與 pdfFooter 同區段高度）
+  const stampY = data.pdfFooter ? y - 90 : y + 6;
   drawSellerStamp(
     doc,
     data.tenantId,
     PAGE.right - 100,
-    y + 6,
+    Math.max(stampY, y - 84),
     90,
     data.stampOpacity ?? 0.85,
   );
-
-  if (data.pdfFooter) {
-    doc.fontSize(FS.footer).fillColor('#555').text(data.pdfFooter, PAGE.left, 800, { width: PAGE.contentWidth, align: 'center' });
-  }
   return doc;
 }
 

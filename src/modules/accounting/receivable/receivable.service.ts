@@ -93,6 +93,7 @@ export async function update(
     isPaid?: boolean;
     paidDate?: Date | null;
     invoiceNo?: string | null;
+    invoiceType?: string | null;
     note?: string | null;
   },
 ) {
@@ -103,6 +104,7 @@ export async function update(
   if (data.isPaid !== undefined) patch.isPaid = data.isPaid;
   if (data.paidDate !== undefined) patch.paidDate = data.paidDate;
   if (data.invoiceNo !== undefined) patch.invoiceNo = data.invoiceNo;
+  if (data.invoiceType !== undefined) patch.invoiceType = data.invoiceType;
   if (data.note !== undefined) patch.note = data.note;
 
   // Implicit rule: toggling isPaid=true without paidDate → default to today.

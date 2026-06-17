@@ -85,6 +85,7 @@
 | 潤樋實業（主） | 基準 | tu33 原生 | 2026-04 |
 | 華品環保工程 | A（術語）| `Tenant.settings.docNames` 把「供應商→處理廠」；無業務流程改動 | 2026-04-21 |
 | （曾 spike 過）華品獨立 repo | — | 已 DEPRECATED，改走 A 級。設計（ProductCategory.attributeSchema / waste 模組）保留供未來 E 級參考 | 2026-04-21 |
+| 宗佑農機（農業機械維修販售） | F（原判 E，重新評分升級）| 獨立 repo `D:\Claude\App Building\EPR\農業機械販售維修業\repo`。理由：新 module ≥2（machine-record + refurbish-order）、流程節點差 ≥3（整備流程 4+ 新節點）、PDF 需重設計（保固卡 + 整備報告）→ 6 項中 3 項命中 F 門檻 | 2026-06-17 |
 
 新客戶進來先回來更新這張表。連續出現「同一類需求無法落 A–E」時，代表可能要認真評估 F 級。
 

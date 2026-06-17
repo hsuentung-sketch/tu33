@@ -30,6 +30,10 @@ const upload = multer({
   limits: { fileSize: 2 * 1024 * 1024 }, // 2MB
 });
 
+const settingsSchema = z.object({
+  pdfFooter: z.string().optional(),
+}).passthrough();
+
 const updateSchema = z.object({
   companyName: z.string().min(1).optional(),
   taxId: z.string().max(20).nullable().optional(),
@@ -37,6 +41,7 @@ const updateSchema = z.object({
   phone: z.string().nullable().optional(),
   email: z.string().email().nullable().optional().or(z.literal('')),
   logo: z.string().nullable().optional(),
+  settings: settingsSchema.optional(),
 });
 
 const einvoiceSettingsSchema = z.object({
@@ -65,7 +70,7 @@ tenantRouter.get('/me', async (req: Request, res: Response, next: NextFunction) 
       where: { id: req.tenantId },
       select: {
         id: true, companyName: true, taxId: true, address: true,
-        phone: true, email: true, logo: true, modules: true,
+        phone: true, email: true, logo: true, modules: true, settings: true,
       },
     });
     res.json(t);
@@ -81,14 +86,21 @@ tenantRouter.put(
       if (!parsed.success) {
         throw new ValidationError(parsed.error.issues.map((i) => i.message).join(', '));
       }
-      const data = { ...parsed.data };
+      const { settings: incomingSettings, ...fields } = parsed.data;
+      const data: Record<string, unknown> = { ...fields };
       if (data.email === '') data.email = null;
+      if (incomingSettings) {
+        const existing = await prisma.tenant.findUnique({ where: { id: req.tenantId } });
+        const raw = (typeof existing?.settings === 'object' && existing?.settings !== null)
+          ? (existing.settings as Record<string, unknown>) : {};
+        data.settings = { ...raw, ...incomingSettings } as unknown as object;
+      }
       const t = await prisma.tenant.update({
         where: { id: req.tenantId },
         data,
         select: {
           id: true, companyName: true, taxId: true, address: true,
-          phone: true, email: true, logo: true, modules: true,
+          phone: true, email: true, logo: true, modules: true, settings: true,
         },
       });
       res.json(t);

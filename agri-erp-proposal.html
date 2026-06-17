@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>農機設備維修販售 ERP 系統架構提案</title>
+<style>
+  html { font-size: 18px; }
+  :root {
+    --green: #2d6a4f;
+    --green-light: #40916c;
+    --green-pale: #d8f3dc;
+    --green-muted: #95d5b2;
+    --amber: #d4a017;
+    --amber-light: #fefae0;
+    --blue: #1b4f72;
+    --blue-light: #eaf4fb;
+    --red: #c0392b;
+    --gray: #6c757d;
+    --gray-light: #f8f9fa;
+    --white: #ffffff;
+    --shadow: 0 2px 12px rgba(0,0,0,0.08);
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', 'Microsoft JhengHei', sans-serif; background: #f0f4f1; color: #2c3e50; line-height: 1.6; }
+
+  /* NAV */
+  nav { background: var(--green); color: white; padding: 0; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+  nav .nav-inner { max-width: 1200px; margin: 0 auto; display: flex; align-items: center; gap: 0; }
+  nav .logo { padding: 14px 24px; font-weight: 700; font-size: 1rem; border-right: 1px solid rgba(255,255,255,0.2); white-space: nowrap; }
+  nav .logo span { font-size: 0.7rem; opacity: 0.8; display: block; }
+  nav .nav-links { display: flex; flex-wrap: wrap; }
+  nav a { color: rgba(255,255,255,0.85); text-decoration: none; padding: 14px 14px; font-size: 0.85rem; transition: background 0.2s; white-space: nowrap; }
+  nav a:hover, nav a.active { background: var(--green-light); color: white; }
+
+  /* HERO */
+  .hero { background: linear-gradient(135deg, var(--green) 0%, var(--green-light) 100%); color: white; padding: 56px 24px 40px; text-align: center; }
+  .hero h1 { font-size: 2rem; font-weight: 700; margin-bottom: 8px; }
+  .hero p { font-size: 1.05rem; opacity: 0.9; max-width: 620px; margin: 0 auto 24px; }
+  .hero .badges { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  .badge { background: rgba(255,255,255,0.18); border: 1px solid rgba(255,255,255,0.35); border-radius: 20px; padding: 4px 14px; font-size: 0.8rem; }
+
+  /* SECTIONS */
+  .section { max-width: 1200px; margin: 0 auto; padding: 48px 24px; }
+  .section-title { font-size: 1.4rem; font-weight: 700; color: var(--green); border-left: 4px solid var(--green); padding-left: 12px; margin-bottom: 28px; }
+  .section-subtitle { font-size: 0.95rem; color: var(--gray); margin-top: -20px; margin-bottom: 24px; padding-left: 16px; }
+
+  /* CARDS GRID */
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 18px; }
+  .card { background: white; border-radius: var(--radius); box-shadow: var(--shadow); padding: 22px; border-top: 4px solid var(--green); transition: transform 0.2s, box-shadow 0.2s; cursor: pointer; }
+  .card:hover { transform: translateY(-3px); box-shadow: 0 6px 20px rgba(0,0,0,0.12); }
+  .card.amber { border-top-color: var(--amber); }
+  .card.blue { border-top-color: var(--blue); }
+  .card.red { border-top-color: var(--red); }
+  .card-icon { font-size: 2rem; margin-bottom: 10px; }
+  .card-title { font-weight: 700; font-size: 1rem; margin-bottom: 8px; }
+  .card-desc { font-size: 0.85rem; color: var(--gray); line-height: 1.6; }
+  .card-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 12px; }
+  .tag { background: var(--green-pale); color: var(--green); border-radius: 4px; padding: 2px 8px; font-size: 0.75rem; font-weight: 500; }
+  .tag.amber { background: var(--amber-light); color: #7a5c00; }
+  .tag.blue { background: var(--blue-light); color: var(--blue); }
+
+  /* FLOW */
+  .flow { display: flex; align-items: center; flex-wrap: wrap; gap: 0; margin: 20px 0; }
+  .flow-step { background: white; border-radius: var(--radius); padding: 14px 18px; box-shadow: var(--shadow); text-align: center; min-width: 130px; flex: 1; }
+  .flow-step .step-no { font-size: 0.7rem; color: var(--gray); margin-bottom: 4px; }
+  .flow-step .step-name { font-weight: 600; font-size: 0.9rem; }
+  .flow-step .step-detail { font-size: 0.75rem; color: var(--gray); margin-top: 4px; }
+  .flow-arrow { color: var(--green-muted); font-size: 1.4rem; padding: 0 6px; flex-shrink: 0; }
+
+  /* TABLE */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; background: white; border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
+  th { background: var(--green); color: white; padding: 12px 16px; font-size: 0.85rem; text-align: left; }
+  td { padding: 11px 16px; font-size: 0.85rem; border-bottom: 1px solid #eee; }
+  tr:last-child td { border-bottom: none; }
+  tr:nth-child(even) td { background: #fafafa; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+  .dot.green { background: #27ae60; }
+  .dot.amber { background: #f39c12; }
+  .dot.gray { background: #bbb; }
+  .pill { border-radius: 12px; padding: 2px 10px; font-size: 0.75rem; font-weight: 600; }
+  .pill.p1 { background: #ffeaea; color: #c0392b; }
+  .pill.p2 { background: var(--amber-light); color: #7a5c00; }
+  .pill.p3 { background: var(--blue-light); color: var(--blue); }
+
+  /* PHASE */
+  .phase-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 18px; }
+  .phase-card { background: white; border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+  .phase-head { padding: 16px 20px; color: white; display: flex; justify-content: space-between; align-items: center; }
+  .phase-head.ph1 { background: var(--green); }
+  .phase-head.ph2 { background: var(--amber); }
+  .phase-head.ph3 { background: var(--blue); }
+  .phase-head h3 { font-size: 1rem; }
+  .phase-head .timeline { font-size: 0.8rem; opacity: 0.85; }
+  .phase-body { padding: 16px 20px; }
+  .phase-item { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; border-bottom: 1px solid #f0f0f0; font-size: 0.85rem; }
+  .phase-item:last-child { border-bottom: none; }
+  .phase-item .check { color: var(--green); font-size: 1rem; flex-shrink: 0; margin-top: 1px; }
+  .phase-item.future .check { color: #bbb; }
+
+  /* HIGHLIGHT BOX */
+  .highlight { background: var(--green-pale); border-left: 4px solid var(--green); border-radius: 0 var(--radius) var(--radius) 0; padding: 16px 20px; margin: 16px 0; font-size: 0.9rem; }
+  .highlight.amber { background: var(--amber-light); border-left-color: var(--amber); }
+  .highlight.blue { background: var(--blue-light); border-left-color: var(--blue); }
+  .highlight strong { display: block; margin-bottom: 6px; }
+
+  /* AI SECTION */
+  .ai-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; }
+  .ai-card { background: linear-gradient(135deg, #0f3460 0%, #16213e 100%); color: white; border-radius: var(--radius); padding: 22px; }
+  .ai-card .ai-icon { font-size: 2rem; margin-bottom: 10px; }
+  .ai-card h4 { font-size: 0.95rem; margin-bottom: 8px; }
+  .ai-card p { font-size: 0.82rem; opacity: 0.85; line-height: 1.6; }
+  .ai-card .ai-tag { display: inline-block; background: rgba(255,255,255,0.15); border-radius: 4px; padding: 2px 8px; font-size: 0.72rem; margin-top: 10px; }
+
+  /* MODULE DIAGRAM */
+  .module-diagram { background: white; border-radius: var(--radius); padding: 28px; box-shadow: var(--shadow); }
+  .module-center { background: var(--green); color: white; border-radius: 50%; width: 110px; height: 110px; display: flex; align-items: center; justify-content: center; text-align: center; font-weight: 700; font-size: 0.85rem; margin: 0 auto 32px; }
+  .module-ring { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
+  .module-node { background: white; border: 2px solid var(--green); border-radius: var(--radius); padding: 12px 16px; text-align: center; min-width: 130px; }
+  .module-node.amber { border-color: var(--amber); }
+  .module-node.blue { border-color: var(--blue); }
+  .module-node .mn-icon { font-size: 1.4rem; }
+  .module-node .mn-label { font-size: 0.8rem; font-weight: 600; margin-top: 4px; }
+  .module-node .mn-sub { font-size: 0.72rem; color: var(--gray); margin-top: 2px; }
+
+  /* TECH STACK */
+  .tech-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+  .tech-item { background: white; border-radius: 8px; padding: 14px 16px; box-shadow: var(--shadow); display: flex; align-items: center; gap: 12px; font-size: 0.85rem; }
+  .tech-item .ticon { font-size: 1.4rem; }
+
+  /* FOOTER */
+  footer { background: var(--green); color: rgba(255,255,255,0.8); text-align: center; padding: 24px; font-size: 0.83rem; margin-top: 40px; }
+
+  /* SECTION BG ALT */
+  .bg-alt { background: white; }
+
+  /* CONFIRM CHECKLIST */
+  .checklist { list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
+  .checklist li { background: white; border-radius: 8px; padding: 12px 16px; box-shadow: var(--shadow); font-size: 0.87rem; display: flex; align-items: flex-start; gap: 10px; }
+  .checklist li .cbox { width: 18px; height: 18px; border: 2px solid var(--green); border-radius: 3px; flex-shrink: 0; margin-top: 2px; }
+
+  @media (max-width: 640px) {
+    .hero h1 { font-size: 1.4rem; }
+    .flow { flex-direction: column; }
+    .flow-arrow { transform: rotate(90deg); }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <div class="logo">🌾 農機 ERP<span>系統架構提案</span></div>
+    <div class="nav-links">
+      <a href="#overview" class="active">概觀</a>
+      <a href="#modules">模組</a>
+      <a href="#repair">維修流程</a>
+      <a href="#sales">銷售</a>
+      <a href="#inventory">零件庫存</a>
+      <a href="#ai">AI 功能</a>
+      <a href="#phase">分階段</a>
+      <a href="#confirm">確認清單</a>
+    </div>
+  </div>
+</nav>
+
+<div class="hero">
+  <h1>🌾 農機設備維修販售 ERP 系統</h1>
+  <p>從手寫 → Excel → 全數位化，以 LINE Bot 為主介面，涵蓋維修工單、整機銷售、零件庫存、電子發票</p>
+  <div class="badges">
+    <span class="badge">📱 LINE Bot 操作</span>
+    <span class="badge">🤖 AI 報價解析</span>
+    <span class="badge">🧾 電子發票</span>
+    <span class="badge">📦 零件庫存</span>
+    <span class="badge">🏷️ 客戶等級定價</span>
+    <span class="badge">🔧 維修工單</span>
+  </div>
+</div>
+
+<!-- ===== OVERVIEW ===== -->
+<div id="overview" class="section">
+  <div class="section-title">系統架構總覽</div>
+
+  <div class="module-diagram">
+    <div class="module-center">農機 ERP<br>核心</div>
+    <div class="module-ring">
+      <div class="module-node">
+        <div class="mn-icon">🔧</div>
+        <div class="mn-label">維修管理</div>
+        <div class="mn-sub">工單 / 報工 / 結案</div>
+      </div>
+      <div class="module-node amber">
+        <div class="mn-icon">🛒</div>
+        <div class="mn-label">銷售管理</div>
+        <div class="mn-sub">新機 / 二手機 / 報價</div>
+      </div>
+      <div class="module-node blue">
+        <div class="mn-icon">📦</div>
+        <div class="mn-label">零件庫存</div>
+        <div class="mn-sub">進貨 / 盤點 / 安全庫存</div>
+      </div>
+      <div class="module-node">
+        <div class="mn-icon">👥</div>
+        <div class="mn-label">客戶主檔</div>
+        <div class="mn-sub">等級分類 / 歷史記錄</div>
+      </div>
+      <div class="module-node amber">
+        <div class="mn-icon">💰</div>
+        <div class="mn-label">帳款管理</div>
+        <div class="mn-sub">應收 / 應付 / 月結</div>
+      </div>
+      <div class="module-node blue">
+        <div class="mn-icon">🧾</div>
+        <div class="mn-label">電子發票</div>
+        <div class="mn-sub">B2B / B2C / 整合開立</div>
+      </div>
+      <div class="module-node">
+        <div class="mn-icon">🤖</div>
+        <div class="mn-label">AI 助手</div>
+        <div class="mn-sub">語音 / 文字解析</div>
+      </div>
+      <div class="module-node amber">
+        <div class="mn-icon">📊</div>
+        <div class="mn-label">報表儀表板</div>
+        <div class="mn-sub">業績 / 庫存 / 利潤</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top:28px">
+    <div class="highlight">
+      <strong>🎯 核心痛點對應</strong>
+      目前手寫記錄 → 晚上補 Excel 的流程，以 LINE Bot 即時輸入取代，現場完工即送出。
+      客戶等級差異定價（專業維修 / 常客 / 散戶）內建於報價模組，自動套用價格區間，不再靠人記憶。
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODULES ===== -->
+<div id="modules" class="bg-alt">
+<div class="section">
+  <div class="section-title">功能模組詳細說明</div>
+
+  <div class="cards">
+    <div class="card">
+      <div class="card-icon">🔧</div>
+      <div class="card-title">維修管理</div>
+      <div class="card-desc">工單建立、技師派工、工時記錄、零件領用、完工確認。支援 LINE 語音/文字快速報工，替代現有手寫流程。</div>
+      <div class="card-tags">
+        <span class="tag">工單</span>
+        <span class="tag">派工</span>
+        <span class="tag">工時</span>
+        <span class="tag">零件領用</span>
+        <span class="tag">維修紀錄</span>
+      </div>
+    </div>
+
+    <div class="card amber">
+      <div class="card-icon">🛒</div>
+      <div class="card-title">整機銷售</div>
+      <div class="card-desc">新機與二手機分開管理。品項包含割草機、鏈鋸等。報價單支援客戶等級自動調整售價，建立銷貨單後觸發庫存扣減與發票開立。</div>
+      <div class="card-tags">
+        <span class="tag amber">新機</span>
+        <span class="tag amber">二手機</span>
+        <span class="tag amber">報價單</span>
+        <span class="tag amber">銷貨單</span>
+      </div>
+    </div>
+
+    <div class="card blue">
+      <div class="card-icon">📦</div>
+      <div class="card-title">零件庫存管理</div>
+      <div class="card-desc">初期優先管理高單價 / 高周轉零件。進貨、銷售、維修領用自動扣庫存。安全庫存預警，支援定期盤點作業。</div>
+      <div class="card-tags">
+        <span class="tag blue">庫存異動</span>
+        <span class="tag blue">安全庫存</span>
+        <span class="tag blue">盤點</span>
+        <span class="tag blue">進貨管理</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-icon">👥</div>
+      <div class="card-title">客戶主檔與等級</div>
+      <div class="card-desc">三級定價體系：專業維修客戶、常客、散戶。每筆交易自動記錄，等級依消費頻率或人工調整。歷史維修紀錄隨時查閱。</div>
+      <div class="card-tags">
+        <span class="tag">專業維修</span>
+        <span class="tag">常客</span>
+        <span class="tag">散戶</span>
+        <span class="tag">交易歷史</span>
+      </div>
+    </div>
+
+    <div class="card amber">
+      <div class="card-icon">💰</div>
+      <div class="card-title">帳款管理</div>
+      <div class="card-desc">應收應付月結，自動計算到期日。到期前預警通知（LINE 推播）。支援分期付款與分批收款記錄。</div>
+      <div class="card-tags">
+        <span class="tag amber">月結</span>
+        <span class="tag amber">到期預警</span>
+        <span class="tag amber">收款記錄</span>
+      </div>
+    </div>
+
+    <div class="card blue">
+      <div class="card-icon">🧾</div>
+      <div class="card-title">電子發票</div>
+      <div class="card-desc">B2B 三聯式發票（統一編號）與 B2C 二聯式發票（手機載具 / 自然人憑證）。維修結案、銷貨建單後自動觸發開立流程。</div>
+      <div class="card-tags">
+        <span class="tag blue">B2B 三聯</span>
+        <span class="tag blue">B2C 二聯</span>
+        <span class="tag blue">手機載具</span>
+        <span class="tag blue">自動開立</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-icon">🤖</div>
+      <div class="card-title">AI 語意解析</div>
+      <div class="card-desc">技師用 LINE 說或打：「幫客戶阿明換了 6336 油封，工時一小時，另加機油兩罐」→ AI 自動解析並填入報工單，確認後送出。</div>
+      <div class="card-tags">
+        <span class="tag">語音輸入</span>
+        <span class="tag">文字解析</span>
+        <span class="tag">自動填單</span>
+      </div>
+    </div>
+
+    <div class="card amber">
+      <div class="card-icon">📊</div>
+      <div class="card-title">報表與儀表板</div>
+      <div class="card-desc">月業績概覽、維修收入分析、庫存周轉率、應收款齡分析。後台網頁與 LINE 推播每日/週報摘要。</div>
+      <div class="card-tags">
+        <span class="tag amber">業績報表</span>
+        <span class="tag amber">庫存分析</span>
+        <span class="tag amber">每日摘要</span>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ===== REPAIR FLOW ===== -->
+<div id="repair" class="section">
+  <div class="section-title">維修工單流程</div>
+  <div class="section-subtitle">現場手寫 → LINE Bot 即時輸入，消除晚上補錄 Excel 的流程瓶頸</div>
+
+  <div class="flow">
+    <div class="flow-step">
+      <div class="step-no">STEP 1</div>
+      <div class="step-name">📥 收件 / 開單</div>
+      <div class="step-detail">LINE 輸入客戶 + 機型 + 故障描述</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">
+      <div class="step-no">STEP 2</div>
+      <div class="step-name">🔍 初步診斷</div>
+      <div class="step-detail">技師確認工項，AI 協助估報工時</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">
+      <div class="step-no">STEP 3</div>
+      <div class="step-name">📝 報價確認</div>
+      <div class="step-detail">依客戶等級自動帶入價格，發給客戶確認</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">
+      <div class="step-no">STEP 4</div>
+      <div class="step-name">🔧 維修作業</div>
+      <div class="step-detail">技師報工 + 領用零件（LINE 即時記錄）</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">
+      <div class="step-no">STEP 5</div>
+      <div class="step-name">✅ 完工結案</div>
+      <div class="step-detail">費用確認，觸發電子發票 + 應收建立</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">
+      <div class="step-no">STEP 6</div>
+      <div class="step-name">💬 LINE 通知</div>
+      <div class="step-detail">自動推播 PDF 結算單與取件通知</div>
+    </div>
+  </div>
+
+  <div class="highlight" style="margin-top:24px">
+    <strong>⚡ AI 語意解析實際場景</strong>
+    技師在維修途中用 LINE 說：「阿伯的割草機換了化油器，零件 650 元，工時 1.5 小時」<br>
+    → AI 解析出：客戶（阿伯）、品項（化油器）、費用（零件 $650 + 工時 $xxx）<br>
+    → 系統回傳草稿工單讓技師確認一鍵送出，不需手動填表單
+  </div>
+
+  <div style="margin-top:24px">
+    <div class="section-title" style="font-size:1.1rem">客戶等級定價示例</div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>費用項目</th>
+            <th>專業維修客戶</th>
+            <th>常客</th>
+            <th>散戶（標準）</th>
+            <th>備註</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>工時費（/hr）</td>
+            <td><span class="dot green"></span>$600（折扣）</td>
+            <td><span class="dot green"></span>$700</td>
+            <td><span class="dot amber"></span>$800</td>
+            <td>可在主檔設定</td>
+          </tr>
+          <tr>
+            <td>零件費</td>
+            <td><span class="dot green"></span>成本 + 10%</td>
+            <td><span class="dot green"></span>成本 + 20%</td>
+            <td><span class="dot amber"></span>建議售價</td>
+            <td>可手動覆蓋</td>
+          </tr>
+          <tr>
+            <td>到府服務費</td>
+            <td><span class="dot green"></span>$0（合約內）</td>
+            <td><span class="dot green"></span>$300</td>
+            <td><span class="dot amber"></span>$500</td>
+            <td>依距離可調整</td>
+          </tr>
+          <tr>
+            <td>付款方式</td>
+            <td><span class="dot green"></span>月結 30 天</td>
+            <td><span class="dot green"></span>月結 / 現付</td>
+            <td><span class="dot amber"></span>現付</td>
+            <td></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ===== SALES ===== -->
+<div id="sales" class="bg-alt">
+<div class="section">
+  <div class="section-title">整機銷售管理</div>
+
+  <div class="cards" style="grid-template-columns: repeat(auto-fill, minmax(320px, 1fr))">
+    <div class="card">
+      <div class="card-icon">🆕</div>
+      <div class="card-title">新機銷售</div>
+      <div class="card-desc">
+        品項主檔維護（割草機、鏈鋸、耕耘機等），建議售價 + 成本分開管理。
+        報價單依客戶等級自動計算售價，轉銷貨單後扣整機庫存，觸發應收與發票。
+      </div>
+      <div class="card-tags">
+        <span class="tag">品項主檔</span>
+        <span class="tag">自動報價</span>
+        <span class="tag">庫存扣減</span>
+        <span class="tag">發票開立</span>
+      </div>
+    </div>
+
+    <div class="card amber">
+      <div class="card-icon">🔄</div>
+      <div class="card-title">二手機銷售</div>
+      <div class="card-desc">
+        二手機獨立建檔（機型、序號、收購成本、整備費用、外觀成色評級）。
+        可建立單一品項的報價與銷售，整備維修費用自動計入成本。
+      </div>
+      <div class="card-tags">
+        <span class="tag amber">序號管理</span>
+        <span class="tag amber">整備成本</span>
+        <span class="tag amber">成色評級</span>
+      </div>
+    </div>
+
+    <div class="card blue">
+      <div class="card-icon">📋</div>
+      <div class="card-title">報價單流程</div>
+      <div class="card-desc">
+        LIFF 表單或 LINE 語意輸入均可建立報價單。客戶確認後一鍵轉銷貨單，有效期可設定（預設 30 天），到期未轉自動標記失效。
+      </div>
+      <div class="card-tags">
+        <span class="tag blue">LIFF 表單</span>
+        <span class="tag blue">LINE 語音</span>
+        <span class="tag blue">轉銷貨單</span>
+        <span class="tag blue">有效期管控</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top:24px">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>機型分類</th>
+            <th>管理方式</th>
+            <th>庫存單位</th>
+            <th>備註</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>割草機（新）</td><td>型號主檔 + 數量</td><td>台</td><td>可含配件組合</td></tr>
+          <tr><td>鏈鋸（新）</td><td>型號主檔 + 數量</td><td>台</td><td></td></tr>
+          <tr><td>耕耘機（新）</td><td>型號主檔 + 數量</td><td>台</td><td></td></tr>
+          <tr><td>割草機（二手）</td><td>單機序號建檔</td><td>台（唯一）</td><td>可記錄收購來源</td></tr>
+          <tr><td>其他二手機</td><td>單機序號建檔</td><td>台（唯一）</td><td>整備工單關聯</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ===== INVENTORY ===== -->
+<div id="inventory" class="section">
+  <div class="section-title">零件庫存管理策略</div>
+  <div class="section-subtitle">初期不求全面，以高周轉 + 高單價品項優先，逐步擴展</div>
+
+  <div class="highlight amber">
+    <strong>📌 初期導入策略：ABC 分類優先</strong>
+    A 類（高單價 / 高周轉）：化油器、點火模組、油封組、刀盤、引擎等 → 先全部納管<br>
+    B 類（中等）：濾芯、皮帶、螺絲組 → 第二階段納管<br>
+    C 類（低值耗材）：機油、黃油、螺絲 → 可簡化管理或不納管
+  </div>
+
+  <div class="cards" style="margin-top:24px">
+    <div class="card">
+      <div class="card-icon">📥</div>
+      <div class="card-title">進貨管理</div>
+      <div class="card-desc">LINE 掃碼或手動建立進貨單，多家供應商，自動更新庫存與成本均價。</div>
+    </div>
+    <div class="card blue">
+      <div class="card-icon">🔍</div>
+      <div class="card-title">安全庫存預警</div>
+      <div class="card-desc">每件零件設安全庫存量，低於閾值自動 LINE 推播提醒採購，附上建議採購量。</div>
+    </div>
+    <div class="card amber">
+      <div class="card-icon">📋</div>
+      <div class="card-title">盤點作業</div>
+      <div class="card-desc">支援定期盤點（按分類），LINE 掃碼或手動輸入實際數量，系統自動計算盤盈虧。</div>
+    </div>
+    <div class="card">
+      <div class="card-icon">🔧</div>
+      <div class="card-title">維修領用扣庫</div>
+      <div class="card-desc">技師在維修工單中選用零件，確認後自動從庫存扣減，維修成本同步計算。</div>
+    </div>
+    <div class="card blue">
+      <div class="card-icon">📊</div>
+      <div class="card-title">庫存分析</div>
+      <div class="card-desc">周轉率、滯銷品報表，協助優化採購策略，避免資金積壓在呆料。</div>
+    </div>
+    <div class="card amber">
+      <div class="card-icon">🔗</div>
+      <div class="card-title">品牌 / 型號對應</div>
+      <div class="card-desc">零件與適用機型建立對應關係，維修時自動推薦相容零件，加速查詢。</div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== AI ===== -->
+<div id="ai" class="bg-alt">
+<div class="section">
+  <div class="section-title">AI 智能功能</div>
+  <div class="section-subtitle">以 Claude / OpenAI 為基礎，降低人工填單負擔</div>
+
+  <div class="ai-grid">
+    <div class="ai-card">
+      <div class="ai-icon">🎙️</div>
+      <h4>語音報工解析</h4>
+      <p>技師在現場說話，Whisper 語音轉文字後，AI 解析出客戶、機型、工項、工時、零件，自動填入工單草稿。</p>
+      <span class="ai-tag">OpenAI Whisper + Claude Haiku</span>
+    </div>
+
+    <div class="ai-card">
+      <div class="ai-icon">💬</div>
+      <h4>文字語意建單</h4>
+      <p>「幫田大哥的 HS236 割草機換化油器，另加一升機油，總共 1800」→ AI 自動拆解成工單各欄位。</p>
+      <span class="ai-tag">Claude Haiku 解析</span>
+    </div>
+
+    <div class="ai-card">
+      <div class="ai-icon">📝</div>
+      <h4>AI 輔助報價</h4>
+      <p>輸入故障描述，AI 根據歷史維修紀錄推薦常見工項與零件，附上上次使用的工時與費用，供技師參考確認。</p>
+      <span class="ai-tag">歷史紀錄 + AI 建議</span>
+    </div>
+
+    <div class="ai-card">
+      <div class="ai-icon">🔍</div>
+      <h4>智慧零件查詢</h4>
+      <p>輸入品名關鍵字或料號，模糊搜尋並顯示庫存數量 / 最後進價 / 適用機型，支援相似字容錯。</p>
+      <span class="ai-tag">全文搜尋 + 相容查詢</span>
+    </div>
+
+    <div class="ai-card">
+      <div class="ai-icon">📊</div>
+      <h4>每日營業摘要</h4>
+      <p>每日下班自動推播：今日收件幾張工單、完工幾張、待領用零件、明日預計出件清單。</p>
+      <span class="ai-tag">自動摘要 + LINE 推播</span>
+    </div>
+
+    <div class="ai-card">
+      <div class="ai-icon">📈</div>
+      <h4>庫存進貨預測</h4>
+      <p>根據歷史領用頻率，AI 提前預測哪些零件即將低庫存，建議提前採購量與時間點。</p>
+      <span class="ai-tag">趨勢預測</span>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ===== PHASE ===== -->
+<div id="phase" class="section">
+  <div class="section-title">分階段導入計畫</div>
+  <div class="section-subtitle">避免一次全上造成混亂，每個 Phase 都能獨立運作</div>
+
+  <div class="phase-grid">
+    <div class="phase-card">
+      <div class="phase-head ph1">
+        <h3>Phase 1 — 核心維修</h3>
+        <span class="timeline">建議 6–8 週</span>
+      </div>
+      <div class="phase-body">
+        <div class="phase-item"><span class="check">✅</span><span>LINE Bot 基礎架構 + 員工綁定</span></div>
+        <div class="phase-item"><span class="check">✅</span><span>客戶主檔 + 三級定價設定</span></div>
+        <div class="phase-item"><span class="check">✅</span><span>維修工單（建立 / 報工 / 完工）</span></div>
+        <div class="phase-item"><span class="check">✅</span><span>AI 語音 / 文字語意建單</span></div>
+        <div class="phase-item"><span class="check">✅</span><span>PDF 維修結算單（含 LINE 推播）</span></div>
+        <div class="phase-item"><span class="check">✅</span><span>後台管理介面（基本查閱）</span></div>
+        <div class="phase-item"><span class="check">✅</span><span>應收帳款（維修）</span></div>
+      </div>
+    </div>
+
+    <div class="phase-card">
+      <div class="phase-head ph2">
+        <h3>Phase 2 — 銷售 + 庫存</h3>
+        <span class="timeline">建議 4–6 週</span>
+      </div>
+      <div class="phase-body">
+        <div class="phase-item"><span class="check">✅</span><span>整機主檔（新機 + 二手機）</span></div>
+        <div class="phase-item"><span class="check">✅</span><span>報價單 / 銷貨單</span></div>
+        <div class="phase-item"><span class="check">✅</span><span>零件庫存（A 類先行）</span></div>
+        <div class="phase-item"><span class="check">✅</span><span>進貨管理 + 安全庫存預警</span></div>
+        <div class="phase-item"><span class="check">✅</span><span>電子發票（B2B + B2C）</span></div>
+        <div class="phase-item"><span class="check">✅</span><span>應收應付帳款整合</span></div>
+        <div class="phase-item"><span class="check">✅</span><span>基本業績報表</span></div>
+      </div>
+    </div>
+
+    <div class="phase-card">
+      <div class="phase-head ph3">
+        <h3>Phase 3 — 進階分析</h3>
+        <span class="timeline">建議 4 週</span>
+      </div>
+      <div class="phase-body">
+        <div class="phase-item"><span class="check">✅</span><span>庫存周轉率 / 呆料分析</span></div>
+        <div class="phase-item"><span class="check">✅</span><span>零件機型相容對應表</span></div>
+        <div class="phase-item"><span class="check">✅</span><span>AI 進貨預測</span></div>
+        <div class="phase-item"><span class="check">✅</span><span>每日 / 週 LINE 報表推播</span></div>
+        <div class="phase-item"><span class="check">✅</span><span>維修歷史查詢（依機型 / 客戶）</span></div>
+        <div class="phase-item"><span class="check">✅</span><span>季節性維修工作量預測</span></div>
+        <div class="phase-item"><span class="check future">⬜</span><span>到府維修行程管理（選配）</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== PRIORITY TABLE ===== -->
+<div class="bg-alt">
+<div class="section">
+  <div class="section-title">功能優先順序表</div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>功能</th>
+          <th>優先級</th>
+          <th>Phase</th>
+          <th>對應痛點</th>
+          <th>技術複雜度</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>LINE Bot 維修工單 + AI 報工</td>
+          <td><span class="pill p1">P0 必做</span></td>
+          <td>1</td>
+          <td>取代手寫補 Excel</td>
+          <td>中</td>
+        </tr>
+        <tr>
+          <td>客戶三級定價</td>
+          <td><span class="pill p1">P0 必做</span></td>
+          <td>1</td>
+          <td>價格差異管理</td>
+          <td>低</td>
+        </tr>
+        <tr>
+          <td>PDF 結算單 + LINE 推播</td>
+          <td><span class="pill p1">P0 必做</span></td>
+          <td>1</td>
+          <td>客戶溝通效率</td>
+          <td>低</td>
+        </tr>
+        <tr>
+          <td>應收帳款月結</td>
+          <td><span class="pill p1">P0 必做</span></td>
+          <td>1</td>
+          <td>帳款追蹤</td>
+          <td>低</td>
+        </tr>
+        <tr>
+          <td>整機銷售（新 + 二手）</td>
+          <td><span class="pill p2">P1 重要</span></td>
+          <td>2</td>
+          <td>銷售記錄數位化</td>
+          <td>中</td>
+        </tr>
+        <tr>
+          <td>A 類零件庫存</td>
+          <td><span class="pill p2">P1 重要</span></td>
+          <td>2</td>
+          <td>高單價零件控管</td>
+          <td>中</td>
+        </tr>
+        <tr>
+          <td>電子發票</td>
+          <td><span class="pill p2">P1 重要</span></td>
+          <td>2</td>
+          <td>法規需求</td>
+          <td>高</td>
+        </tr>
+        <tr>
+          <td>安全庫存預警</td>
+          <td><span class="pill p2">P1 重要</span></td>
+          <td>2</td>
+          <td>採購效率</td>
+          <td>低</td>
+        </tr>
+        <tr>
+          <td>庫存盤點</td>
+          <td><span class="pill p3">P2 未來</span></td>
+          <td>3</td>
+          <td>全面庫存精準度</td>
+          <td>低</td>
+        </tr>
+        <tr>
+          <td>AI 進貨預測</td>
+          <td><span class="pill p3">P2 未來</span></td>
+          <td>3</td>
+          <td>採購優化</td>
+          <td>高</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+</div>
+
+<!-- ===== TECH STACK ===== -->
+<div class="section">
+  <div class="section-title">技術架構</div>
+  <div class="highlight blue">
+    <strong>🏗️ 沿用現有 ERP 模板技術棧</strong>
+    本系統基於已成熟的多租戶 ERP 模板（潤樋實業 LINE Bot ERP），複用現有基礎建設，大幅降低開發成本與風險。
+  </div>
+
+  <div class="tech-grid" style="margin-top:20px">
+    <div class="tech-item"><span class="ticon">⚙️</span><div><strong>Express 5 + TypeScript</strong><br><small>後端 API 伺服器</small></div></div>
+    <div class="tech-item"><span class="ticon">🐘</span><div><strong>PostgreSQL + Prisma 7</strong><br><small>資料庫 + ORM</small></div></div>
+    <div class="tech-item"><span class="ticon">☁️</span><div><strong>Fly.io</strong><br><small>雲端部署（台灣節點）</small></div></div>
+    <div class="tech-item"><span class="ticon">💚</span><div><strong>LINE Messaging API</strong><br><small>主操作介面</small></div></div>
+    <div class="tech-item"><span class="ticon">📱</span><div><strong>LIFF</strong><br><small>複雜表單（報價 / 工單）</small></div></div>
+    <div class="tech-item"><span class="ticon">🤖</span><div><strong>Claude Haiku</strong><br><small>語意解析 AI</small></div></div>
+    <div class="tech-item"><span class="ticon">🎙️</span><div><strong>OpenAI Whisper</strong><br><small>語音轉文字</small></div></div>
+    <div class="tech-item"><span class="ticon">🧾</span><div><strong>綠界科技</strong><br><small>電子發票（推薦）</small></div></div>
+    <div class="tech-item"><span class="ticon">📄</span><div><strong>PDFKit</strong><br><small>工單 / 銷貨單 PDF</small></div></div>
+    <div class="tech-item"><span class="ticon">🏪</span><div><strong>後台 Admin Web</strong><br><small>純 HTML/JS，無 build step</small></div></div>
+  </div>
+</div>
+
+<!-- ===== CONFIRM ===== -->
+<div id="confirm" class="bg-alt">
+<div class="section">
+  <div class="section-title">✅ 客戶確認清單</div>
+  <div class="section-subtitle">請與客戶逐項確認後，再進入 Claude Code 開發階段</div>
+
+  <ul class="checklist">
+    <li><div class="cbox"></div><div><strong>客戶等級名稱</strong>：「專業維修、常客、散戶」三級是否符合？還是有不同稱謂？</div></li>
+    <li><div class="cbox"></div><div><strong>工時費標準</strong>：各等級工時費價格區間是多少？</div></li>
+    <li><div class="cbox"></div><div><strong>二手機整備流程</strong>：收購後是否有固定整備工序需要記錄？</div></li>
+    <li><div class="cbox"></div><div><strong>零件料號格式</strong>：目前使用的料號規則是什麼？（如品牌縮寫 + 編號）</div></li>
+    <li><div class="cbox"></div><div><strong>A 類零件清單</strong>：初期要納管哪些高單價 / 高周轉零件？約幾項？</div></li>
+    <li><div class="cbox"></div><div><strong>供應商數量</strong>：目前主要零件供應商有幾家？</div></li>
+    <li><div class="cbox"></div><div><strong>電子發票</strong>：B2C 要支援手機載具嗎？B2B 需開三聯式嗎？</div></li>
+    <li><div class="cbox"></div><div><strong>到府維修</strong>：有到府維修服務嗎？需要記錄地點與行程？</div></li>
+    <li><div class="cbox"></div><div><strong>多技師</strong>：店內有幾位技師？需要技師業績個別統計嗎？</div></li>
+    <li><div class="cbox"></div><div><strong>機器序號管理</strong>：新機需要登記序號 / 保固日期嗎？</div></li>
+    <li><div class="cbox"></div><div><strong>LINE 帳號</strong>：是否已有 LINE 官方帳號？或需要新申請？</div></li>
+    <li><div class="cbox"></div><div><strong>現有 Excel</strong>：現有 Excel 資料（客戶 / 零件）是否需要轉移匯入？</div></li>
+  </ul>
+
+  <div class="highlight" style="margin-top:28px">
+    <strong>📋 下一步</strong>
+    1. 與客戶逐項確認以上清單<br>
+    2. 確認 Phase 1 功能範圍與時程<br>
+    3. 確認電子發票廠商（建議綠界 / 歐付寶）<br>
+    4. 匯出本文件 + PPT 至 Claude Code，開始 Phase 1 開發
+  </div>
+</div>
+</div>
+
+<footer>
+  農機設備維修販售 ERP 系統架構提案 — 版本 1.0 | 2026-06-12<br>
+  基於多租戶 ERP 模板開發，適用台灣農機維修販售業
+</footer>
+
+<script>
+  // Smooth scroll nav
+  document.querySelectorAll('nav a').forEach(a => {
+    a.addEventListener('click', e => {
+      e.preventDefault();
+      const target = document.querySelector(a.getAttribute('href'));
+      if (target) target.scrollIntoView({ behavior: 'smooth' });
+      document.querySelectorAll('nav a').forEach(x => x.classList.remove('active'));
+      a.classList.add('active');
+    });
+  });
+
+  // Highlight nav on scroll
+  const sections = document.querySelectorAll('[id]');
+  window.addEventListener('scroll', () => {
+    let current = '';
+    sections.forEach(s => {
+      if (window.scrollY >= s.offsetTop - 80) current = s.id;
+    });
+    document.querySelectorAll('nav a').forEach(a => {
+      a.classList.toggle('active', a.getAttribute('href') === '#' + current);
+    });
+  });
+</script>
+</body>
+</html>

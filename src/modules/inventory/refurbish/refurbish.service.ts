@@ -88,6 +88,38 @@ export async function addItem(
   return item;
 }
 
+export async function removeItem(
+  tenantId: string,
+  orderId: string,
+  itemId: string,
+  createdBy?: string,
+) {
+  const order = await prisma.refurbishOrder.findFirst({
+    where: { id: orderId, tenantId },
+  });
+  if (!order) throw new NotFoundError('RefurbishOrder', orderId);
+  if (order.status !== 'IN_PROGRESS') {
+    throw new ValidationError('只能在進行中的整備工單刪除零件');
+  }
+
+  const item = await prisma.refurbishOrderItem.findFirst({
+    where: { id: itemId, refurbishOrderId: orderId },
+    include: { product: { select: { id: true, name: true } } },
+  });
+  if (!item) throw new NotFoundError('RefurbishOrderItem', itemId);
+
+  await prisma.refurbishOrderItem.delete({ where: { id: itemId } });
+
+  await adjust(tenantId, item.productId, item.quantity, 'ADJUSTMENT', {
+    refType: 'RefurbishOrder',
+    refId: orderId,
+    note: `整備退料：${item.product.name} x${item.quantity}`,
+    createdBy,
+  });
+
+  return { deleted: true };
+}
+
 export async function complete(tenantId: string, orderId: string) {
   const order = await prisma.refurbishOrder.findFirst({
     where: { id: orderId, tenantId },

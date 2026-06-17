@@ -67,6 +67,20 @@ refurbishRouter.post('/:id/items', async (req: Request, res: Response, next: Nex
   }
 });
 
+refurbishRouter.delete('/:id/items/:itemId', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const result = await refurbishService.removeItem(
+      req.tenantId,
+      String(req.params.id),
+      String(req.params.itemId),
+      req.employee.id,
+    );
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
 refurbishRouter.post('/:id/complete', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const row = await refurbishService.complete(req.tenantId, String(req.params.id));
