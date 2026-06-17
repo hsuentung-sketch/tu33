@@ -43,7 +43,6 @@ export async function list(
       createdBy: true,
       createdByEmployee: { select: { name: true, employeeId: true } },
       grade: true,
-      priceTier: true,
       tags: true,
       isActive: true,
     },
@@ -95,7 +94,6 @@ export async function create(
     lineUserId?: string;
     email?: string;
     grade?: string;
-    priceTier?: number;
     tags?: string[];
     createdBy?: string;
   },
@@ -129,7 +127,6 @@ export async function create(
       lineUserId: data.lineUserId,
       email: data.email,
       grade: data.grade ?? 'B',
-      priceTier: data.priceTier ?? 1,
       tags: data.tags ?? [],
     },
   });
@@ -202,7 +199,6 @@ export async function findByName(
       fixedPaymentDay: true,
       paymentMethod: true,
       grade: true,
-      priceTier: true,
       tags: true,
     },
     orderBy: { name: 'asc' },

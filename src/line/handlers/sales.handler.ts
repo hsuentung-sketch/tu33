@@ -10,7 +10,6 @@ import { buildPdfShortUrl } from '../../documents/pdf-shortlink.js';
 import { sendItemConfirmCard } from './item-confirm.js';
 import { makeSafeSend } from '../safe-send.js';
 import { getTenantSettings } from '../../shared/utils.js';
-import { applyTierDiscount, PRICE_TIER_LABEL } from '../../shared/pricing.js';
 
 /**
  * Small helper: a "label: value" baseline row inside a Flex bubble.
@@ -704,15 +703,6 @@ export async function handleSalesText(text: string, ctx: any): Promise<boolean> 
       return true;
     }
 
-    // Look up customer's price tier for discount display.
-    const customer = s.data.partyId
-      ? await prisma.customer.findUnique({
-          where: { id: s.data.partyId },
-          select: { priceTier: true },
-        })
-      : null;
-    const tier = customer?.priceTier ?? 1;
-
     // Look up each product's last sale to *this customer* so the card
     // can show "上次成交價 / 交易日" alongside the product master price.
     const names = products.map((p) => p.name);
@@ -737,40 +727,9 @@ export async function handleSalesText(text: string, ctx: any): Promise<boolean> 
 
     const bubbles = products.slice(0, 10).map((p) => {
       const last = lastByProduct.get(p.name);
-      const listPrice = Number(p.salePrice);
-      const tierPrice = applyTierDiscount(listPrice, tier);
       // Prefer last transaction price (more relevant to this customer);
-      // fall back to tier-discounted price.
-      const suggest = last ? last.unitPrice : tierPrice;
-
-      const bodyContents: any[] = [
-        { type: 'text', text: p.name, weight: 'bold', size: 'md', wrap: true },
-      ];
-      if (tier > 1) {
-        bodyContents.push({
-          type: 'text',
-          text: PRICE_TIER_LABEL[tier] ?? `Tier ${tier}`,
-          size: 'xxs',
-          color: '#ffffff',
-          align: 'end',
-          decoration: 'none',
-          weight: 'bold',
-          background: { type: 'linearGradient', angle: '0deg', startColor: '#06c755', endColor: '#06c755' },
-          margin: 'none',
-        });
-      }
-      bodyContents.push(
-        { type: 'separator', margin: 'sm' },
-        infoRow('牌價', `$${listPrice.toLocaleString('zh-TW')}`),
-      );
-      if (tier > 1) {
-        bodyContents.push(infoRow('折扣價', `$${tierPrice.toLocaleString('zh-TW')}`));
-      }
-      bodyContents.push(
-        infoRow('上次成交', last ? `$${last.unitPrice.toLocaleString('zh-TW')}` : 'null'),
-        infoRow('交易日', last ? fmtDate(last.date) : 'null'),
-      );
-
+      // fall back to product master salePrice.
+      const suggest = last ? last.unitPrice : Number(p.salePrice);
       return {
         type: 'bubble',
         size: 'kilo',
@@ -778,7 +737,13 @@ export async function handleSalesText(text: string, ctx: any): Promise<boolean> 
           type: 'box',
           layout: 'vertical',
           spacing: 'sm',
-          contents: bodyContents,
+          contents: [
+            { type: 'text', text: p.name, weight: 'bold', size: 'md', wrap: true },
+            { type: 'separator', margin: 'sm' },
+            infoRow('建議售價', `$${Number(p.salePrice).toLocaleString('zh-TW')}`),
+            infoRow('上次成交', last ? `$${last.unitPrice.toLocaleString('zh-TW')}` : 'null'),
+            infoRow('交易日', last ? fmtDate(last.date) : 'null'),
+          ],
         },
         footer: {
           type: 'box',
