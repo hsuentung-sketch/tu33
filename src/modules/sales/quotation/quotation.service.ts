@@ -23,10 +23,10 @@ export interface QuotationCreateInput {
   customerId: string;
   salesPerson: string;
   salesPhone?: string | null;
-  supplyTime?: string;
-  paymentTerms?: string;
-  validUntil?: string;
-  note?: string;
+  supplyTime?: string | null;
+  paymentTerms?: string | null;
+  validUntil?: string | null;
+  note?: string | null;
   createdBy: string;
   items: QuotationItemInput[];
 }
