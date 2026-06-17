@@ -383,6 +383,80 @@ async function reverseInventory(
   }
 }
 
+export async function listByCustomer(
+  tenantId: string,
+  customerId: string,
+  opts: { createdBy?: string; page?: number; pageSize?: number } = {},
+) {
+  const page = Math.max(1, opts.page ?? 1);
+  const pageSize = Math.min(100, Math.max(1, opts.pageSize ?? 20));
+  const where = {
+    tenantId,
+    customerId,
+    isDeleted: false,
+    ...(opts.createdBy ? { createdBy: opts.createdBy } : {}),
+  };
+  const [total, orders] = await Promise.all([
+    prisma.salesOrder.count({ where }),
+    prisma.salesOrder.findMany({
+      where,
+      include: { items: true },
+      orderBy: { orderDate: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+  ]);
+  const rows = orders.flatMap((o) =>
+    o.items.map((it) => ({
+      orderDate: o.orderDate,
+      orderNo: o.orderNo,
+      productName: it.productName,
+      quantity: it.quantity,
+      unitPrice: Number(it.unitPrice),
+      amount: Number(it.amount),
+    })),
+  );
+  return { rows, total, page, pageSize };
+}
+
+export async function listByProductName(
+  tenantId: string,
+  productName: string,
+  opts: { createdBy?: string; page?: number; pageSize?: number } = {},
+) {
+  const page = Math.max(1, opts.page ?? 1);
+  const pageSize = Math.min(100, Math.max(1, opts.pageSize ?? 20));
+  const where = {
+    tenantId,
+    isDeleted: false,
+    items: { some: { productName } },
+    ...(opts.createdBy ? { createdBy: opts.createdBy } : {}),
+  };
+  const [total, orders] = await Promise.all([
+    prisma.salesOrder.count({ where }),
+    prisma.salesOrder.findMany({
+      where,
+      include: { items: true, customer: true },
+      orderBy: { orderDate: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+  ]);
+  const rows = orders.flatMap((o) =>
+    o.items
+      .filter((it) => it.productName === productName)
+      .map((it) => ({
+        orderDate: o.orderDate,
+        orderNo: o.orderNo,
+        customerName: o.customer?.name ?? '(未知)',
+        quantity: it.quantity,
+        unitPrice: Number(it.unitPrice),
+        amount: Number(it.amount),
+      })),
+  );
+  return { rows, total, page, pageSize };
+}
+
 export async function complete(tenantId: string, id: string) {
   const order = await getById(tenantId, id);
   if (order.status !== 'DELIVERED') {

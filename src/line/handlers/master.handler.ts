@@ -6,6 +6,7 @@ import * as productService from '../../modules/master/product/product.service.js
 import * as productDocService from '../../modules/master/product/product-document.service.js';
 import * as receivableService from '../../modules/accounting/receivable/receivable.service.js';
 import * as inventoryService from '../../modules/inventory/inventory.service.js';
+import * as salesOrderService from '../../modules/sales/sales-order/sales-order.service.js';
 import * as session from '../session.js';
 import {
   createCustomerFromOcrSession,
@@ -48,6 +49,8 @@ export async function handleMasterText(text: string, ctx: any): Promise<boolean>
   if (mode === 'customer') return replySearchCustomer(client, event, tenantId, q, isAll);
   if (mode === 'product') return replySearchProduct(client, event, tenantId, q, isAll, lineUserId);
   if (mode === 'ar') return replySearchAr(client, event, tenantId, q, isAll);
+  if (mode === 'customer-history') return replyCustomerHistory(client, event, tenantId, q, isAll, employee);
+  if (mode === 'product-customers') return replyProductCustomers(client, event, tenantId, q, isAll, employee);
 
   // No mode set (legacy empty-q path) — fall through to combined search.
   await replyCombined(client, event, tenantId, q, employee);
@@ -393,6 +396,76 @@ async function replySearchAr(
   return true;
 }
 
+async function replyCustomerHistory(
+  client: any, event: any, tenantId: string, query: string, _isAll: boolean,
+  employee: { id: string; role?: string },
+): Promise<boolean> {
+  const customers = await customerService.findByName(tenantId, query);
+  if (!customers.length) {
+    await client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [{ type: 'text', text: `找不到「${query}」相關客戶。` }],
+    });
+    return true;
+  }
+  const customer = customers[0];
+  const createdBy = employee.role === 'SALES' ? employee.id : undefined;
+  const result = await salesOrderService.listByCustomer(tenantId, customer.id, { createdBy, pageSize: 10 });
+  if (!result.rows.length) {
+    await client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [{ type: 'text', text: `「${customer.name}」目前沒有交易紀錄。` }],
+    });
+    return true;
+  }
+  const lines = result.rows.map((r, i) => {
+    const d = new Date(r.orderDate);
+    const ds = `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+    return `${i + 1}. ${ds}\n   ${r.productName}\n   數量：${r.quantity}　金額：${Number(r.amount).toLocaleString()}`;
+  }).join('\n\n');
+  const header = `【${customer.name} 交易紀錄】共 ${result.total} 筆${result.total > 10 ? '（顯示前 10 筆）' : ''}`;
+  await client.replyMessage({
+    replyToken: event.replyToken,
+    messages: [{ type: 'text', text: truncate(`${header}\n\n${lines}`) }],
+  });
+  return true;
+}
+
+async function replyProductCustomers(
+  client: any, event: any, tenantId: string, query: string, _isAll: boolean,
+  employee: { id: string; role?: string },
+): Promise<boolean> {
+  const products = await productService.findByNameOrCode(tenantId, query);
+  if (!products.length) {
+    await client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [{ type: 'text', text: `找不到「${query}」相關產品。` }],
+    });
+    return true;
+  }
+  const product = products[0];
+  const createdBy = employee.role === 'SALES' ? employee.id : undefined;
+  const result = await salesOrderService.listByProductName(tenantId, product.name, { createdBy, pageSize: 10 });
+  if (!result.rows.length) {
+    await client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [{ type: 'text', text: `「${product.name}」目前沒有客戶購買紀錄。` }],
+    });
+    return true;
+  }
+  const lines = result.rows.map((r, i) => {
+    const d = new Date(r.orderDate);
+    const ds = `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+    return `${i + 1}. ${ds}\n   ${r.customerName}\n   數量：${r.quantity}　金額：${Number(r.amount).toLocaleString()}`;
+  }).join('\n\n');
+  const header = `【${product.name} 客戶紀錄】共 ${result.total} 筆${result.total > 10 ? '（顯示前 10 筆）' : ''}`;
+  await client.replyMessage({
+    replyToken: event.replyToken,
+    messages: [{ type: 'text', text: truncate(`${header}\n\n${lines}`) }],
+  });
+  return true;
+}
+
 // Legacy combined search (when text "查詢 xxx" comes in directly).
 async function replyCombined(client: any, event: any, tenantId: string, query: string, employee?: { role?: string }): Promise<void> {
   if (!query) {
@@ -452,12 +525,14 @@ function searchMenuFlex() {
         btn('1. 查詢客戶資料',      'action=master:search:customer', '#2E7D32'),
         btn('2. 查詢產品資料與價格', 'action=master:search:product',  '#1565C0'),
         btn('3. 查詢應收帳款',      'action=master:search:ar',       '#AD1457'),
+        btn('4. 客戶交易紀錄',      'action=master:search:customer-history', '#00695C'),
+        btn('5. 產品客戶查詢',      'action=master:search:product-customers', '#4527A0'),
       ],
     },
   };
 }
 
-function startSearchSession(tenantId: string, lineUserId: string, mode: 'customer' | 'product' | 'ar'): void {
+function startSearchSession(tenantId: string, lineUserId: string, mode: 'customer' | 'product' | 'ar' | 'customer-history' | 'product-customers'): void {
   session.set(tenantId, lineUserId, {
     flow: 'master:search',
     step: 'party',
@@ -639,6 +714,22 @@ export async function handleMasterCommand(action: string, ctx: any): Promise<voi
       await client.replyMessage({
         replyToken: event.replyToken,
         messages: [{ type: 'text', text: '請輸入客戶簡稱（或輸入「全部」列出所有應收帳款）：' }],
+      });
+      return;
+    }
+    case 'master:search:customer-history': {
+      if (employee.lineUserId) startSearchSession(tenantId, employee.lineUserId, 'customer-history');
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: '請輸入客戶簡稱，查詢該客戶的交易紀錄：' }],
+      });
+      return;
+    }
+    case 'master:search:product-customers': {
+      if (employee.lineUserId) startSearchSession(tenantId, employee.lineUserId, 'product-customers');
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: '請輸入產品名稱或編號，查詢購買過的客戶：' }],
       });
       return;
     }

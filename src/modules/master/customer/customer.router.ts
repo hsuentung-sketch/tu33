@@ -4,6 +4,7 @@ import multer from 'multer';
 import { ForbiddenError, ValidationError } from '../../../shared/errors.js';
 import { recognizeBusinessCard } from '../../../ai/ocr.js';
 import * as customerService from './customer.service.js';
+import * as salesOrderService from '../../sales/sales-order/sales-order.service.js';
 
 export const customerRouter = Router();
 
@@ -102,6 +103,20 @@ async function ensureSalesCanEdit(req: Request) {
 customerRouter.get('/:id/payment-days', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const result = await customerService.getPaymentDays(String(req.params.id));
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+customerRouter.get('/:id/transactions', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const page = parseInt(String(req.query.page || '1'), 10);
+    const pageSize = parseInt(String(req.query.pageSize || '20'), 10);
+    const createdBy = req.employee?.role === 'SALES' ? req.employee.id : undefined;
+    const result = await salesOrderService.listByCustomer(
+      req.tenantId, String(req.params.id), { createdBy, page, pageSize },
+    );
     res.json(result);
   } catch (err) {
     next(err);

@@ -94,7 +94,7 @@ export interface Session {
      */
     pendingProduct?: { name: string; salePrice: number; costPrice: number };
     /** For 'master:search' flow: which dataset to query next. */
-    searchMode?: 'customer' | 'product' | 'ar';
+    searchMode?: 'customer' | 'product' | 'ar' | 'customer-history' | 'product-customers';
     /** For multi-step add flows (mgmt:emp:add, mgmt:sup:add). */
     pendingCreate?: { stage: string; draft: Record<string, any> };
     ocrCard?: OcrCard;

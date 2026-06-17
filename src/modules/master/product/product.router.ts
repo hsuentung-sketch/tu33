@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { ForbiddenError, ValidationError } from '../../../shared/errors.js';
 import * as productService from './product.service.js';
 import * as productDocService from './product-document.service.js';
+import * as salesOrderService from '../../sales/sales-order/sales-order.service.js';
 
 /** Block SALES from product writes; all other roles keep existing behavior. */
 function blockSales(req: Request, _res: Response, next: NextFunction) {
@@ -81,6 +82,21 @@ productRouter.get('/:id', async (req: Request, res: Response, next: NextFunction
   try {
     const product = await productService.getById(req.tenantId, String(req.params.id));
     res.json(stripCostForSales(req, product));
+  } catch (err) {
+    next(err);
+  }
+});
+
+productRouter.get('/:id/customers', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const product = await productService.getById(req.tenantId, String(req.params.id));
+    const page = parseInt(String(req.query.page || '1'), 10);
+    const pageSize = parseInt(String(req.query.pageSize || '20'), 10);
+    const createdBy = req.employee?.role === 'SALES' ? req.employee.id : undefined;
+    const result = await salesOrderService.listByProductName(
+      req.tenantId, product.name, { createdBy, page, pageSize },
+    );
+    res.json(result);
   } catch (err) {
     next(err);
   }

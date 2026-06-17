@@ -1,6 +1,6 @@
 {
   "name": "erp-line-bot",
-  "version": "2.16.3",
+  "version": "2.17.0",
   "description": "LINE Bot ERP System for SMBs - Multi-tenant modular architecture",
   "type": "commonjs",
   "main": "dist/index.js",
@@ -73,6 +73,7 @@
     "@vitest/coverage-v8": "^4.1.4",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2",
-    "vitest": "^4.1.4"
+    "vitest": "^4.1.4",
+    "xlsx": "^0.18.5"
   }
 }

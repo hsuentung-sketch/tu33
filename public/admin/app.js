@@ -207,7 +207,7 @@ async function viewCustomers(main) {
       el('th', {}, '職稱'),
       el('th', {}, '電話'),
       el('th', {}, 'Email'),
-      el('th', {}, '建立業務'),
+      el('th', {}, '價格級距'),
       el('th', {}, '操作'),
     )),
     tbody,
@@ -230,16 +230,19 @@ async function viewCustomers(main) {
         if (c.fixedPaymentDay) parts.push(`付款日${c.fixedPaymentDay}日`);
         return parts.join(' / ') || '';
       })();
-      const empName = c.createdByEmployee?.name || '';
+      const tierLabels = { 1: '一般', 2: '常客(9折)', 3: '熟客(8折)', 4: '職業(7折)', 5: '五金(6折)' };
+      const tierLabel = tierLabels[c.priceTier] || '一般';
       tbody.append(el('tr', {},
         el('td', {}, c.name),
         el('td', {}, c.contactName || ''),
         el('td', {}, c.title || ''),
         el('td', {}, c.phone || ''),
         el('td', { style: 'font-size:12px;color:#555;' }, c.email || ''),
-        el('td', {}, empName),
+        el('td', {}, tierLabel),
         el('td', { class: 'actions' },
           el('button', { class: 'btn small', onClick: () => editCustomer(c, reload) }, '編輯'),
+          ' ',
+          el('button', { class: 'btn small', onClick: () => openCustomerTransactions(c) }, '交易紀錄'),
           ' ',
           c.isActive !== false
             ? el('button', { class: 'btn small danger', onClick: async () => {
@@ -390,7 +393,7 @@ async function viewProducts(main) {
   main.innerHTML = '';
   main.append(el('h2', {}, '產品管理'));
   main.append(el('div', { class: 'page-sub' },
-    isSales() ? '產品主檔（業務帳號為唯讀）。' : '管理產品主檔：售價、進價。'));
+    isSales() ? '產品主檔（業務帳號為唯讀）。' : '管理產品主檔：牌價、進價。'));
   const canEdit = !isSales();
 
   const search = el('input', { type: 'text', placeholder: '搜尋編號/名稱…' });
@@ -402,7 +405,7 @@ async function viewProducts(main) {
       el('th', {}, '編號'),
       el('th', {}, '名稱'),
       el('th', {}, '類別'),
-      el('th', { class: 'num' }, '售價'),
+      el('th', { class: 'num' }, '牌價'),
       showCost ? el('th', { class: 'num' }, '進價') : null,
       el('th', {}, '狀態'),
       el('th', {}, '操作'),
@@ -428,6 +431,8 @@ async function viewProducts(main) {
         el('td', { class: 'actions' },
           canEdit ? el('button', { class: 'btn small', onClick: () => edit(p) }, '編輯') : null,
           canEdit ? ' ' : null,
+          el('button', { class: 'btn small', onClick: () => openProductCustomers(p) }, '客戶紀錄'),
+          ' ',
           el('button', { class: 'btn small', onClick: () => openProductDocs(p) }, '文件'),
           canEdit && p.isActive !== false ? ' ' : null,
           canEdit && p.isActive !== false ? el('button', { class: 'btn small danger', onClick: async () => {
@@ -455,7 +460,7 @@ async function viewProducts(main) {
           { value: 'OTHER', label: '其他' },
         ] },
         { type: 'row', fields: [
-          { name: 'salePrice', label: '售價', type: 'number', required: true },
+          { name: 'salePrice', label: '牌價', type: 'number', required: true },
           { name: 'costPrice', label: '進價', type: 'number', required: true },
         ]},
         { type: 'row', fields: [
@@ -486,6 +491,128 @@ async function viewProducts(main) {
     canEdit ? el('button', { class: 'btn primary', onClick: () => edit(null) }, '+ 新增產品') : null,
   ), table);
   reload();
+}
+
+// -------- Transaction history modals --------
+
+function openCustomerTransactions(customer) {
+  const backdrop = el('div', { class: 'modal-backdrop' });
+  const tbody = el('tbody');
+  const pageInfo = el('div', { style: 'text-align:center;font-size:13px;color:var(--muted);margin-top:8px;' });
+  let currentPage = 1;
+
+  async function load(page) {
+    currentPage = page;
+    tbody.innerHTML = '';
+    tbody.append(skeletonRows(5));
+    try {
+      const res = await api.get(`/customers/${customer.id}/transactions?page=${page}&pageSize=20`);
+      tbody.innerHTML = '';
+      if (!res.rows.length) {
+        tbody.append(el('tr', {}, el('td', { colspan: '5', style: 'text-align:center;color:var(--muted);padding:24px;' }, '無交易紀錄')));
+        pageInfo.textContent = '';
+        return;
+      }
+      for (const r of res.rows) {
+        tbody.append(el('tr', {},
+          el('td', {}, fmtDate(r.orderDate)),
+          el('td', {}, r.orderNo || ''),
+          el('td', {}, r.productName),
+          el('td', { class: 'num' }, String(r.quantity)),
+          el('td', { class: 'num' }, fmtMoney(r.amount)),
+        ));
+      }
+      const totalPages = Math.ceil(res.total / res.pageSize) || 1;
+      pageInfo.innerHTML = '';
+      if (totalPages > 1) {
+        if (page > 1) { const b = el('button', { class: 'btn small', onClick: () => load(page - 1) }, '上一頁'); pageInfo.append(b, ' '); }
+        pageInfo.append(`第 ${page}/${totalPages} 頁`);
+        if (page < totalPages) { const b = el('button', { class: 'btn small', onClick: () => load(page + 1) }, '下一頁'); pageInfo.append(' ', b); }
+      }
+    } catch (e) { tbody.innerHTML = ''; toast(e.message, 'err'); }
+  }
+
+  const modal = el('div', { class: 'modal', style: 'max-width:700px;' },
+    el('h3', {}, `交易紀錄：${customer.name}`),
+    el('table', { class: 'data' },
+      el('thead', {}, el('tr', {},
+        el('th', {}, '日期'),
+        el('th', {}, '單號'),
+        el('th', {}, '產品'),
+        el('th', { class: 'num' }, '數量'),
+        el('th', { class: 'num' }, '金額'),
+      )),
+      tbody,
+    ),
+    pageInfo,
+    el('div', { style: 'text-align:right;margin-top:12px;' },
+      el('button', { class: 'btn', onClick: () => backdrop.remove() }, '關閉'),
+    ),
+  );
+  backdrop.append(modal);
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) backdrop.remove(); });
+  document.body.append(backdrop);
+  load(1);
+}
+
+function openProductCustomers(product) {
+  const backdrop = el('div', { class: 'modal-backdrop' });
+  const tbody = el('tbody');
+  const pageInfo = el('div', { style: 'text-align:center;font-size:13px;color:var(--muted);margin-top:8px;' });
+  let currentPage = 1;
+
+  async function load(page) {
+    currentPage = page;
+    tbody.innerHTML = '';
+    tbody.append(skeletonRows(5));
+    try {
+      const res = await api.get(`/products/${product.id}/customers?page=${page}&pageSize=20`);
+      tbody.innerHTML = '';
+      if (!res.rows.length) {
+        tbody.append(el('tr', {}, el('td', { colspan: '5', style: 'text-align:center;color:var(--muted);padding:24px;' }, '無客戶紀錄')));
+        pageInfo.textContent = '';
+        return;
+      }
+      for (const r of res.rows) {
+        tbody.append(el('tr', {},
+          el('td', {}, fmtDate(r.orderDate)),
+          el('td', {}, r.orderNo || ''),
+          el('td', {}, r.customerName),
+          el('td', { class: 'num' }, String(r.quantity)),
+          el('td', { class: 'num' }, fmtMoney(r.amount)),
+        ));
+      }
+      const totalPages = Math.ceil(res.total / res.pageSize) || 1;
+      pageInfo.innerHTML = '';
+      if (totalPages > 1) {
+        if (page > 1) { const b = el('button', { class: 'btn small', onClick: () => load(page - 1) }, '上一頁'); pageInfo.append(b, ' '); }
+        pageInfo.append(`第 ${page}/${totalPages} 頁`);
+        if (page < totalPages) { const b = el('button', { class: 'btn small', onClick: () => load(page + 1) }, '下一頁'); pageInfo.append(' ', b); }
+      }
+    } catch (e) { tbody.innerHTML = ''; toast(e.message, 'err'); }
+  }
+
+  const modal = el('div', { class: 'modal', style: 'max-width:700px;' },
+    el('h3', {}, `客戶紀錄：${product.name}`),
+    el('table', { class: 'data' },
+      el('thead', {}, el('tr', {},
+        el('th', {}, '日期'),
+        el('th', {}, '單號'),
+        el('th', {}, '客戶'),
+        el('th', { class: 'num' }, '數量'),
+        el('th', { class: 'num' }, '金額'),
+      )),
+      tbody,
+    ),
+    pageInfo,
+    el('div', { style: 'text-align:right;margin-top:12px;' },
+      el('button', { class: 'btn', onClick: () => backdrop.remove() }, '關閉'),
+    ),
+  );
+  backdrop.append(modal);
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) backdrop.remove(); });
+  document.body.append(backdrop);
+  load(1);
 }
 
 // -------- Product documents modal --------
@@ -1241,17 +1368,93 @@ async function openOrderEditor(kind, orderId, onSaved) {
   const body = el('div', { class: 'body' });
   const errBox = el('div', { class: 'err' });
 
-  // Party selector
-  const partyWrap = el('div', { class: 'field' });
-  partyWrap.append(el('label', {}, isPurchase ? '供應商' : '客戶'));
-  const partySelect = el('select', {});
-  for (const p of parties) {
-    const o = el('option', { value: p.id }, p.name);
-    if (p.id === state[partyKey]) o.selected = true;
-    partySelect.append(o);
+  // Price tier discount map
+  const TIER_DISCOUNT = { 1: 1.0, 2: 0.9, 3: 0.8, 4: 0.7, 5: 0.6 };
+  function getSelectedPartyTier() {
+    if (isPurchase) return 1;
+    const party = parties.find(p => p.id === state[partyKey]);
+    return party?.priceTier || 1;
   }
-  partySelect.addEventListener('change', () => { state[partyKey] = partySelect.value; });
-  partyWrap.append(partySelect);
+
+  // Shared dropdown tracking (used by both customer fuzzy search and product search)
+  const _dropdowns = [];
+  function cleanupDropdowns() { _dropdowns.forEach(d => d.remove()); _dropdowns.length = 0; }
+
+  // Party selector
+  const partyWrap = el('div', { class: 'field', style: 'position:relative;' });
+  partyWrap.append(el('label', {}, isPurchase ? '供應商' : '客戶'));
+  let partyInp = null; // customer fuzzy search input ref (used in save handler)
+
+  if (isPurchase) {
+    // Suppliers: simple select (fewer items, no walk-in)
+    const partySelect = el('select', {});
+    for (const p of parties) {
+      const o = el('option', { value: p.id }, p.name);
+      if (p.id === state[partyKey]) o.selected = true;
+      partySelect.append(o);
+    }
+    partySelect.addEventListener('change', () => { state[partyKey] = partySelect.value; });
+    partyWrap.append(partySelect);
+  } else {
+    // Customers: fuzzy search input + walk-in support
+    const selectedParty = parties.find(p => p.id === state[partyKey]);
+    partyInp = el('input', { type: 'text', placeholder: '輸入客戶名稱搜尋，或直接輸入自來客名稱…', autocomplete: 'off', style: 'width:100%;' });
+    partyInp.value = selectedParty?.name || '';
+    const partyDD = el('div', { style: 'position:fixed;z-index:9999;background:#fff;border:1px solid #ccc;border-radius:4px;max-height:300px;min-width:400px;overflow-y:auto;display:none;box-shadow:0 4px 16px rgba(0,0,0,.2);' });
+    document.body.append(partyDD);
+    _dropdowns.push(partyDD);
+    function posPartyDD() {
+      const r = partyInp.getBoundingClientRect();
+      if (window.innerHeight - r.bottom > 200) { partyDD.style.top = r.bottom + 2 + 'px'; partyDD.style.bottom = ''; }
+      else { partyDD.style.bottom = (window.innerHeight - r.top + 2) + 'px'; partyDD.style.top = ''; }
+      partyDD.style.left = r.left + 'px';
+      partyDD.style.width = r.width + 'px';
+    }
+    let partyTimer = null, partyComposing = false;
+    partyInp.addEventListener('compositionstart', () => { partyComposing = true; });
+    partyInp.addEventListener('compositionend', () => { partyComposing = false; doPartySearch(); });
+    function doPartySearch() {
+      const q = partyInp.value.trim();
+      // If user clears the field, unset party
+      if (!q) { state[partyKey] = ''; partyDD.style.display = 'none'; return; }
+      clearTimeout(partyTimer);
+      partyTimer = setTimeout(() => {
+        // Filter parties client-side (customer list already loaded)
+        const matches = parties.filter(p => p.name.includes(q) || (p.phone && p.phone.includes(q)) || (p.code && p.code.includes(q)));
+        partyDD.innerHTML = '';
+        for (const p of matches.slice(0, 20)) {
+          const tier = p.priceTier || 1;
+          const tierText = tier > 1 ? ` [${['','一般','常客','熟客','職業客戶','五金客戶'][tier]}]` : '';
+          const row = el('div', {
+            style: 'padding:6px 10px;cursor:pointer;border-bottom:1px solid #eee;font-size:13px;',
+            onMouseenter: function() { this.style.background = '#f0f0ff'; },
+            onMouseleave: function() { this.style.background = ''; },
+          });
+          row.append(
+            el('div', { style: 'font-weight:500;' }, p.name + tierText),
+            p.phone ? el('div', { style: 'color:#666;font-size:11px;' }, p.phone) : null,
+          );
+          row.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            partyInp.value = p.name;
+            state[partyKey] = p.id;
+            partyDD.style.display = 'none';
+          });
+          partyDD.append(row);
+        }
+        // If no matches, show hint
+        if (!matches.length) {
+          partyDD.append(el('div', { style: 'padding:8px 10px;color:#999;font-size:13px;' }, '無符合客戶'));
+        }
+        posPartyDD(); partyDD.style.display = 'block';
+      }, 100);
+    }
+    partyInp.addEventListener('input', () => { if (!partyComposing) doPartySearch(); });
+    partyInp.addEventListener('focus', () => { if (partyInp.value.trim()) doPartySearch(); });
+    partyDD.addEventListener('mousedown', (e) => { e.preventDefault(); });
+    document.addEventListener('click', (e) => { if (!partyWrap.contains(e.target)) partyDD.style.display = 'none'; });
+    partyWrap.append(partyInp);
+  }
   body.append(partyWrap);
 
   // Staff + phone row
@@ -1313,15 +1516,100 @@ async function openOrderEditor(kind, orderId, onSaved) {
   function renderItems() {
     itemsBody.innerHTML = '';
     state.items.forEach((it, idx) => {
-      const nameInp = el('input', { type: 'text', style: 'width:100%;' });
+      // Product name with fuzzy search autocomplete
+      const nameCell = el('td', {});
+      const nameInp = el('input', { type: 'text', style: 'width:100%;', placeholder: '輸入產品名稱搜尋…', autocomplete: 'off' });
       nameInp.value = it.productName;
-      nameInp.addEventListener('input', () => { it.productName = nameInp.value; });
+      const dropdown = el('div', { style: 'position:fixed;z-index:9999;background:#fff;border:1px solid #ccc;border-radius:4px;max-height:300px;min-width:450px;overflow-y:auto;display:none;box-shadow:0 4px 16px rgba(0,0,0,.2);' });
+      document.body.append(dropdown);
+      _dropdowns.push(dropdown);
+      function positionDropdown() {
+        const rect = nameInp.getBoundingClientRect();
+        const spaceBelow = window.innerHeight - rect.bottom;
+        if (spaceBelow > 200) {
+          dropdown.style.top = rect.bottom + 2 + 'px';
+          dropdown.style.bottom = '';
+        } else {
+          dropdown.style.bottom = (window.innerHeight - rect.top + 2) + 'px';
+          dropdown.style.top = '';
+        }
+        dropdown.style.left = rect.left + 'px';
+      }
+      nameCell.append(nameInp);
+      let searchTimer = null;
+      let isComposing = false;
+      nameInp.addEventListener('compositionstart', () => { isComposing = true; });
+      nameInp.addEventListener('compositionend', () => {
+        isComposing = false;
+        doSearch();
+      });
+      function doSearch() {
+        it.productName = nameInp.value;
+        clearTimeout(searchTimer);
+        const q = nameInp.value.trim();
+        if (q.length < 1) { dropdown.style.display = 'none'; return; }
+        searchTimer = setTimeout(async () => {
+          try {
+            const results = await api.get('/products?q=' + encodeURIComponent(q));
+            dropdown.innerHTML = '';
+            if (!results.length) {
+              dropdown.append(el('div', { style: 'padding:8px;color:#999;font-size:12px;' }, '無符合產品'));
+              positionDropdown(); dropdown.style.display = 'block';
+              return;
+            }
+            const tier = getSelectedPartyTier();
+            const disc = TIER_DISCOUNT[tier] || 1;
+            for (const prod of results) {
+              let fillPrice, priceText;
+              if (isPurchase) {
+                fillPrice = Number(prod.purchaseCost) || 0;
+                priceText = `進價 ${fmtMoney(fillPrice)}`;
+              } else {
+                const listPrice = Number(prod.salePrice);
+                fillPrice = Math.round(listPrice * disc);
+                priceText = disc < 1 ? `牌價 ${fmtMoney(listPrice)} → ${Math.round(disc * 100)}折 ${fmtMoney(fillPrice)}` : `牌價 ${fmtMoney(listPrice)}`;
+              }
+              const row = el('div', {
+                style: 'padding:6px 10px;cursor:pointer;border-bottom:1px solid #eee;font-size:13px;',
+                onMouseenter: function() { this.style.background = '#f0f0ff'; },
+                onMouseleave: function() { this.style.background = ''; },
+              });
+              row.append(
+                el('div', { style: 'font-weight:500;' }, `${prod.code} ${prod.name}`),
+                el('div', { style: 'color:#666;font-size:11px;' }, `${prod.category || ''} | ${priceText}`),
+              );
+              row.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                it.productName = prod.name;
+                nameInp.value = prod.name;
+                it.unitPrice = fillPrice;
+                priceInp.value = String(fillPrice);
+                recalcLine();
+                dropdown.style.display = 'none';
+              });
+              dropdown.append(row);
+            }
+            positionDropdown(); dropdown.style.display = 'block';
+          } catch (_) { dropdown.style.display = 'none'; }
+        }, 150);
+      }
+      nameInp.addEventListener('input', () => {
+        if (isComposing) return;
+        doSearch();
+      });
+      nameInp.addEventListener('focus', () => {
+        if (nameInp.value.trim().length >= 1 && dropdown.children.length) { positionDropdown(); dropdown.style.display = 'block'; }
+      });
+      dropdown.addEventListener('mousedown', (e) => { e.preventDefault(); });
+      document.addEventListener('click', (e) => {
+        if (!nameCell.contains(e.target)) dropdown.style.display = 'none';
+      });
+
       const qtyInp = el('input', { type: 'number', step: '1', style: 'width:70px;text-align:right;' });
       qtyInp.value = String(it.quantity);
       const priceInp = el('input', { type: 'number', step: '0.01', style: 'width:90px;text-align:right;' });
       priceInp.value = String(it.unitPrice);
       const lineCell = el('td', { class: 'num' }, fmtMoney((it.quantity || 0) * (it.unitPrice || 0)));
-      // 數量/單價 input 只更新資料 + 行金額 + 底部總計，不重建 DOM
       const recalcLine = () => {
         const line = (it.quantity || 0) * (it.unitPrice || 0);
         lineCell.textContent = fmtMoney(line);
@@ -1336,7 +1624,7 @@ async function openOrderEditor(kind, orderId, onSaved) {
         state.items.splice(idx, 1); renderItems();
       } }, '刪');
       itemsBody.append(el('tr', {},
-        el('td', {}, nameInp),
+        nameCell,
         el('td', { class: 'num' }, qtyInp),
         el('td', { class: 'num' }, priceInp),
         lineCell,
@@ -1380,6 +1668,13 @@ async function openOrderEditor(kind, orderId, onSaved) {
         throw new Error('請填寫修改原因');
       }
       if (!state.items.length) throw new Error('至少需要一個品項');
+      // Auto-create customer if typed name doesn't match existing
+      if (!isPurchase && !state[partyKey]) {
+        const typed = partyInp?.value?.trim();
+        if (!typed) throw new Error('請選擇或輸入客戶名稱');
+        const newCust = await api.post('/customers', { name: typed });
+        state[partyKey] = newCust.id;
+      }
       if (!state[partyKey]) throw new Error(isPurchase ? '請選擇供應商' : '請選擇客戶');
       if (!state[staffKey]?.trim()) throw new Error(isPurchase ? '請填寫內勤姓名' : '請填寫業務姓名');
       const payload = isQuote ? {
@@ -1415,7 +1710,7 @@ async function openOrderEditor(kind, orderId, onSaved) {
         await api.put(`${urlBase}/${orderId}`, payload);
         toast('已儲存', 'ok');
       }
-      backdrop.remove();
+      cleanupDropdowns(); backdrop.remove();
       onSaved?.();
     } catch (e) { errBox.textContent = e.message; }
   });
@@ -1424,7 +1719,7 @@ async function openOrderEditor(kind, orderId, onSaved) {
     try {
       await api.del(`${urlBase}/${orderId}`);
       toast('已刪除', 'ok');
-      backdrop.remove();
+      cleanupDropdowns(); backdrop.remove();
       onSaved?.();
     } catch (e) { errBox.textContent = e.message; }
   } }, '刪除') : el('span');
@@ -1440,13 +1735,13 @@ async function openOrderEditor(kind, orderId, onSaved) {
     el('div', { class: 'actions', style: 'justify-content:space-between;' },
       deleteBtn,
       el('div', {},
-        el('button', { class: 'btn', onClick: () => backdrop.remove() }, '取消'),
+        el('button', { class: 'btn', onClick: () => { cleanupDropdowns(); backdrop.remove(); } }, '取消'),
         ' ', saveBtn,
       ),
     ),
   );
   backdrop.append(modal);
-  backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
+  backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) { cleanupDropdowns(); backdrop.remove(); } });
   document.body.append(backdrop);
 }
 
@@ -2519,6 +2814,105 @@ async function openEinvoiceIssueModal(ar, onSaved) {
   document.body.append(backdrop);
 }
 
+// ----- Receipt viewer (shared: used by AR list + einvoice page) -----
+
+async function viewReceipt(a) {
+  const backdrop = el('div', { class: 'modal-backdrop' });
+  let detail, tenant;
+  try {
+    detail = await api.get(`/receivables/${a.id}`);
+    tenant = await api.get('/tenant/me');
+  } catch (e) { toast(e.message, 'err'); return; }
+  const so = detail.salesOrder;
+  const items = so?.items || [];
+  const now = new Date();
+  const rocYear = now.getFullYear() - 1911;
+  const dateStr = `${rocYear} 年 ${now.getMonth() + 1} 月 ${now.getDate()} 日`;
+
+  const receiptDiv = el('div', { id: 'receipt-view-area', style: 'padding:24px;font-family:"Noto Sans TC",sans-serif;max-width:600px;margin:0 auto;' });
+  receiptDiv.append(
+    el('div', { style: 'text-align:center;margin-bottom:4px;' },
+      el('h2', { style: 'margin:0;font-size:24px;letter-spacing:12px;border-bottom:2px solid #000;display:inline-block;padding-bottom:4px;' }, '收　據'),
+    ),
+  );
+  receiptDiv.append(
+    el('div', { style: 'display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;' },
+      el('div', { style: 'font-size:13px;line-height:1.8;' },
+        el('div', {}, `中華民國 ${dateStr}`),
+        el('div', {}, `單號：${so?.orderNo || a.salesOrderId || ''}`),
+        el('div', {}, `客戶：${detail.customer?.name || ''}`),
+      ),
+      el('div', { style: 'text-align:right;font-size:13px;line-height:1.6;' },
+        el('div', { style: 'font-weight:700;font-size:15px;' }, tenant.companyName || ''),
+        tenant.phone ? el('div', {}, tenant.phone) : null,
+        tenant.address ? el('div', {}, tenant.address) : null,
+        tenant.taxId ? el('div', {}, `統編：${tenant.taxId}`) : null,
+      ),
+    ),
+  );
+  const cellBdr = 'padding:4px 6px;border:1px solid #333;';
+  const tHead = el('thead', {}, el('tr', { style: 'background:#333;color:#fff;' },
+    el('th', { style: cellBdr + 'text-align:center;width:24px;' }, '#'),
+    el('th', { style: cellBdr + 'text-align:left;' }, '品名'),
+    el('th', { style: cellBdr + 'text-align:right;width:45px;' }, '數量'),
+    el('th', { style: cellBdr + 'text-align:right;width:65px;' }, '單價'),
+    el('th', { style: cellBdr + 'text-align:right;width:75px;' }, '金額'),
+    el('th', { style: cellBdr + 'text-align:left;width:55px;' }, '備註'),
+  ));
+  const tBody = el('tbody');
+  let subtotal = 0;
+  items.forEach((it, i) => {
+    const amt = (it.quantity || 0) * (Number(it.unitPrice) || 0);
+    subtotal += amt;
+    tBody.append(el('tr', {},
+      el('td', { style: cellBdr + 'text-align:center;' }, String(i + 1)),
+      el('td', { style: cellBdr }, it.productName || ''),
+      el('td', { style: cellBdr + 'text-align:right;' }, String(it.quantity || 0)),
+      el('td', { style: cellBdr + 'text-align:right;' }, fmtMoney(Number(it.unitPrice) || 0)),
+      el('td', { style: cellBdr + 'text-align:right;' }, fmtMoney(amt)),
+      el('td', { style: cellBdr }, it.note || ''),
+    ));
+  });
+  for (let i = items.length; i < 15; i++) {
+    tBody.append(el('tr', {},
+      el('td', { style: cellBdr + 'text-align:center;color:#ccc;' }, String(i + 1)),
+      el('td', { style: cellBdr }, ''), el('td', { style: cellBdr }, ''),
+      el('td', { style: cellBdr }, ''), el('td', { style: cellBdr }, ''),
+      el('td', { style: cellBdr }, ''),
+    ));
+  }
+  receiptDiv.append(el('table', { style: 'width:100%;border-collapse:collapse;font-size:13px;' }, tHead, tBody));
+  receiptDiv.append(
+    el('div', { style: 'text-align:right;margin-top:0;font-size:15px;font-weight:700;border:1px solid #333;border-top:2px solid #000;padding:6px 8px;' },
+      `合計　NT$ ${subtotal.toLocaleString('zh-TW')}`),
+  );
+
+  const printBtn = el('button', { class: 'btn', onClick: () => {
+    const pw = window.open('', '_blank', 'width=700,height=900');
+    pw.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>收據</title>
+      <style>body{font-family:"Noto Sans TC",sans-serif;margin:0;padding:20px;}
+      table{width:100%;border-collapse:collapse;}th,td{padding:4px 8px;}
+      @media print{button{display:none!important;}}</style></head><body>`);
+    pw.document.write(receiptDiv.outerHTML);
+    pw.document.write('</body></html>');
+    pw.document.close();
+    pw.focus();
+    setTimeout(() => pw.print(), 300);
+  } }, '列印');
+
+  const modal = el('div', { class: 'modal', style: 'max-width:680px;width:95%;max-height:calc(100vh - 100px);display:flex;flex-direction:column;overflow:hidden;' },
+    el('h3', {}, '收據'),
+    el('div', { class: 'body', style: 'flex:1;overflow-y:auto;' }, receiptDiv),
+    el('div', { class: 'actions', style: 'flex-shrink:0;' },
+      el('button', { class: 'btn', onClick: () => backdrop.remove() }, '關閉'),
+      ' ', printBtn,
+    ),
+  );
+  backdrop.append(modal);
+  backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
+  document.body.append(backdrop);
+}
+
 // ----- E-invoice list view -----
 
 async function viewEinvoices(main) {
@@ -2596,6 +2990,51 @@ async function viewEinvoices(main) {
 
   main.append(table);
   reload();
+
+  // ---- 電子收據列表 ----
+  main.append(el('h2', { style: 'margin-top:32px;' }, '電子收據'));
+  main.append(el('div', { class: 'page-sub' }, '已開立的收據（來自應收帳款）。可檢視與列印。'));
+
+  const receiptTbody = el('tbody');
+  const receiptTable = el('table', { class: 'data' },
+    el('thead', {}, el('tr', {},
+      el('th', {}, '單號'),
+      el('th', {}, '客戶'),
+      el('th', {}, '請款月份'),
+      el('th', { class: 'num' }, '金額'),
+      el('th', {}, '狀態'),
+      el('th', {}, '操作'),
+    )),
+    receiptTbody,
+  );
+
+  async function reloadReceipts() {
+    const list = await api.get('/receivables?invoiceType=RECEIPT');
+    receiptTbody.innerHTML = '';
+    if (!list.length) {
+      receiptTbody.append(el('tr', {}, el('td', { colspan: '6',
+        style: 'text-align:center;color:var(--muted);padding:24px;' }, '尚無收據')));
+      return;
+    }
+    for (const a of list) {
+      receiptTbody.append(el('tr', {},
+        el('td', {}, a.salesOrder?.orderNo || a.salesOrderId || ''),
+        el('td', {}, a.customer?.name || ''),
+        el('td', {}, `${a.billingYear}/${String(a.billingMonth).padStart(2, '0')}`),
+        el('td', { class: 'num' }, fmtMoney(a.amount)),
+        el('td', {}, a.isPaid
+          ? el('span', { class: 'badge ok' }, '已收款')
+          : el('span', { class: 'badge warn' }, '未收款')),
+        el('td', { class: 'actions' },
+          el('button', { class: 'btn small', onClick: () => viewReceipt(a) }, '檢視'),
+        ),
+      ));
+    }
+  }
+
+  main.append(receiptTable);
+  main.append(el('div', { style: 'height:80px;' }));
+  reloadReceipts();
 }
 
 // ----- E-invoice number pools view -----
@@ -2858,6 +3297,10 @@ async function viewAccount(main, path, title, partyLabel) {
               path === 'receivables' && !isSales() && !a.invoiceType
                 ? el('button', { class: 'btn small', onClick: () => issueReceipt(a) }, '開立收據')
                 : null,
+              path === 'receivables' && a.invoiceType === 'RECEIPT' ? ' ' : null,
+              path === 'receivables' && a.invoiceType === 'RECEIPT'
+                ? el('button', { class: 'btn small', onClick: () => viewReceipt(a) }, '檢視收據')
+                : null,
               path === 'receivables' ? ' ' : null,
               path === 'receivables' && window.__session?.employee?.role === 'ADMIN' && !a.invoiceType
                 ? el('button', { class: 'btn small', onClick: () => openEinvoiceIssueModal(a, reload) }, '開立發票')
@@ -2887,14 +3330,123 @@ async function viewAccount(main, path, title, partyLabel) {
   }
 
   async function issueReceipt(a) {
-    if (!confirm(`確定將此筆 $${Number(a.amount).toLocaleString()} 標記為「收據」？`)) return;
+    const backdrop = el('div', { class: 'modal-backdrop' });
+    const errBox = el('div', { class: 'err' });
+    let detail, tenant;
     try {
-      await api.put(`/${path}/${a.id}`, { invoiceType: 'RECEIPT' });
-      toast('已開立收據', 'ok');
-      reload();
-    } catch (err) {
-      toast(err.message, 'err');
+      detail = await api.get(`/receivables/${a.id}`);
+      tenant = await api.get('/tenant/me');
+    } catch (e) { toast(e.message, 'err'); return; }
+    const so = detail.salesOrder;
+    const items = so?.items || [];
+    const now = new Date();
+    const rocYear = now.getFullYear() - 1911;
+    const dateStr = `${rocYear} 年 ${now.getMonth() + 1} 月 ${now.getDate()} 日`;
+
+    // Receipt content (printable)
+    const receiptDiv = el('div', { id: 'receipt-print-area', style: 'padding:24px;font-family:"Noto Sans TC",sans-serif;max-width:600px;margin:0 auto;' });
+
+    // Header: title
+    receiptDiv.append(
+      el('div', { style: 'text-align:center;margin-bottom:4px;' },
+        el('h2', { style: 'margin:0;font-size:24px;letter-spacing:12px;border-bottom:2px solid #000;display:inline-block;padding-bottom:4px;' }, '收　據'),
+      ),
+    );
+
+    // Info row: left = date/order/customer, right = company info (top-aligned)
+    receiptDiv.append(
+      el('div', { style: 'display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;' },
+        el('div', { style: 'font-size:13px;line-height:1.8;' },
+          el('div', {}, `中華民國 ${dateStr}`),
+          el('div', {}, `單號：${so?.orderNo || a.salesOrderId || ''}`),
+          el('div', {}, `客戶：${detail.customer?.name || ''}`),
+        ),
+        el('div', { style: 'text-align:right;font-size:13px;line-height:1.6;' },
+          el('div', { style: 'font-weight:700;font-size:15px;' }, tenant.companyName || ''),
+          tenant.phone ? el('div', {}, tenant.phone) : null,
+          tenant.address ? el('div', {}, tenant.address) : null,
+          tenant.taxId ? el('div', {}, `統編：${tenant.taxId}`) : null,
+        ),
+      ),
+    );
+
+    // Items table
+    const cellBorder = 'padding:4px 6px;border:1px solid #333;';
+    const itemsHead = el('thead', {}, el('tr', { style: 'background:#333;color:#fff;' },
+      el('th', { style: cellBorder + 'text-align:center;width:24px;' }, '#'),
+      el('th', { style: cellBorder + 'text-align:left;' }, '品名'),
+      el('th', { style: cellBorder + 'text-align:right;width:45px;' }, '數量'),
+      el('th', { style: cellBorder + 'text-align:right;width:65px;' }, '單價'),
+      el('th', { style: cellBorder + 'text-align:right;width:75px;' }, '金額'),
+      el('th', { style: cellBorder + 'text-align:left;width:55px;' }, '備註'),
+    ));
+    const itemsTbody = el('tbody');
+    let subtotal = 0;
+    items.forEach((it, i) => {
+      const amt = (it.quantity || 0) * (Number(it.unitPrice) || 0);
+      subtotal += amt;
+      itemsTbody.append(el('tr', {},
+        el('td', { style: cellBorder + 'text-align:center;' }, String(i + 1)),
+        el('td', { style: cellBorder }, it.productName || ''),
+        el('td', { style: cellBorder + 'text-align:right;' }, String(it.quantity || 0)),
+        el('td', { style: cellBorder + 'text-align:right;' }, fmtMoney(Number(it.unitPrice) || 0)),
+        el('td', { style: cellBorder + 'text-align:right;' }, fmtMoney(amt)),
+        el('td', { style: cellBorder }, it.note || ''),
+      ));
+    });
+    const totalRows = 15;
+    for (let i = items.length; i < totalRows; i++) {
+      itemsTbody.append(el('tr', {},
+        el('td', { style: cellBorder + 'text-align:center;color:#ccc;' }, String(i + 1)),
+        el('td', { style: cellBorder }, ''), el('td', { style: cellBorder }, ''),
+        el('td', { style: cellBorder }, ''), el('td', { style: cellBorder }, ''),
+        el('td', { style: cellBorder }, ''),
+      ));
     }
+    const itemsTable = el('table', { style: 'width:100%;border-collapse:collapse;font-size:13px;' }, itemsHead, itemsTbody);
+    receiptDiv.append(itemsTable);
+
+    // Total row
+    receiptDiv.append(
+      el('div', { style: 'text-align:right;margin-top:0;font-size:15px;font-weight:700;border:1px solid #333;border-top:2px solid #000;padding:6px 8px;' },
+        `合計　NT$ ${subtotal.toLocaleString('zh-TW')}`),
+    );
+
+
+    // Print button + issue receipt
+    const printBtn = el('button', { class: 'btn', onClick: () => {
+      const printWin = window.open('', '_blank', 'width=700,height=900');
+      printWin.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>收據</title>
+        <style>body{font-family:"Noto Sans TC",sans-serif;margin:0;padding:20px;}
+        table{width:100%;border-collapse:collapse;}th,td{padding:4px 8px;}
+        @media print{button{display:none!important;}}</style></head><body>`);
+      printWin.document.write(receiptDiv.outerHTML);
+      printWin.document.write('</body></html>');
+      printWin.document.close();
+      printWin.focus();
+      setTimeout(() => printWin.print(), 300);
+    } }, '列印');
+    const issueBtn = el('button', { class: 'btn primary', onClick: async () => {
+      try {
+        await api.put(`/receivables/${a.id}`, { invoiceType: 'RECEIPT' });
+        toast('已開立收據', 'ok');
+        backdrop.remove();
+        reload();
+      } catch (e) { errBox.textContent = e.message; }
+    } }, '確認開立收據');
+
+    const modal = el('div', { class: 'modal', style: 'max-width:680px;width:95%;max-height:calc(100vh - 100px);display:flex;flex-direction:column;overflow:hidden;' },
+      el('h3', {}, '收據預覽'),
+      el('div', { class: 'body', style: 'flex:1;overflow-y:auto;' }, receiptDiv),
+      errBox,
+      el('div', { class: 'actions', style: 'flex-shrink:0;' },
+        el('button', { class: 'btn', onClick: () => backdrop.remove() }, '取消'),
+        ' ', printBtn, ' ', issueBtn,
+      ),
+    );
+    backdrop.append(modal);
+    backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
+    document.body.append(backdrop);
   }
 
   function editAccount(a) {
@@ -2974,6 +3526,11 @@ async function viewCompany(main) {
   const email = field('email', 'Email', { type: 'email' });
   const address = field('address', '地址');
 
+  // PDF footer (stored in settings.pdfFooter)
+  const pdfFooterLabel = el('label', { style: 'display:block;font-size:12px;color:#666;margin-bottom:4px;' }, 'PDF 頁尾備註（顯示在報價單/銷貨單/進貨單底部）');
+  const pdfFooterInp = el('textarea', { name: 'pdfFooter', rows: '4', style: 'width:100%;font-size:13px;' });
+  form.append(el('div', { style: 'margin-bottom:12px;' }, pdfFooterLabel, pdfFooterInp));
+
   const saveBtn = el('button', { type: 'submit', class: 'btn primary' }, '儲存');
   form.append(saveBtn, errBox);
   main.append(form);
@@ -2987,6 +3544,8 @@ async function viewCompany(main) {
     phone.value = current.phone || '';
     email.value = current.email || '';
     address.value = current.address || '';
+    const settings = typeof current.settings === 'string' ? JSON.parse(current.settings) : (current.settings || {});
+    pdfFooterInp.value = settings.pdfFooter || '';
   } catch (e) {
     errBox.textContent = '讀取失敗：' + e.message;
   }
@@ -2996,12 +3555,14 @@ async function viewCompany(main) {
     errBox.textContent = '';
     saveBtn.disabled = true;
     try {
+      const curSettings = typeof current?.settings === 'string' ? JSON.parse(current.settings) : (current?.settings || {});
       const body = {
         companyName: companyName.value.trim(),
         taxId: taxId.value.trim() || null,
         phone: phone.value.trim() || null,
         email: email.value.trim() || null,
         address: address.value.trim() || null,
+        settings: { ...curSettings, pdfFooter: pdfFooterInp.value.trim() },
       };
       if (!body.companyName) throw new Error('公司名稱必填');
       await api.put('/tenant/me', body);
@@ -4925,8 +5486,8 @@ async function viewInventory(main) {
     for (const inv of list) {
       const low = inv.reorderPoint > 0 && inv.quantity <= inv.reorderPoint;
       tbody.append(el('tr', {},
-        el('td', {}, inv.product?.code || ''),
-        el('td', {}, inv.product?.name || ''),
+        el('td', {}, inv.productCode || ''),
+        el('td', {}, inv.productName || ''),
         el('td', { class: 'num' }, inv.quantity),
         el('td', { class: 'num' }, inv.reorderPoint),
         el('td', {}, low ? el('span', { class: 'badge bad' }, '低於再訂購點') : el('span', { class: 'badge ok' }, '正常')),
@@ -4943,6 +5504,7 @@ async function viewRefurbish(main) {
   for (const [v, l] of [['', '全部'], ['IN_PROGRESS', '進行中'], ['COMPLETED', '已完成'], ['CANCELLED', '已取消']]) {
     statusFilter.append(el('option', { value: v }, l));
   }
+  const addBtn = el('button', { class: 'btn primary', onClick: () => openCreateRefurbish() }, '+ 新增整備工單');
   const tbody = el('tbody');
   const table = el('table', { class: 'data' },
     el('thead', {}, el('tr', {},
@@ -4969,44 +5531,51 @@ async function viewRefurbish(main) {
         const floorPrice = purchaseCost + refurbishCost;
         const badge = r.status === 'COMPLETED' ? 'ok' : r.status === 'CANCELLED' ? 'bad' : 'warn';
         const statusLabel = r.status === 'COMPLETED' ? '已完成' : r.status === 'CANCELLED' ? '已取消' : '進行中';
-        tbody.append(el('tr', { style: 'cursor:pointer;', onClick: () => showRefurbishDetail(r) },
+        tbody.append(el('tr', { style: 'cursor:pointer;', onClick: () => openRefurbishDetail(r.id) },
           el('td', {}, r.usedMachine?.name || ''),
           el('td', {}, el('span', { class: `badge ${badge}` }, statusLabel)),
           el('td', { class: 'num' }, r.items?.length ?? 0),
-          el('td', { class: 'num' }, `$${refurbishCost.toLocaleString('zh-TW')}`),
-          el('td', { class: 'num' }, `$${purchaseCost.toLocaleString('zh-TW')}`),
-          el('td', { class: 'num' }, `$${floorPrice.toLocaleString('zh-TW')}`),
+          el('td', { class: 'num' }, fmtMoney(refurbishCost)),
+          el('td', { class: 'num' }, fmtMoney(purchaseCost)),
+          el('td', { class: 'num' }, fmtMoney(floorPrice)),
           el('td', {}, new Date(r.createdAt).toLocaleDateString('zh-TW')),
         ));
       }
     } catch (e) { main.append(el('div', { class: 'err' }, e.message)); }
   }
 
-  function showRefurbishDetail(r) {
+  // --- Create refurbish order modal ---
+  async function openCreateRefurbish() {
     const backdrop = el('div', { class: 'modal-backdrop' });
-    const itemRows = (r.items || []).map(it =>
-      el('tr', {},
-        el('td', {}, it.product?.name || it.productId),
-        el('td', { class: 'num' }, it.quantity),
-        el('td', { class: 'num' }, `$${Number(it.unitCost).toLocaleString('zh-TW')}`),
-        el('td', { class: 'num' }, `$${(it.quantity * Number(it.unitCost)).toLocaleString('zh-TW')}`),
-      )
-    );
-    const modal = el('div', { class: 'modal' },
-      el('h3', {}, `整備明細：${r.usedMachine?.name || ''}`),
+    const errBox = el('div', { class: 'err' });
+    let products = [];
+    try { products = await api.get('/products'); } catch (_) {}
+    const usedMachines = products.filter(p => p.category === 'USED_MACHINE');
+    const machineSelect = el('select', {});
+    machineSelect.append(el('option', { value: '' }, '-- 請選擇二手機 --'));
+    for (const m of usedMachines) {
+      machineSelect.append(el('option', { value: m.id }, `${m.code} ${m.name}`));
+    }
+    const noteInp = el('textarea', { rows: '2', placeholder: '備註（選填）' });
+    const saveBtn = el('button', { class: 'btn primary', onClick: async () => {
+      if (!machineSelect.value) { errBox.textContent = '請選擇二手機'; return; }
+      try {
+        await api.post('/refurbish-orders', { usedMachineId: machineSelect.value, note: noteInp.value || undefined });
+        toast('工單已建立', 'ok');
+        backdrop.remove();
+        reload();
+      } catch (e) { errBox.textContent = e.message; }
+    } }, '建立');
+    const modal = el('div', { class: 'modal', style: 'max-width:500px;' },
+      el('h3', {}, '新增整備工單'),
       el('div', { class: 'body' },
-        el('table', { class: 'data' },
-          el('thead', {}, el('tr', {},
-            el('th', {}, '零件'), el('th', { class: 'num' }, '數量'),
-            el('th', { class: 'num' }, '單價'), el('th', { class: 'num' }, '小計'),
-          )),
-          el('tbody', {}, ...itemRows),
-        ),
-        el('div', { style: 'margin-top:12px;font-weight:600;' },
-          `合計整備成本：$${Number(r.totalCost).toLocaleString('zh-TW')}`),
+        el('div', { class: 'field' }, el('label', {}, '二手機 *'), machineSelect),
+        el('div', { class: 'field' }, el('label', {}, '備註'), noteInp),
       ),
+      errBox,
       el('div', { class: 'actions' },
-        el('button', { class: 'btn', onClick: () => backdrop.remove() }, '關閉'),
+        el('button', { class: 'btn', onClick: () => backdrop.remove() }, '取消'),
+        ' ', saveBtn,
       ),
     );
     backdrop.append(modal);
@@ -5014,8 +5583,194 @@ async function viewRefurbish(main) {
     document.body.append(backdrop);
   }
 
+  // --- Refurbish detail modal (view + add items + complete/cancel) ---
+  async function openRefurbishDetail(orderId) {
+    const backdrop = el('div', { class: 'modal-backdrop' });
+    const errBox = el('div', { class: 'err' });
+    let r;
+    try { r = await api.get(`/refurbish-orders/${orderId}`); } catch (e) { toast(e.message, 'err'); return; }
+    const isEditable = r.status === 'IN_PROGRESS';
+    const _dropdowns = [];
+    function cleanupDD() { _dropdowns.forEach(d => d.remove()); _dropdowns.length = 0; }
+    function closeModal() { cleanupDD(); backdrop.remove(); }
+
+    // Items table
+    const itemsTbody = el('tbody');
+    const costDiv = el('div', { style: 'margin-top:12px;font-weight:600;' });
+    function renderItems() {
+      itemsTbody.innerHTML = '';
+      let total = 0;
+      for (const it of (r.items || [])) {
+        const sub = it.quantity * Number(it.unitCost);
+        total += sub;
+        const delBtn = isEditable ? el('button', { class: 'btn small danger', onClick: async () => {
+          if (!confirm(`確定刪除零件「${it.product?.name}」？庫存將回沖。`)) return;
+          try {
+            await api.del(`/refurbish-orders/${orderId}/items/${it.id}`);
+            r.items = r.items.filter(x => x.id !== it.id);
+            renderItems();
+            toast('零件已刪除', 'ok');
+          } catch (e) { errBox.textContent = e.message; }
+        } }, '刪') : null;
+        itemsTbody.append(el('tr', {},
+          el('td', {}, it.product?.name || it.productId),
+          el('td', { class: 'num' }, it.quantity),
+          el('td', { class: 'num' }, fmtMoney(Number(it.unitCost))),
+          el('td', { class: 'num' }, fmtMoney(sub)),
+          isEditable ? el('td', {}, delBtn) : null,
+        ));
+      }
+      costDiv.textContent = `合計整備成本：${fmtMoney(total)}`;
+    }
+    renderItems();
+
+    // Add item form (only for IN_PROGRESS)
+    let addItemForm = el('span');
+    if (isEditable) {
+      const partNameInp = el('input', { type: 'text', placeholder: '搜尋零件名稱…', autocomplete: 'off', style: 'width:200px;' });
+      const partDropdown = el('div', { style: 'position:fixed;z-index:9999;background:#fff;border:1px solid #ccc;border-radius:4px;max-height:250px;min-width:350px;overflow-y:auto;display:none;box-shadow:0 4px 16px rgba(0,0,0,.2);' });
+      document.body.append(partDropdown);
+      _dropdowns.push(partDropdown);
+      function posDD() {
+        const rect = partNameInp.getBoundingClientRect();
+        const spaceBelow = window.innerHeight - rect.bottom;
+        if (spaceBelow > 200) { partDropdown.style.top = rect.bottom + 2 + 'px'; partDropdown.style.bottom = ''; }
+        else { partDropdown.style.bottom = (window.innerHeight - rect.top + 2) + 'px'; partDropdown.style.top = ''; }
+        partDropdown.style.left = rect.left + 'px';
+      }
+      let selectedProduct = null;
+      let searchTimer = null, isComposing = false;
+      partNameInp.addEventListener('compositionstart', () => { isComposing = true; });
+      partNameInp.addEventListener('compositionend', () => { isComposing = false; doPartSearch(); });
+      function doPartSearch() {
+        clearTimeout(searchTimer);
+        const q = partNameInp.value.trim();
+        if (q.length < 1) { partDropdown.style.display = 'none'; return; }
+        searchTimer = setTimeout(async () => {
+          try {
+            const results = await api.get('/products?q=' + encodeURIComponent(q));
+            partDropdown.innerHTML = '';
+            const parts = results.filter(p => p.category === 'PART' || p.category === 'SERVICE' || p.category === 'OTHER' || !p.category);
+            if (!parts.length) {
+              partDropdown.append(el('div', { style: 'padding:8px;color:#999;font-size:12px;' }, '無符合零件'));
+              posDD(); partDropdown.style.display = 'block';
+              return;
+            }
+            for (const prod of parts) {
+              const row = el('div', {
+                style: 'padding:6px 10px;cursor:pointer;border-bottom:1px solid #eee;font-size:13px;',
+                onMouseenter: function() { this.style.background = '#f0f0ff'; },
+                onMouseleave: function() { this.style.background = ''; },
+              });
+              row.append(
+                el('div', { style: 'font-weight:500;' }, `${prod.code} ${prod.name}`),
+                el('div', { style: 'color:#666;font-size:11px;' }, `${prod.category || ''} | 進價 ${fmtMoney(Number(prod.purchaseCost) || 0)}`),
+              );
+              row.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                selectedProduct = prod;
+                partNameInp.value = prod.name;
+                unitCostInp.value = String(Number(prod.purchaseCost) || 0);
+                partDropdown.style.display = 'none';
+              });
+              partDropdown.append(row);
+            }
+            posDD(); partDropdown.style.display = 'block';
+          } catch (_) { partDropdown.style.display = 'none'; }
+        }, 150);
+      }
+      partNameInp.addEventListener('input', () => { if (!isComposing) doPartSearch(); });
+      document.addEventListener('click', (e) => { if (!partNameInp.contains(e.target) && !partDropdown.contains(e.target)) partDropdown.style.display = 'none'; });
+
+      const qtyInp = el('input', { type: 'number', value: '1', min: '1', style: 'width:60px;' });
+      const unitCostInp = el('input', { type: 'number', value: '0', min: '0', style: 'width:90px;' });
+      const addItemBtn = el('button', { class: 'btn small primary', onClick: async () => {
+        if (!selectedProduct) { errBox.textContent = '請先搜尋選擇零件'; return; }
+        const qty = Number(qtyInp.value) || 0;
+        const cost = Number(unitCostInp.value) || 0;
+        if (qty <= 0) { errBox.textContent = '數量需大於 0'; return; }
+        try {
+          errBox.textContent = '';
+          const newItem = await api.post(`/refurbish-orders/${orderId}/items`, {
+            productId: selectedProduct.id, quantity: qty, unitCost: cost,
+          });
+          r.items = r.items || [];
+          r.items.push(newItem);
+          renderItems();
+          selectedProduct = null;
+          partNameInp.value = '';
+          qtyInp.value = '1';
+          unitCostInp.value = '0';
+          toast('零件已加入', 'ok');
+        } catch (e) { errBox.textContent = e.message; }
+      } }, '加入');
+
+      addItemForm = el('div', { style: 'margin-top:12px;padding:10px;background:#f8f8f8;border-radius:6px;' },
+        el('div', { style: 'font-weight:600;margin-bottom:8px;' }, '新增零件'),
+        el('div', { style: 'display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;' },
+          el('div', {}, el('label', { style: 'font-size:12px;color:#666;display:block;' }, '零件名稱'), partNameInp),
+          el('div', {}, el('label', { style: 'font-size:12px;color:#666;display:block;' }, '數量'), qtyInp),
+          el('div', {}, el('label', { style: 'font-size:12px;color:#666;display:block;' }, '單價'), unitCostInp),
+          addItemBtn,
+        ),
+      );
+    }
+
+    // Action buttons
+    const actionBtns = el('div', {});
+    if (isEditable) {
+      const completeBtn = el('button', { class: 'btn primary', onClick: async () => {
+        if (!r.items?.length) { errBox.textContent = '至少需要一個零件'; return; }
+        try {
+          await api.post(`/refurbish-orders/${orderId}/complete`);
+          toast('整備完成', 'ok');
+          closeModal(); reload();
+        } catch (e) { errBox.textContent = e.message; }
+      } }, '完成整備');
+      const cancelBtn = el('button', { class: 'btn danger', onClick: async () => {
+        if (!confirm('確定取消此工單？')) return;
+        try {
+          await api.post(`/refurbish-orders/${orderId}/cancel`);
+          toast('工單已取消', 'ok');
+          closeModal(); reload();
+        } catch (e) { errBox.textContent = e.message; }
+      } }, '取消工單');
+      actionBtns.append(cancelBtn, ' ', completeBtn);
+    }
+
+    const purchaseCost = Number(r.usedMachine?.purchaseCost ?? 0);
+    const infoDiv = el('div', { style: 'margin-bottom:12px;color:#555;font-size:13px;' },
+      `機台：${r.usedMachine?.code || ''} ${r.usedMachine?.name || ''}　｜　進價：${fmtMoney(purchaseCost)}　｜　狀態：${r.status === 'COMPLETED' ? '已完成' : r.status === 'CANCELLED' ? '已取消' : '進行中'}`
+    );
+
+    const modal = el('div', { class: 'modal', style: 'max-width:700px;width:92%;' },
+      el('h3', {}, `整備工單`),
+      el('div', { class: 'body' },
+        infoDiv,
+        el('table', { class: 'data' },
+          el('thead', {}, el('tr', {},
+            el('th', {}, '零件'), el('th', { class: 'num' }, '數量'),
+            el('th', { class: 'num' }, '單價'), el('th', { class: 'num' }, '小計'),
+            isEditable ? el('th', {}, '') : null,
+          )),
+          itemsTbody,
+        ),
+        costDiv,
+        addItemForm,
+      ),
+      errBox,
+      el('div', { class: 'actions', style: 'justify-content:space-between;' },
+        actionBtns,
+        el('button', { class: 'btn', onClick: closeModal }, '關閉'),
+      ),
+    );
+    backdrop.append(modal);
+    backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) closeModal(); });
+    document.body.append(backdrop);
+  }
+
   statusFilter.addEventListener('change', reload);
-  main.append(el('div', { class: 'toolbar' }, statusFilter), table);
+  main.append(el('div', { class: 'toolbar', style: 'display:flex;gap:10px;align-items:center;' }, statusFilter, addBtn), table);
   reload();
 }
 
@@ -5187,8 +5942,6 @@ const GROUPS = {
     tabs: [
       { key: 'quotations',    label: '報價單',   view: 'quotations' },
       { key: 'sales-orders',  label: '銷貨單',   view: 'sales-orders' },
-      { key: 'visit-logs',    label: '工作日誌', view: 'visit-logs' },
-      { key: 'bonus-report',  label: '業績獎金', view: 'bonus-report', roles: ['ADMIN', 'ACCOUNTING', 'SALES'] },
     ],
   },
   accounts: {

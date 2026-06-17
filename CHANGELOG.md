@@ -3,6 +3,25 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.17.0] - 2026-06-17
+
+### Added -- 交易紀錄查詢（客戶 + 產品）
+
+**客戶交易紀錄：**
+- `GET /api/customers/:id/transactions` — 查詢該客戶所有銷貨明細（分頁）
+- 後台客戶列表加「交易紀錄」按鈕，開 modal 顯示日期/單號/產品/數量/金額
+- LINE 查詢選單加「客戶交易紀錄」，輸入客戶名稱後回覆最近 10 筆 Flex
+
+**產品客戶查詢：**
+- `GET /api/products/:id/customers` — 查詢購買過該產品的客戶清單（分頁）
+- 後台產品列表加「客戶紀錄」按鈕，開 modal 顯示日期/單號/客戶/數量/金額
+- LINE 查詢選單加「產品客戶查詢」，輸入產品名稱後回覆最近 10 筆
+
+**共通：**
+- SALES 角色僅查看自己建立的訂單，ADMIN 查看全部
+- 排除已刪除銷貨單（isDeleted = false）
+- 不需 schema 變更，直接查 SalesOrder + SalesItem
+
 ## [2.16.3] - 2026-06-09
 
 ### Added -- LINE 報價管理 + 銀行帳戶文件下載（#19, #20, #21, #55）
