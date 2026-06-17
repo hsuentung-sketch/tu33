@@ -13,8 +13,6 @@ import { handleManagementCommand, handleManagementText } from './management.hand
 import { handleVoiceMessage, handleImageMessage, handleOcrEditText } from './media.handler.js';
 import { handleJeCommand, handleJeText, handleJeImage } from './je.handler.js';
 import { handleVisitLogCommand, handleVisitLogText } from './visit-log.handler.js';
-import { handleRefurbishCommand, handleRefurbishText } from './refurbish.handler.js';
-import { handleMachineRegisterCommand, handleMachineRegisterText, handleMachineRegisterImage } from './machine-register.handler.js';
 import * as session from '../session.js';
 
 type WebhookEvent = webhook.Event;
@@ -98,11 +96,8 @@ async function handleMessage(event: MessageEvent, tenant: HandlerTenant): Promis
   } else if (event.message.type === 'audio') {
     await handleVoiceMessage(event, { ...ctx, accessToken: tenant.lineAccessToken });
   } else if (event.message.type === 'image') {
-    // 若使用者正處於 JE OCR 流程 → 走發票 OCR
+    // 若使用者正處於 JE OCR 流程 → 走發票 OCR；否則走名片 OCR
     if (await maybeRouteJeImage(event, tenant, ctx)) return;
-    // 若使用者正處於序號登記流程 → 走序號 OCR
-    if (await handleMachineRegisterImage(event, { ...ctx, accessToken: tenant.lineAccessToken })) return;
-    // 否則走名片 OCR
     await handleImageMessage(event, { ...ctx, accessToken: tenant.lineAccessToken });
   } else if (event.message.type === 'file') {
     // LINE sends image attachments from the "檔案" picker as type=file
@@ -166,10 +161,6 @@ async function handlePostback(event: PostbackEvent, tenant: HandlerTenant): Prom
     await handleMasterCommand(action, ctx);
   } else if (action.startsWith('management:')) {
     await handleManagementCommand(action, ctx);
-  } else if (action.startsWith('refurbish:')) {
-    await handleRefurbishCommand(action, ctx);
-  } else if (action.startsWith('machine:')) {
-    await handleMachineRegisterCommand(action, ctx);
   } else {
     logger.warn('Unknown postback action', { action });
   }
@@ -192,8 +183,6 @@ async function routeTextCommand(text: string, ctx: TextCommandContext): Promise<
   if (await handleAccountingText(text, ctx)) return;
   if (await handleJeText(text, ctx)) return;
   if (await handleVisitLogText(text, ctx)) return;
-  if (await handleRefurbishText(text, ctx)) return;
-  if (await handleMachineRegisterText(text, ctx)) return;
   if (await handleOcrEditText(text, ctx)) return;
   if (await handleMasterText(text, ctx)) return;
   if (await handleManagementText(text, ctx)) return;
@@ -328,7 +317,7 @@ async function routeTextCommand(text: string, ctx: TextCommandContext): Promise<
     replyToken: event.replyToken,
     messages: [{
       type: 'text',
-      text: '請使用選單操作，或輸入以下指令：\n• 報價 - 報價管理\n• 銷貨 - 銷貨管理\n• 進貨 - 進貨管理\n• 帳務 - 帳務查詢\n• 獎金 - 業績獎金\n• 庫存 - 庫存查詢\n• 整備 <品名> - 二手機整備\n• 登記序號 - 機台序號登記\n• 機器序號 <序號> - 查保固\n• 查詢 關鍵字 - 搜尋',
+      text: '請使用選單操作，或輸入以下指令：\n• 報價 - 報價管理\n• 銷貨 - 銷貨管理\n• 進貨 - 進貨管理\n• 帳務 - 帳務查詢\n• 獎金 - 業績獎金\n• 庫存 - 庫存查詢\n• 查詢 關鍵字 - 搜尋',
     }],
   });
 }
