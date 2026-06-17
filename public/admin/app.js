@@ -207,7 +207,6 @@ async function viewCustomers(main) {
       el('th', {}, '職稱'),
       el('th', {}, '電話'),
       el('th', {}, 'Email'),
-      el('th', {}, '價格級距'),
       el('th', {}, '操作'),
     )),
     tbody,
@@ -230,15 +229,12 @@ async function viewCustomers(main) {
         if (c.fixedPaymentDay) parts.push(`付款日${c.fixedPaymentDay}日`);
         return parts.join(' / ') || '';
       })();
-      const tierLabels = { 1: '一般', 2: '常客(9折)', 3: '熟客(8折)', 4: '職業(7折)', 5: '五金(6折)' };
-      const tierLabel = tierLabels[c.priceTier] || '一般';
       tbody.append(el('tr', {},
         el('td', {}, c.name),
         el('td', {}, c.contactName || ''),
         el('td', {}, c.title || ''),
         el('td', {}, c.phone || ''),
         el('td', { style: 'font-size:12px;color:#555;' }, c.email || ''),
-        el('td', {}, tierLabel),
         el('td', { class: 'actions' },
           el('button', { class: 'btn small', onClick: () => editCustomer(c, reload) }, '編輯'),
           ' ',
@@ -1349,14 +1345,6 @@ async function openOrderEditor(kind, orderId, onSaved) {
   const body = el('div', { class: 'body' });
   const errBox = el('div', { class: 'err' });
 
-  // Price tier discount map
-  const TIER_DISCOUNT = { 1: 1.0, 2: 0.9, 3: 0.8, 4: 0.7, 5: 0.6 };
-  function getSelectedPartyTier() {
-    if (isPurchase) return 1;
-    const party = parties.find(p => p.id === state[partyKey]);
-    return party?.priceTier || 1;
-  }
-
   // Shared dropdown tracking (used by both customer fuzzy search and product search)
   const _dropdowns = [];
   function cleanupDropdowns() { _dropdowns.forEach(d => d.remove()); _dropdowns.length = 0; }
@@ -1404,15 +1392,13 @@ async function openOrderEditor(kind, orderId, onSaved) {
         const matches = parties.filter(p => p.name.includes(q) || (p.phone && p.phone.includes(q)) || (p.code && p.code.includes(q)));
         partyDD.innerHTML = '';
         for (const p of matches.slice(0, 20)) {
-          const tier = p.priceTier || 1;
-          const tierText = tier > 1 ? ` [${['','一般','常客','熟客','職業客戶','五金客戶'][tier]}]` : '';
           const row = el('div', {
             style: 'padding:6px 10px;cursor:pointer;border-bottom:1px solid #eee;font-size:13px;',
             onMouseenter: function() { this.style.background = '#f0f0ff'; },
             onMouseleave: function() { this.style.background = ''; },
           });
           row.append(
-            el('div', { style: 'font-weight:500;' }, p.name + tierText),
+            el('div', { style: 'font-weight:500;' }, p.name),
             p.phone ? el('div', { style: 'color:#666;font-size:11px;' }, p.phone) : null,
           );
           row.addEventListener('mousedown', (e) => {
@@ -1538,17 +1524,14 @@ async function openOrderEditor(kind, orderId, onSaved) {
               positionDropdown(); dropdown.style.display = 'block';
               return;
             }
-            const tier = getSelectedPartyTier();
-            const disc = TIER_DISCOUNT[tier] || 1;
             for (const prod of results) {
               let fillPrice, priceText;
               if (isPurchase) {
                 fillPrice = Number(prod.purchaseCost) || 0;
                 priceText = `進價 ${fmtMoney(fillPrice)}`;
               } else {
-                const listPrice = Number(prod.salePrice);
-                fillPrice = Math.round(listPrice * disc);
-                priceText = disc < 1 ? `牌價 ${fmtMoney(listPrice)} → ${Math.round(disc * 100)}折 ${fmtMoney(fillPrice)}` : `牌價 ${fmtMoney(listPrice)}`;
+                fillPrice = Number(prod.salePrice) || 0;
+                priceText = `牌價 ${fmtMoney(fillPrice)}`;
               }
               const row = el('div', {
                 style: 'padding:6px 10px;cursor:pointer;border-bottom:1px solid #eee;font-size:13px;',
@@ -2795,105 +2778,6 @@ async function openEinvoiceIssueModal(ar, onSaved) {
   document.body.append(backdrop);
 }
 
-// ----- Receipt viewer (shared: used by AR list + einvoice page) -----
-
-async function viewReceipt(a) {
-  const backdrop = el('div', { class: 'modal-backdrop' });
-  let detail, tenant;
-  try {
-    detail = await api.get(`/receivables/${a.id}`);
-    tenant = await api.get('/tenant/me');
-  } catch (e) { toast(e.message, 'err'); return; }
-  const so = detail.salesOrder;
-  const items = so?.items || [];
-  const now = new Date();
-  const rocYear = now.getFullYear() - 1911;
-  const dateStr = `${rocYear} 年 ${now.getMonth() + 1} 月 ${now.getDate()} 日`;
-
-  const receiptDiv = el('div', { id: 'receipt-view-area', style: 'padding:24px;font-family:"Noto Sans TC",sans-serif;max-width:600px;margin:0 auto;' });
-  receiptDiv.append(
-    el('div', { style: 'text-align:center;margin-bottom:4px;' },
-      el('h2', { style: 'margin:0;font-size:24px;letter-spacing:12px;border-bottom:2px solid #000;display:inline-block;padding-bottom:4px;' }, '收　據'),
-    ),
-  );
-  receiptDiv.append(
-    el('div', { style: 'display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;' },
-      el('div', { style: 'font-size:13px;line-height:1.8;' },
-        el('div', {}, `中華民國 ${dateStr}`),
-        el('div', {}, `單號：${so?.orderNo || a.salesOrderId || ''}`),
-        el('div', {}, `客戶：${detail.customer?.name || ''}`),
-      ),
-      el('div', { style: 'text-align:right;font-size:13px;line-height:1.6;' },
-        el('div', { style: 'font-weight:700;font-size:15px;' }, tenant.companyName || ''),
-        tenant.phone ? el('div', {}, tenant.phone) : null,
-        tenant.address ? el('div', {}, tenant.address) : null,
-        tenant.taxId ? el('div', {}, `統編：${tenant.taxId}`) : null,
-      ),
-    ),
-  );
-  const cellBdr = 'padding:4px 6px;border:1px solid #333;';
-  const tHead = el('thead', {}, el('tr', { style: 'background:#333;color:#fff;' },
-    el('th', { style: cellBdr + 'text-align:center;width:24px;' }, '#'),
-    el('th', { style: cellBdr + 'text-align:left;' }, '品名'),
-    el('th', { style: cellBdr + 'text-align:right;width:45px;' }, '數量'),
-    el('th', { style: cellBdr + 'text-align:right;width:65px;' }, '單價'),
-    el('th', { style: cellBdr + 'text-align:right;width:75px;' }, '金額'),
-    el('th', { style: cellBdr + 'text-align:left;width:55px;' }, '備註'),
-  ));
-  const tBody = el('tbody');
-  let subtotal = 0;
-  items.forEach((it, i) => {
-    const amt = (it.quantity || 0) * (Number(it.unitPrice) || 0);
-    subtotal += amt;
-    tBody.append(el('tr', {},
-      el('td', { style: cellBdr + 'text-align:center;' }, String(i + 1)),
-      el('td', { style: cellBdr }, it.productName || ''),
-      el('td', { style: cellBdr + 'text-align:right;' }, String(it.quantity || 0)),
-      el('td', { style: cellBdr + 'text-align:right;' }, fmtMoney(Number(it.unitPrice) || 0)),
-      el('td', { style: cellBdr + 'text-align:right;' }, fmtMoney(amt)),
-      el('td', { style: cellBdr }, it.note || ''),
-    ));
-  });
-  for (let i = items.length; i < 15; i++) {
-    tBody.append(el('tr', {},
-      el('td', { style: cellBdr + 'text-align:center;color:#ccc;' }, String(i + 1)),
-      el('td', { style: cellBdr }, ''), el('td', { style: cellBdr }, ''),
-      el('td', { style: cellBdr }, ''), el('td', { style: cellBdr }, ''),
-      el('td', { style: cellBdr }, ''),
-    ));
-  }
-  receiptDiv.append(el('table', { style: 'width:100%;border-collapse:collapse;font-size:13px;' }, tHead, tBody));
-  receiptDiv.append(
-    el('div', { style: 'text-align:right;margin-top:0;font-size:15px;font-weight:700;border:1px solid #333;border-top:2px solid #000;padding:6px 8px;' },
-      `合計　NT$ ${subtotal.toLocaleString('zh-TW')}`),
-  );
-
-  const printBtn = el('button', { class: 'btn', onClick: () => {
-    const pw = window.open('', '_blank', 'width=700,height=900');
-    pw.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>收據</title>
-      <style>body{font-family:"Noto Sans TC",sans-serif;margin:0;padding:20px;}
-      table{width:100%;border-collapse:collapse;}th,td{padding:4px 8px;}
-      @media print{button{display:none!important;}}</style></head><body>`);
-    pw.document.write(receiptDiv.outerHTML);
-    pw.document.write('</body></html>');
-    pw.document.close();
-    pw.focus();
-    setTimeout(() => pw.print(), 300);
-  } }, '列印');
-
-  const modal = el('div', { class: 'modal', style: 'max-width:680px;width:95%;max-height:calc(100vh - 100px);display:flex;flex-direction:column;overflow:hidden;' },
-    el('h3', {}, '收據'),
-    el('div', { class: 'body', style: 'flex:1;overflow-y:auto;' }, receiptDiv),
-    el('div', { class: 'actions', style: 'flex-shrink:0;' },
-      el('button', { class: 'btn', onClick: () => backdrop.remove() }, '關閉'),
-      ' ', printBtn,
-    ),
-  );
-  backdrop.append(modal);
-  backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
-  document.body.append(backdrop);
-}
-
 // ----- E-invoice list view -----
 
 async function viewEinvoices(main) {
@@ -2971,51 +2855,6 @@ async function viewEinvoices(main) {
 
   main.append(table);
   reload();
-
-  // ---- 電子收據列表 ----
-  main.append(el('h2', { style: 'margin-top:32px;' }, '電子收據'));
-  main.append(el('div', { class: 'page-sub' }, '已開立的收據（來自應收帳款）。可檢視與列印。'));
-
-  const receiptTbody = el('tbody');
-  const receiptTable = el('table', { class: 'data' },
-    el('thead', {}, el('tr', {},
-      el('th', {}, '單號'),
-      el('th', {}, '客戶'),
-      el('th', {}, '請款月份'),
-      el('th', { class: 'num' }, '金額'),
-      el('th', {}, '狀態'),
-      el('th', {}, '操作'),
-    )),
-    receiptTbody,
-  );
-
-  async function reloadReceipts() {
-    const list = await api.get('/receivables?invoiceType=RECEIPT');
-    receiptTbody.innerHTML = '';
-    if (!list.length) {
-      receiptTbody.append(el('tr', {}, el('td', { colspan: '6',
-        style: 'text-align:center;color:var(--muted);padding:24px;' }, '尚無收據')));
-      return;
-    }
-    for (const a of list) {
-      receiptTbody.append(el('tr', {},
-        el('td', {}, a.salesOrder?.orderNo || a.salesOrderId || ''),
-        el('td', {}, a.customer?.name || ''),
-        el('td', {}, `${a.billingYear}/${String(a.billingMonth).padStart(2, '0')}`),
-        el('td', { class: 'num' }, fmtMoney(a.amount)),
-        el('td', {}, a.isPaid
-          ? el('span', { class: 'badge ok' }, '已收款')
-          : el('span', { class: 'badge warn' }, '未收款')),
-        el('td', { class: 'actions' },
-          el('button', { class: 'btn small', onClick: () => viewReceipt(a) }, '檢視'),
-        ),
-      ));
-    }
-  }
-
-  main.append(receiptTable);
-  main.append(el('div', { style: 'height:80px;' }));
-  reloadReceipts();
 }
 
 // ----- E-invoice number pools view -----
