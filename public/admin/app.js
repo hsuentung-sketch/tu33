@@ -155,40 +155,125 @@ function buildField(f, values) {
 async function viewDashboard(main) {
   main.innerHTML = '';
   main.append(el('h2', {}, '總覽'));
-  main.append(el('div', { class: 'page-sub' }, '系統目前狀況一覽。'));
 
-  const grid = el('div', { style: 'display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:18px;' });
-  main.append(grid);
+  const annBanner = el('div', { class: 'ann-banners' });
+  const kpiTitle = el('h3', { style: 'margin:0 0 8px;font-size:15px;' }, 'KPI');
+  const countsGrid = el('div', { class: 'kpi-grid' });
+  const finGrid = el('div', { class: 'kpi-grid' });
+  const topSection = el('div', { style: 'margin-top:18px;' });
+  main.append(annBanner, kpiTitle, countsGrid, finGrid, topSection);
 
-  async function card(label, fetcher) {
-    const valEl = el('div', { class: 'kpi-val skeleton', style: 'width:60px;height:28px;' });
-    const box = el('div', { class: 'kpi-card' },
+  api.get('/announcements').then(rows => {
+    if (!rows.length) return;
+    annBanner.append(el('h3', { style: 'margin:0 0 8px;font-size:15px;' }, '公告'));
+    const display = rows.slice(0, 5);
+    for (const a of display) {
+      const colors = { urgent: '#dc3545', important: '#e67700', normal: '#0d6efd' };
+      const c = colors[a.priority] || colors.normal;
+      const priLabel = a.priority === 'urgent' ? '[緊急] ' : a.priority === 'important' ? '[重要] ' : '';
+      const bar = el('div', {
+        style: `border-left:4px solid ${c};background:${c}11;padding:8px 14px;margin-bottom:6px;border-radius:4px;cursor:pointer;`,
+        onClick: () => {
+          const date = new Date(a.publishedAt).toLocaleDateString('zh-TW');
+          const expires = a.expiresAt ? new Date(a.expiresAt).toLocaleDateString('zh-TW') : '無';
+          const modal = el('div', { class: 'modal', style: 'max-width:520px;padding:24px 28px;' });
+          modal.append(el('h3', {}, a.title));
+          modal.append(el('div', { style: 'color:var(--muted);font-size:13px;margin-bottom:12px;' }, `發布：${date}　到期：${expires}`));
+          modal.append(el('div', { style: 'white-space:pre-wrap;line-height:1.6;' }, a.content));
+          const actions = el('div', { class: 'actions' });
+          actions.append(el('button', { class: 'btn', onClick: () => backdrop.remove() }, '關閉'));
+          modal.append(actions);
+          const backdrop = el('div', { class: 'modal-backdrop' });
+          backdrop.append(modal);
+          backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
+          document.body.append(backdrop);
+        },
+      },
+        el('strong', { style: `color:${c};margin-right:4px;` }, priLabel),
+        el('span', {}, a.title),
+      );
+      annBanner.append(bar);
+    }
+    annBanner.style.marginBottom = '14px';
+  }).catch(() => {});
+
+  function kpiCard(label, value, opts) {
+    const color = opts?.color || '';
+    const href = opts?.href || '';
+    const sub = opts?.sub || '';
+    const valEl = el('div', { class: 'kpi-val', style: color ? `color:${color};` : '' }, value);
+    const card = el('div', { class: 'kpi-card' + (href ? ' kpi-link' : '') },
       el('div', { class: 'kpi-label' }, label),
       valEl,
     );
-    grid.append(box);
-    try {
-      const v = await fetcher();
-      valEl.className = 'kpi-val';
-      valEl.style.width = '';
-      valEl.style.height = '';
-      valEl.textContent = String(v);
-    } catch {
-      valEl.className = 'kpi-val';
-      valEl.style.width = '';
-      valEl.style.height = '';
-      valEl.textContent = 'N/A';
-    }
+    if (sub) card.append(el('div', { class: 'kpi-sub' }, sub));
+    if (href) card.style.cursor = 'pointer';
+    if (href) card.addEventListener('click', () => { location.hash = href; });
+    return card;
   }
 
-  await Promise.all([
-    card('客戶數', async () => (await api.get('/customers')).length),
-    card('產品數', async () => (await api.get('/products')).length),
-    card('供應商數', async () => (await api.get('/suppliers')).length),
-    card('逾期應收', async () => (await api.get('/receivables/overdue')).length),
-  ]);
+  try {
+    const s = await api.get('/dashboard/stats');
 
-  main.append(el('div', { class: 'empty', style: 'text-align:left;' }, '左側選單切換各模組。'));
+    countsGrid.append(
+      kpiCard('客戶數', String(s.counts.customerCount), { href: '#management/customers' }),
+      kpiCard('產品數', String(s.counts.productCount), { href: '#management/products' }),
+      kpiCard('供應商數', String(s.counts.supplierCount), { href: '#management/suppliers' }),
+      kpiCard('逾期應收', String(s.counts.overdueAr), {
+        color: s.counts.overdueAr > 0 ? '#dc3545' : '',
+        href: '#accounts/receivables',
+      }),
+    );
+
+    finGrid.append(
+      kpiCard('本月銷售額', `$${fmtMoney(s.monthSales.total)}`, {
+        sub: `${s.monthSales.count} 筆`,
+        href: '#sales/orders',
+        color: '#0a6',
+      }),
+      kpiCard('本月進貨額', `$${fmtMoney(s.monthPurchase.total)}`, {
+        sub: `${s.monthPurchase.count} 筆`,
+        href: '#purchase/orders',
+      }),
+      kpiCard('未收帳款', `$${fmtMoney(s.unpaidAr.total)}`, {
+        sub: `${s.unpaidAr.count} 筆`,
+        href: '#accounts/receivables',
+        color: s.unpaidAr.total > 0 ? '#e67700' : '',
+      }),
+      kpiCard('未付帳款', `$${fmtMoney(s.unpaidAp.total)}`, {
+        sub: `${s.unpaidAp.count} 筆`,
+        href: '#accounts/payables',
+        color: s.unpaidAp.total > 0 ? '#e67700' : '',
+      }),
+    );
+
+    if (s.topCustomers.length > 0) {
+      const periodLabel = s.period || '';
+      const tbody = el('tbody');
+      s.topCustomers.forEach((c, i) => {
+        tbody.append(el('tr', {},
+          el('td', {}, String(i + 1)),
+          el('td', {}, c.customerName),
+          el('td', { class: 'num' }, fmtMoney(c.total)),
+          el('td', { class: 'num' }, String(c.count) + ' 筆'),
+        ));
+      });
+      topSection.append(
+        el('h3', { style: 'margin-bottom:8px;' }, `${periodLabel} Top 5 客戶`),
+        el('table', { class: 'data', style: 'max-width:600px;' },
+          el('thead', {}, el('tr', {},
+            el('th', { style: 'width:40px;' }, '#'),
+            el('th', {}, '客戶'),
+            el('th', { style: 'width:120px;' }, '金額'),
+            el('th', { style: 'width:80px;' }, '筆數'),
+          )),
+          tbody,
+        ),
+      );
+    }
+  } catch {
+    countsGrid.append(el('div', { class: 'empty' }, '無法載入儀表板資料。'));
+  }
 }
 
 // Customers
@@ -1856,6 +1941,149 @@ async function openOrderViewer(kind, orderId) {
       el('button', { class: 'btn', onClick: () => backdrop.remove() }, '關閉'),
     ),
   );
+  backdrop.append(modal);
+  backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
+  document.body.append(backdrop);
+}
+
+// ----- Announcements (公告) -----
+async function viewAnnouncements(main) {
+  main.innerHTML = '';
+  main.append(el('h2', {}, '公告管理'));
+  main.append(el('div', { class: 'page-sub' }, '發布、編輯公司公告。'));
+
+  const tbody = el('tbody');
+  const table = el('table', { class: 'data' },
+    el('thead', {}, el('tr', {},
+      el('th', {}, '標題'),
+      el('th', {}, '優先'),
+      el('th', {}, '發布時間'),
+      el('th', {}, '到期時間'),
+      el('th', {}, '操作'),
+    )),
+    tbody,
+  );
+
+  async function reload() {
+    tbody.innerHTML = '';
+    try {
+      const rows = await api.get('/announcements?all=true');
+      if (!rows.length) { tbody.append(el('tr', {}, el('td', { colspan: 5, style: 'text-align:center;color:var(--muted);' }, '尚無公告'))); return; }
+      for (const a of rows) {
+        const now = new Date();
+        const expired = a.expiresAt && new Date(a.expiresAt) < now;
+        const priBadge = { urgent: 'bad', important: 'warn', normal: 'ok' }[a.priority] || 'mute';
+        const priLabel = { urgent: '緊急', important: '重要', normal: '一般' }[a.priority] || a.priority;
+        tbody.append(el('tr', { style: expired ? 'opacity:0.5;' : '' },
+          el('td', {}, a.title),
+          el('td', {}, el('span', { class: `badge ${priBadge}` }, priLabel)),
+          el('td', {}, new Date(a.publishedAt).toLocaleDateString('zh-TW')),
+          el('td', {}, a.expiresAt ? new Date(a.expiresAt).toLocaleDateString('zh-TW') : '—'),
+          el('td', { class: 'actions' },
+            isAdmin() ? el('button', { class: 'btn small', onClick: () => openAnnouncementModal(a, reload) }, '編輯') : null,
+            isAdmin() ? el('button', { class: 'btn small danger', onClick: async () => {
+              if (!confirm(`確定刪除「${a.title}」？`)) return;
+              await api.del('/announcements/' + a.id);
+              reload();
+            } }, '刪除') : null,
+          ),
+        ));
+      }
+    } catch (e) { tbody.append(el('tr', {}, el('td', { colspan: 5 }, e.message))); }
+  }
+
+  const toolbar = el('div', { class: 'toolbar' });
+  if (isAdmin()) {
+    toolbar.append(el('button', { class: 'btn primary', onClick: () => openAnnouncementModal(null, reload) }, '+ 新增公告'));
+  }
+  main.append(toolbar, table);
+  reload();
+}
+
+function openAnnouncementModal(existing, onSaved) {
+  const isEdit = !!existing;
+  const fields = [
+    { key: 'title', label: '標題', type: 'text', required: true },
+    { key: 'content', label: '內容', type: 'textarea' },
+    { key: 'priority', label: '優先級', type: 'select', options: [
+      { value: 'normal', label: '一般' },
+      { value: 'important', label: '重要' },
+      { value: 'urgent', label: '緊急' },
+    ] },
+    { key: 'expiresAt', label: '到期日（選填）', type: 'date' },
+  ];
+
+  const values = {
+    title: existing?.title || '',
+    content: existing?.content || '',
+    priority: existing?.priority || 'normal',
+    expiresAt: existing?.expiresAt ? existing.expiresAt.slice(0, 10) : '',
+  };
+
+  const modal = el('div', { class: 'modal' });
+  modal.append(el('h3', {}, isEdit ? '編輯公告' : '新增公告'));
+
+  const body = el('div', { class: 'body' });
+  const inputs = {};
+  for (const f of fields) {
+    const wrap = el('div', { class: 'field' });
+    wrap.append(el('label', {}, f.label));
+    let inp;
+    if (f.type === 'textarea') {
+      inp = el('textarea', { rows: 4 });
+      inp.value = values[f.key];
+    } else if (f.type === 'select') {
+      inp = el('select');
+      for (const o of f.options) inp.append(el('option', { value: o.value }, o.label));
+      inp.value = values[f.key];
+    } else if (f.type === 'date') {
+      inp = el('input', { type: 'date' });
+      inp.value = values[f.key];
+    } else {
+      inp = el('input', { type: 'text' });
+      inp.value = values[f.key];
+    }
+    inputs[f.key] = inp;
+    wrap.append(inp);
+    body.append(wrap);
+  }
+
+  let pushCheck = null;
+  if (!isEdit) {
+    const pushWrap = el('div', { class: 'field', style: 'display:flex;align-items:center;gap:8px;' });
+    pushCheck = el('input', { type: 'checkbox', id: 'ann_push' });
+    pushWrap.append(pushCheck, el('label', { for: 'ann_push', style: 'margin:0;' }, '同時推播至 LINE'));
+    body.append(pushWrap);
+  }
+
+  const errEl = el('div', { class: 'err' });
+  body.append(errEl);
+  modal.append(body);
+
+  const actions = el('div', { class: 'actions' });
+  actions.append(
+    el('button', { class: 'btn', onClick: () => backdrop.remove() }, '取消'),
+    el('button', { class: 'btn primary', onClick: async () => {
+      const title = inputs.title.value.trim();
+      if (!title) { errEl.textContent = '標題為必填'; return; }
+      const payload = {
+        title,
+        content: inputs.content.value.trim(),
+        priority: inputs.priority.value,
+        expiresAt: inputs.expiresAt.value || null,
+        ...(pushCheck ? { pushToLine: pushCheck.checked } : {}),
+      };
+      try {
+        if (isEdit) await api.put('/announcements/' + existing.id, payload);
+        else await api.post('/announcements', payload);
+        backdrop.remove();
+        onSaved();
+      } catch (e) { errEl.textContent = e.message; }
+    } }, isEdit ? '儲存' : '發布'),
+  );
+  modal.append(actions);
+
+  const backdrop = el('div', { class: 'modal-backdrop' });
   backdrop.append(modal);
   backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
   document.body.append(backdrop);
@@ -5279,6 +5507,7 @@ const GROUPS = {
       { key: 'products',   label: '產品',   view: 'products' },
       { key: 'suppliers',  label: '供應商', view: 'suppliers', denySales: true },
       { key: 'employees',  label: '員工',   view: 'employees', adminOnly: true },
+      { key: 'announcements', label: '公告', view: 'announcements', adminOnly: true },
     ],
   },
   sales: {
@@ -5327,11 +5556,11 @@ const GROUPS = {
 
 // Legacy single hashes → new group/tab hash. Preserves existing bookmarks.
 const LEGACY_REDIRECT = {
-  dashboard: 'sales',
   customers: 'management/customers',
   products: 'management/products',
   suppliers: 'management/suppliers',
   employees: 'management/employees',
+  announcements: 'management/announcements',
   receivables: 'accounts/receivables',
   payables: 'accounts/payables',
   einvoices: 'invoices/einvoices',
@@ -5416,6 +5645,7 @@ const LEAF_VIEWS = {
   'acct-balance':        viewAcctBalance,
   'acct-tax-deduct':     viewAcctTaxDeduct,
   'acct-petty-cash':     viewAcctPettyCash,
+  announcements: viewAnnouncements,
   'audit-logs': viewAuditLogs,
   'error-logs': viewErrorLogs,
   company: viewCompany,
@@ -5423,7 +5653,7 @@ const LEAF_VIEWS = {
 };
 
 async function route() {
-  let raw = (location.hash || '#sales').slice(1);
+  let raw = (location.hash || '#dashboard').slice(1);
   // Legacy redirect (bookmark-safe): old single hash → group/tab hash.
   if (LEGACY_REDIRECT[raw]) {
     location.replace('#' + LEGACY_REDIRECT[raw]);
@@ -5444,7 +5674,7 @@ async function route() {
   }
 
   const fn = LEAF_VIEWS[head];
-  if (!fn) { location.replace('#sales'); return; }
+  if (!fn) { location.replace('#dashboard'); return; }
   try { await fn(main); }
   catch (e) { main.innerHTML = ''; main.append(el('div', { class: 'err' }, e.message)); }
 }

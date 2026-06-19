@@ -55,6 +55,7 @@ model Tenant {
   billingSubscription TenantBillingSubscription?
   versionUpgradeLogs  VersionUpgradeLog[]
   billingSubLogs      BillingSubscriptionLog[]
+  announcements       Announcement[]
 }
 
 // ============================================================
@@ -1214,4 +1215,25 @@ model UsageOverageRate {
 
   @@unique([planId, metricType])
   @@index([planId])
+}
+
+// ============================================================
+// Announcement (公告)
+// ============================================================
+
+model Announcement {
+  id          String    @id @default(cuid())
+  tenantId    String
+  tenant      Tenant    @relation(fields: [tenantId], references: [id])
+  title       String
+  content     String    @db.Text
+  priority    String    @default("normal") // normal | important | urgent
+  isPublished Boolean   @default(true)
+  publishedAt DateTime  @default(now())
+  expiresAt   DateTime?
+  createdBy   String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([tenantId, isPublished, publishedAt])
 }

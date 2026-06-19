@@ -28,6 +28,8 @@ import { advancedBillingRouter } from '../modules/core/billing/billing-advanced.
 import { featureRouter } from '../modules/core/feature/feature.router.js';
 import { requireModule } from '../middleware/feature-gate.js';
 import { demoRouter } from '../modules/core/demo/demo.router.js';
+import { announcementRouter } from '../modules/core/announcement/announcement.router.js';
+import { dashboardRouter } from './dashboard.router.js';
 import { VERSION_INFO } from '../shared/version.js';
 
 export const apiRouter = Router();
@@ -57,6 +59,8 @@ apiRouter.get('/me', (req, res) => {
   });
 });
 
+apiRouter.use('/dashboard', dashboardRouter);
+apiRouter.use('/announcements', announcementRouter);
 apiRouter.use('/employees', employeeRouter);
 apiRouter.use('/products', productRouter);
 apiRouter.use('/customers', customerRouter);
