@@ -25,7 +25,13 @@ RUN npx prisma generate \
     && npm run build
 
 # Prune dev deps so /app/node_modules becomes production-only.
+# Save prisma CLI + engines first — needed by fly.toml release_command (prisma db push).
+RUN cp -r node_modules/prisma /tmp/prisma-cli && \
+    cp -r node_modules/@prisma/engines /tmp/prisma-engines
 RUN npm prune --omit=dev
+RUN cp -r /tmp/prisma-cli node_modules/prisma && \
+    mkdir -p node_modules/@prisma && \
+    cp -r /tmp/prisma-engines node_modules/@prisma/engines
 
 
 # ---------- runner ----------

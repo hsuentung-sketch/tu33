@@ -219,10 +219,13 @@ npx tsx src/tools/generate-binding-code.ts <員工編號>
 ```
 
 ## Schema 變更 SOP
-Supabase `.env` 的 `DATABASE_URL` 走 pgbouncer port 6543（不支援 DDL），所以：
-- 平常開發：`npx prisma db push`（用 direct URL）或改 migration
-- **Fly 生產**：改 `prisma/schema.prisma` 後，實務作法是去 **Supabase SQL Editor** 手動貼 ALTER TABLE，再 `git push` 觸發 `fly deploy`
-- 程式端加 try/catch P2022 fallback，保護「schema 已改但 DB 還沒 migrate」的短暫不一致期（見 `customer.service.ts` / `media.handler.ts`）
+- **本機開發**：`npx prisma db push`（用 .env 的 DATABASE_URL）
+- **Fly 生產**：fly.toml 設有 `release_command`，每次 `fly deploy` 會自動跑 `prisma db push`：
+  - 新增 table / column → 自動套用，deploy 成功
+  - 刪除 / 改名 column（data loss） → release_command 失敗 → deploy 中止 → 手動 review 後加 `--accept-data-loss` 單次執行
+  - Prisma CLI 保留在 Dockerfile runner stage（prune 前備份）
+- 程式端加 try/catch P2022 fallback，保護滾動部署期間的短暫不一致期（見 `customer.service.ts` / `media.handler.ts`）
+- DB 已遷至 Neon（不再使用 Supabase），CONNECTION 走 pooler endpoint
 
 ## 版本更新 SOP
 bump `package.json` 的 version 時必須**同步**以下：

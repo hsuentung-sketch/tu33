@@ -9,8 +9,9 @@ primary_region = 'nrt'
 [build]
 
 [deploy]
-  # DDL 走 Supabase SQL Editor 手動執行，不用 prisma migrate deploy。
-  # Prisma 7 driver adapter 模式下 schema 無 url，prisma migrate deploy 會失敗。
+  # 每次 deploy 自動同步 schema（新增 table/column 自動套用）。
+  # 不帶 --accept-data-loss：若有破壞性變更（drop column）會中止 deploy，需手動處理。
+  release_command = 'sh -c "node node_modules/prisma/build/index.js db push --url $DATABASE_URL"'
 
 [env]
   NODE_ENV = 'production'
