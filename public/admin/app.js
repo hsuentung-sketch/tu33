@@ -165,17 +165,27 @@ async function viewDashboard(main) {
 
   api.get('/announcements').then(rows => {
     if (!rows.length) return;
-    annBanner.append(el('h3', { style: 'margin:0 0 8px;font-size:15px;' }, '公告'));
-    const display = rows.slice(0, 5);
+    const titleRow = el('div', { style: 'display:flex;align-items:center;gap:8px;margin-bottom:8px;' });
+    titleRow.append(el('h3', { style: 'margin:0;font-size:15px;' }, '公告'));
+    if (rows.length > 10) {
+      const link = el('a', {
+        href: '#management/announcements',
+        style: 'font-size:13px;color:var(--primary);',
+      }, `（共 ${rows.length} 則）`);
+      titleRow.append(link);
+    }
+    annBanner.append(titleRow);
+    const display = rows.slice(0, 10);
     for (const a of display) {
       const colors = { urgent: '#dc3545', important: '#e67700', normal: '#0d6efd' };
       const c = colors[a.priority] || colors.normal;
-      const priLabel = a.priority === 'urgent' ? '[緊急] ' : a.priority === 'important' ? '[重要] ' : '';
+      const priLabel = a.priority === 'urgent' ? '[緊急]' : a.priority === 'important' ? '[重要]' : '[一般]';
+      const pubDate = new Date(a.publishedAt).toLocaleDateString('zh-TW');
       const bar = el('div', {
         style: `border-left:4px solid ${c};background:${c}11;padding:8px 14px;margin-bottom:6px;border-radius:4px;cursor:pointer;`,
         onClick: () => {
           const date = new Date(a.publishedAt).toLocaleDateString('zh-TW');
-          const expires = a.expiresAt ? new Date(a.expiresAt).toLocaleDateString('zh-TW') : '無';
+          const expires = a.expiresAt ? new Date(a.expiresAt).toLocaleDateString('zh-TW') : '永不過期';
           const modal = el('div', { class: 'modal', style: 'max-width:520px;padding:24px 28px;' });
           modal.append(el('h3', {}, a.title));
           modal.append(el('div', { style: 'color:var(--muted);font-size:13px;margin-bottom:12px;' }, `發布：${date}　到期：${expires}`));
@@ -189,7 +199,8 @@ async function viewDashboard(main) {
           document.body.append(backdrop);
         },
       },
-        el('strong', { style: `color:${c};margin-right:4px;` }, priLabel),
+        el('strong', { style: `color:${c};margin-right:6px;` }, priLabel),
+        el('span', { style: 'color:var(--muted);font-size:12px;margin-right:6px;' }, pubDate),
         el('span', {}, a.title),
       );
       annBanner.append(bar);
@@ -2010,9 +2021,10 @@ function openAnnouncementModal(existing, onSaved) {
       { value: 'important', label: '重要' },
       { value: 'urgent', label: '緊急' },
     ] },
-    { key: 'expiresAt', label: '到期日（選填）', type: 'date' },
+    { key: 'expiresAt', label: '到期日', type: 'date' },
   ];
 
+  const neverExpires = !existing?.expiresAt;
   const values = {
     title: existing?.title || '',
     content: existing?.content || '',
@@ -2025,6 +2037,7 @@ function openAnnouncementModal(existing, onSaved) {
 
   const body = el('div', { class: 'body' });
   const inputs = {};
+  let neverCheck = null;
   for (const f of fields) {
     const wrap = el('div', { class: 'field' });
     wrap.append(el('label', {}, f.label));
@@ -2036,9 +2049,22 @@ function openAnnouncementModal(existing, onSaved) {
       inp = el('select');
       for (const o of f.options) inp.append(el('option', { value: o.value }, o.label));
       inp.value = values[f.key];
-    } else if (f.type === 'date') {
+    } else if (f.key === 'expiresAt') {
       inp = el('input', { type: 'date' });
       inp.value = values[f.key];
+      const neverWrap = el('div', { style: 'display:flex;align-items:center;gap:6px;margin-top:4px;' });
+      neverCheck = el('input', { type: 'checkbox', id: 'ann_never' });
+      neverCheck.checked = neverExpires;
+      if (neverExpires) inp.disabled = true;
+      neverCheck.addEventListener('change', () => {
+        inp.disabled = neverCheck.checked;
+        if (neverCheck.checked) inp.value = '';
+      });
+      neverWrap.append(neverCheck, el('label', { for: 'ann_never', style: 'margin:0;font-size:13px;' }, '永不過期'));
+      wrap.append(inp, neverWrap);
+      inputs[f.key] = inp;
+      body.append(wrap);
+      continue;
     } else {
       inp = el('input', { type: 'text' });
       inp.value = values[f.key];
