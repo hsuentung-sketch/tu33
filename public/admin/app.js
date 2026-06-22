@@ -3350,7 +3350,7 @@ async function viewAccount(main, path, title, partyLabel) {
               !isSales() && !a.isPaid ? ' ' : null,
               !isSales() && !a.isPaid ? el('button', { class: 'btn small primary', onClick: () => markPaid(a) }, '標記已付') : null,
               path === 'receivables' ? ' ' : null,
-              path === 'receivables' && window.__session?.employee?.role === 'ADMIN'
+              path === 'receivables' && window.__session?.employee?.role === 'ADMIN' && !a.invoiceNo
                 ? el('button', { class: 'btn small', onClick: () => openEinvoiceIssueModal(a, reload) }, '開立發票')
                 : null,
             ),
@@ -3382,24 +3382,15 @@ async function viewAccount(main, path, title, partyLabel) {
     openModal({
       title: `編輯${isPayable ? '應付' : '應收'}帳款`,
       initial: {
-        isPaid: !!a.isPaid,
-        paidDate: a.paidDate ? new Date(a.paidDate).toISOString().slice(0, 10) : '',
         invoiceNo: a.invoiceNo || '',
         note: a.note || '',
       },
       fields: [
         { name: 'invoiceNo', label: '發票號碼' },
-        { name: 'paidDate', label: isPayable ? '付款日期' : '入帳日期', type: 'date' },
-        { name: 'isPaid', label: '已結案（勾選＝已付／已收）', type: 'select', options: [
-          { value: 'false', label: '未結案' },
-          { value: 'true', label: '已結案' },
-        ]},
         { name: 'note', label: '備註', type: 'textarea' },
       ],
       onSubmit: async (v) => {
         const body = {
-          isPaid: v.isPaid === 'true' || v.isPaid === true,
-          paidDate: v.paidDate ? v.paidDate : null,
           invoiceNo: v.invoiceNo ? v.invoiceNo : null,
           note: v.note ? v.note : null,
         };
