@@ -9,7 +9,7 @@ import { docRouter } from './routes/doc.router.js';
 import { shortLinkRouter } from './modules/core/shortlink/shortlink.router.js';
 import { AppError } from './shared/errors.js';
 import { writeErrorLog, runWithRequestContext, newRequestId } from './shared/error-log.js';
-import { prisma } from './shared/prisma.js';
+import { prisma, pool } from './shared/prisma.js';
 import { scheduleOverdueReminder } from './jobs/overdue-reminder.js';
 import { scheduleMonthlyStatements } from './jobs/monthly-statement.js';
 import { scheduleDailyBackup } from './jobs/daily-backup.js';
@@ -51,7 +51,7 @@ app.use(cookieParser());
 // 若 DB 連不上回 503，Fly deploy 時新版不會通過 health check，自動 rollback。
 let dbOk = true;
 let lastDbCheck = 0;
-const DB_CHECK_INTERVAL_MS = 15_000; // 最多每 15 秒查一次 DB
+const DB_CHECK_INTERVAL_MS = 5 * 60_000; // 最多每 5 分鐘查一次，讓 Neon 有機會 auto-suspend
 
 app.get('/health', async (_req, res) => {
   const now = Date.now();
@@ -208,5 +208,17 @@ app.listen(config.port, '0.0.0.0', async () => {
   registerAutoJournalHandlers();
   void runEinvoiceBootCheck();
 });
+
+async function shutdown(signal: string) {
+  logger.info(`${signal} received — shutting down`);
+  try {
+    await prisma.$disconnect();
+    await pool.end();
+  } finally {
+    process.exit(0);
+  }
+}
+process.on('SIGTERM', () => void shutdown('SIGTERM'));
+process.on('SIGINT', () => void shutdown('SIGINT'));
 
 export default app;
