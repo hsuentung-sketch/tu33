@@ -227,6 +227,13 @@ npx tsx src/tools/generate-binding-code.ts <員工編號>
 - 程式端加 try/catch P2022 fallback，保護滾動部署期間的短暫不一致期（見 `customer.service.ts` / `media.handler.ts`）
 - DB 已遷至 Neon（不再使用 Supabase），CONNECTION 走 pooler endpoint
 
+## 部署紀律（單客戶 vs 多客戶）
+
+- **目前**各行業模板只有一家客戶，直接 `fly deploy` 和 CP 批次部署效果相同，兩者皆可
+- **當任一行業模板有第二家客戶時**，該模板一律走 CP 批次部署，**禁止**單獨 `fly deploy`（會導致客戶間版本不一致）
+- CP 版本追蹤是即時 fetch 各 Fly app 的 `/api/version`，直接 `fly deploy` 不會讓 CP 壞掉，但 CP 畫面上的 ahead/behind 會暫時不準（重新整理即恢復）
+- 教訓來源：2026-06-22 直接 `fly deploy` 修 production 緊急問題，CP 未同步更新顯示
+
 ## 版本更新 SOP
 bump `package.json` 的 version 時必須**同步**以下：
 1. `CHANGELOG.md` 加新段落（Keep a Changelog 格式，按 semver 判斷 major/minor/patch）

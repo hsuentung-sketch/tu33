@@ -152,6 +152,99 @@ function buildField(f, values) {
 
 // ------- Views -------
 
+// 近 6 個月營業額 / 毛利條狀圖（純 SVG，避免外部相依）。
+function renderMonthlyChart(rows) {
+  const wrap = el('div', { class: 'monthly-chart-wrap', style: 'background:var(--surface,#fff);padding:16px;border-radius:8px;border:1px solid var(--border,#e5e7eb);' });
+  wrap.append(el('h3', { style: 'margin:0 0 12px;font-size:15px;' }, '近 6 個月營業額與毛利'));
+
+  const maxVal = Math.max(1, ...rows.flatMap((r) => [r.revenue, r.grossProfit]));
+  const W = 720, H = 240, padL = 56, padR = 16, padT = 12, padB = 40;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+  const groupW = innerW / rows.length;
+  const barW = Math.max(8, groupW * 0.35);
+  const gap = groupW * 0.08;
+
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('style', 'width:100%;height:auto;max-width:720px;');
+  svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', '近 6 個月營業額與毛利條狀圖');
+
+  const addLine = (x1, y1, x2, y2, stroke) => {
+    const l = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    l.setAttribute('x1', x1); l.setAttribute('y1', y1);
+    l.setAttribute('x2', x2); l.setAttribute('y2', y2);
+    l.setAttribute('stroke', stroke);
+    svg.appendChild(l);
+  };
+  const addText = (x, y, text, opts = {}) => {
+    const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    t.setAttribute('x', x); t.setAttribute('y', y);
+    t.setAttribute('fill', opts.fill || '#374151');
+    t.setAttribute('font-size', opts.size || '11');
+    if (opts.anchor) t.setAttribute('text-anchor', opts.anchor);
+    t.textContent = text;
+    svg.appendChild(t);
+  };
+  const addRect = (x, y, w, h, fill, title) => {
+    const r = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    r.setAttribute('x', x); r.setAttribute('y', y);
+    r.setAttribute('width', w); r.setAttribute('height', h);
+    r.setAttribute('fill', fill);
+    r.setAttribute('rx', '2');
+    if (title) {
+      const t = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+      t.textContent = title;
+      r.appendChild(t);
+    }
+    svg.appendChild(r);
+  };
+
+  // Y-axis gridlines + labels（4 條）。
+  const ticks = 4;
+  for (let i = 0; i <= ticks; i++) {
+    const y = padT + (innerH * (ticks - i)) / ticks;
+    addLine(padL, y, W - padR, y, '#e5e7eb');
+    const v = Math.round((maxVal * i) / ticks);
+    addText(padL - 6, y + 3, fmtMoney(v), { size: '10', fill: '#6b7280', anchor: 'end' });
+  }
+
+  // Bars.
+  rows.forEach((r, i) => {
+    const gx = padL + i * groupW;
+    const revH = innerH * (r.revenue / maxVal);
+    const gpH = innerH * (Math.max(0, r.grossProfit) / maxVal);
+    const rx = gx + groupW / 2 - barW - gap / 2;
+    const gpx = gx + groupW / 2 + gap / 2;
+    addRect(rx, padT + innerH - revH, barW, revH, '#3b82f6', `營業額 ${fmtMoney(r.revenue)}`);
+    addRect(gpx, padT + innerH - gpH, barW, gpH, '#10b981', `毛利 ${fmtMoney(r.grossProfit)}`);
+    // X-axis label.
+    const label = r.period.slice(2).replace('-', '/'); // 26/07
+    addText(gx + groupW / 2, H - padB + 16, label, { size: '11', fill: '#374151', anchor: 'middle' });
+  });
+
+  wrap.append(svg);
+
+  // Legend.
+  const legend = el('div', { style: 'display:flex;gap:16px;justify-content:center;margin-top:8px;font-size:12px;color:#4b5563;' },
+    el('div', { style: 'display:flex;align-items:center;gap:6px;' },
+      el('span', { style: 'display:inline-block;width:12px;height:12px;background:#3b82f6;border-radius:2px;' }), '營業額',
+    ),
+    el('div', { style: 'display:flex;align-items:center;gap:6px;' },
+      el('span', { style: 'display:inline-block;width:12px;height:12px;background:#10b981;border-radius:2px;' }), '毛利',
+    ),
+  );
+  wrap.append(legend);
+
+  const hasCost = rows.some((r) => r.grossProfit !== 0);
+  if (!hasCost) {
+    wrap.append(el('div', { style: 'font-size:11px;color:#9ca3af;margin-top:6px;text-align:center;' },
+      '毛利需銷貨單有進價快照才會顯示，舊資料可能為 0。'));
+  }
+  return wrap;
+}
+
 async function viewDashboard(main) {
   main.innerHTML = '';
   main.append(el('h2', {}, '總覽'));
@@ -160,8 +253,8 @@ async function viewDashboard(main) {
   const kpiTitle = el('h3', { style: 'margin:0 0 8px;font-size:15px;' }, 'KPI');
   const countsGrid = el('div', { class: 'kpi-grid' });
   const finGrid = el('div', { class: 'kpi-grid' });
-  const topSection = el('div', { style: 'margin-top:18px;' });
-  main.append(annBanner, kpiTitle, countsGrid, finGrid, topSection);
+  const chartSection = el('div', { style: 'margin-top:18px;' });
+  main.append(annBanner, kpiTitle, countsGrid, finGrid, chartSection);
 
   api.get('/announcements').then(rows => {
     if (!rows.length) return;
@@ -258,29 +351,8 @@ async function viewDashboard(main) {
       }),
     );
 
-    if (s.topCustomers.length > 0) {
-      const periodLabel = s.period || '';
-      const tbody = el('tbody');
-      s.topCustomers.forEach((c, i) => {
-        tbody.append(el('tr', {},
-          el('td', {}, String(i + 1)),
-          el('td', {}, c.customerName),
-          el('td', { class: 'num' }, fmtMoney(c.total)),
-          el('td', { class: 'num' }, String(c.count) + ' 筆'),
-        ));
-      });
-      topSection.append(
-        el('h3', { style: 'margin-bottom:8px;' }, `${periodLabel} Top 5 客戶`),
-        el('table', { class: 'data', style: 'max-width:600px;' },
-          el('thead', {}, el('tr', {},
-            el('th', { style: 'width:40px;' }, '#'),
-            el('th', {}, '客戶'),
-            el('th', { style: 'width:120px;' }, '金額'),
-            el('th', { style: 'width:80px;' }, '筆數'),
-          )),
-          tbody,
-        ),
-      );
+    if (Array.isArray(s.monthlyStats) && s.monthlyStats.length > 0) {
+      chartSection.append(renderMonthlyChart(s.monthlyStats));
     }
   } catch {
     countsGrid.append(el('div', { class: 'empty' }, '無法載入儀表板資料。'));
@@ -5532,6 +5604,8 @@ const GROUPS = {
     tabs: [
       { key: 'quotations',    label: '報價單',   view: 'quotations' },
       { key: 'sales-orders',  label: '銷貨單',   view: 'sales-orders' },
+      { key: 'visit-logs',    label: '工作日誌', view: 'visit-logs' },
+      { key: 'bonus-report',  label: '業績獎金', view: 'bonus-report', adminOnly: true },
     ],
   },
   accounts: {
