@@ -5131,8 +5131,8 @@ async function viewAcctPettyCash(main) {
         el('th', {}, '日期'),
         el('th', {}, '說明'),
         el('th', {}, '來源'),
-        el('th', { class: 'num', title: '現金流入（補充零用金）' }, '收入'),
-        el('th', { class: 'num', title: '現金流出（費用支付）' }, '支出'),
+        el('th', { class: 'num', title: '1101 現金科目借方（補充零用金等）' }, '現金流入'),
+        el('th', { class: 'num', title: '1101 現金科目貸方（費用支付等）' }, '現金流出'),
         el('th', { class: 'num' }, '累計餘額'),
       )));
       const tb = el('tbody');
