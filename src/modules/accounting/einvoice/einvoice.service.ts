@@ -175,9 +175,9 @@ export async function importPoolsCsv(
     return -1;
   };
   const iY = idxOf('期別', '年期別', 'yearMonth', 'InvoiceYearMonth', '發票期別');
-  const iT = idxOf('字軌', '字軌號碼', 'track', 'trackAlpha', 'InvoiceTrack');
-  const iS = idxOf('起號', 'InvoiceBeginNo', 'rangeStart', '起');
-  const iE = idxOf('迄號', '訖號', 'InvoiceEndNo', 'rangeEnd', '迄');
+  const iT = idxOf('字軌', '字軌號碼', 'track', 'trackAlpha', 'InvoiceTrack', '發票字軌名稱');
+  const iS = idxOf('起號', 'InvoiceBeginNo', 'rangeStart', '起', '發票起號');
+  const iE = idxOf('迄號', '訖號', 'InvoiceEndNo', 'rangeEnd', '迄', '發票迄號');
   if (iY < 0 || iT < 0 || iS < 0 || iE < 0) {
     throw new ValidationError(`CSV 欄位缺漏：期別=${iY} 字軌=${iT} 起號=${iS} 迄號=${iE}（headers=${headers.join('|')}）`);
   }
@@ -186,11 +186,11 @@ export async function importPoolsCsv(
     const cells = parseCsvLine(lines[r]).map((c) => c.trim());
     if (cells.every((c) => !c)) continue;
     try {
-      const yearMonth = cells[iY];
+      const yearMonth = normalizeYearMonth(cells[iY]);
       const trackAlpha = cells[iT].toUpperCase();
       const rangeStart = Number(cells[iS]);
       const rangeEnd = Number(cells[iE]);
-      if (!/^\d{7}$/.test(yearMonth)) throw new Error(`期別 ${yearMonth} 非 7 碼`);
+      if (!/^\d{7}$/.test(yearMonth)) throw new Error(`期別 ${cells[iY]} 無法解析為 7 碼（如 1150708）`);
       if (!/^[A-Z]{2}$/.test(trackAlpha)) throw new Error(`字軌 ${trackAlpha} 非兩碼大寫英文`);
       if (!Number.isInteger(rangeStart) || rangeStart < 0) throw new Error(`起號 ${cells[iS]} 不合法`);
       if (!Number.isInteger(rangeEnd) || rangeEnd <= rangeStart) throw new Error(`迄號 ${cells[iE]} 不合法`);
@@ -213,6 +213,32 @@ export async function importPoolsCsv(
     }
   }
   return result;
+}
+
+/**
+ * 正規化期別為 7 碼（民國年 3 + 單月 2 + 雙月 2）。
+ * 接受：
+ *   "1150708"        → "1150708"
+ *   "115/07 ~ 115/08" → "1150708"
+ *   "115/07~115/08"  → "1150708"
+ *   "115/07-08"      → "1150708"
+ *   "115/07"         → "1150708"（自動補雙月）
+ */
+function normalizeYearMonth(raw: string): string {
+  const s = raw.replace(/\s|～/g, '').replace(/~|-|—|–/g, '-');
+  if (/^\d{7}$/.test(s)) return s;
+  let m = s.match(/^(\d{3})\/(\d{1,2})-(\d{3})\/(\d{1,2})$/);
+  if (m) return `${m[1]}${m[2].padStart(2, '0')}${m[4].padStart(2, '0')}`;
+  m = s.match(/^(\d{3})\/(\d{1,2})-(\d{1,2})$/);
+  if (m) return `${m[1]}${m[2].padStart(2, '0')}${m[3].padStart(2, '0')}`;
+  m = s.match(/^(\d{3})\/(\d{1,2})$/);
+  if (m) {
+    const odd = parseInt(m[2], 10);
+    const start = odd % 2 === 1 ? odd : odd - 1;
+    const end = start + 1;
+    return `${m[1]}${String(start).padStart(2, '0')}${String(end).padStart(2, '0')}`;
+  }
+  return raw;
 }
 
 /** Minimal CSV line parser supporting quoted cells with embedded commas/quotes. */
