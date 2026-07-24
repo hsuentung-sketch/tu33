@@ -3661,10 +3661,18 @@ async function viewCompany(main) {
     el('div', { style: 'color:#666;' }, '若需修改 → 請至本頁最上方「公司資料」區塊更新。'),
   ));
   const eTaxRegNo = einvField('taxRegistrationNo', '稅籍編號（字軌申請書用）');
-  const eInboundDir = einvField('turnkeyInboundDir', 'Turnkey 匯入目錄（絕對路徑）',
-    { placeholder: '/data/einvoice/inbound' });
-  const eOutboundDir = einvField('turnkeyOutboundDir', 'Turnkey 回執目錄（絕對路徑）',
-    { placeholder: '/data/einvoice/outbound' });
+  const eBackend = el('select', { name: 'turnkeyBackend' },
+    el('option', { value: 'local' }, 'local（Fly VM 本機檔案系統）'),
+    el('option', { value: 's3' }, 's3（Cloudflare R2 / AWS S3；跨機共用）'));
+  einvForm.append(el('div', { style: 'margin-bottom:12px;' },
+    el('label', { style: 'display:block;font-size:12px;color:#666;margin-bottom:4px;' }, 'Turnkey 傳輸儲存後端'),
+    eBackend,
+    el('div', { style: 'font-size:11px;color:#999;margin-top:2px;' },
+      's3 需在 Fly 端設 TURNKEY_S3_ENDPOINT / TURNKEY_S3_BUCKET / TURNKEY_S3_ACCESS_KEY / TURNKEY_S3_SECRET / TURNKEY_S3_REGION')));
+  const eInboundDir = einvField('turnkeyInboundDir', 'Turnkey 匯入目錄（local=絕對路徑；s3=bucket 內 prefix 含尾斜線）',
+    { placeholder: 's3 範例：runtong/inbound/' });
+  const eOutboundDir = einvField('turnkeyOutboundDir', 'Turnkey 回執目錄（local=絕對路徑；s3=bucket 內 prefix 含尾斜線）',
+    { placeholder: 's3 範例：runtong/outbound/' });
   const eOnlineCode = einvField('turnkeyOnlineCode', 'Turnkey 上線通行碼（整合平台提供）');
   const eQrKey = einvField('qrAesKey', '證明聯 QR 加密金鑰（32 字元 hex；空＝保留原值）',
     { placeholder: '0123456789abcdef0123456789abcdef' });
@@ -3692,6 +3700,7 @@ async function viewCompany(main) {
     const cfg = await api.get('/tenant/me/einvoice-settings');
     eEnabled.checked = !!cfg.enabled;
     eTaxRegNo.value = cfg.taxRegistrationNo || '';
+    eBackend.value = cfg.turnkeyBackend || 'local';
     eInboundDir.value = cfg.turnkeyInboundDir || '';
     eOutboundDir.value = cfg.turnkeyOutboundDir || '';
     eOnlineCode.value = cfg.turnkeyOnlineCode || '';
@@ -3710,6 +3719,7 @@ async function viewCompany(main) {
       const body = {
         enabled: eEnabled.checked,
         taxRegistrationNo: eTaxRegNo.value.trim(),
+        turnkeyBackend: eBackend.value,
         turnkeyInboundDir: eInboundDir.value.trim(),
         turnkeyOutboundDir: eOutboundDir.value.trim(),
         turnkeyOnlineCode: eOnlineCode.value.trim(),
