@@ -3,6 +3,63 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.18.0] - 2026-07-24
+
+### Added -- 電子發票 MIG 4.1 全面升級（EINV V4.8 檢測就緒）
+
+依「電子發票 Turnkey 上線前自行檢測作業 V4.8」（113-12-30 發布，MIG 4.1）全面重構。
+
+**訊息代碼 C→F/G 全換（強制 2026-01 前完成）：**
+- F0401 存證發票開立（原 C0401）
+- F0501 存證發票作廢（原 C0501）
+- **F0701 存證發票註銷（新增）** — 跨期修正或需正式撤銷後重開時使用
+- G0401 折讓證明單（原 D0401）
+- G0501 作廢折讓證明單（原 D0501）
+- E0402 空白未使用字軌回報（原 C0701）
+
+**XML 欄位補齊：**
+- Amount 區塊補 `FreeTaxSalesAmount` / `ZeroTaxSalesAmount`（MIG 4.1 required）
+- 4 種稅別自動分區：應稅(1) / 零稅(2) / 免稅(3) / 混稅(9) — 由 `computeTaxBreakdown()` 依品項 taxType 自動判斷
+- 載具 CarrierId1 / CarrierId2 拆分（手機條碼隱碼情境）
+- Seller 加 PersonInCharge / TelephoneNumber / FacsimileNumber
+- AllowanceType 動態化（買方=1 / 賣方=2 / 雙方=3，取代原寫死 '1'）
+
+**模組層 opt-in（`modules.json` 粗顆粒）：**
+- `requireEinvoiceModule()` middleware：計費 tier + `Tenant.settings.einvoice.enabled` 兩層檢查
+- `/api/auth/web/session` + `/api/me` 加 `modules.einvoice`
+- 前端 `<a data-requires-module="einvoice">` 導覽自動隱藏
+- Group `requiresModule: 'einvoice'` 未啟用時顯示提示
+
+**每日對帳/告警排程（03:30 Asia/Taipei）：**
+- 漏上傳檢核：issued 且 > 24 小時未確認 → LINE 通知
+- Turnkey 拒絕告警：status=rejected 統計
+- 重號檢測：GROUP BY invoiceNo HAVING COUNT>1
+- 字軌即將耗盡：剩餘 < 10% 或 < 50 張告警
+- 通知目標：ADMIN + ACCOUNTING 且已綁 lineUserId 的員工
+
+**E0402 空白未使用字軌自動排程（雙月 10 號 09:00）：**
+- 每期 3/10、5/10、7/10、9/10、11/10、隔年 1/10 自動回報上一期
+- `EinvoiceBlankReport` 表追蹤已回報 range，`@@unique([poolId, startNumber])` 保證冪等
+- CLI 保留為手動觸發器
+
+**F0701 註銷發票（新功能）：**
+- Prisma 加 `nullifiedAt` / `nullifyReason` / `nullifyXmlPath` / `nullifyXmlBody`；status 增 `nullified`
+- 允許來源狀態：issued（跨期修正用）或 voided（先作廢再註銷）
+- 註銷後 AR.invoiceNo 清空，可重開新發票
+- 後台按鈕 + F0701 XML 下載
+
+### Fixed
+- `allowance.service.ts` 賣方統編/名稱改讀 `tenant.taxId` / `tenant.companyName`，不再從 `einvCfg.sellerXxx` override（避免與原發票不一致被 EINV 退件）
+- `report-blank-numbers.ts` 邏輯抽出為 service，與 cron job 共用
+
+### Schema
+- Einvoice：加 `nullifiedAt` / `nullifyReason` / `nullifyXmlPath` / `nullifyXmlBody`；status 新增 `nullified`
+- 新 model：`EinvoiceBlankReport`
+
+### 檢測進度（Turnkey Linode VM 側）
+- Turnkey v3.2.1 已完成設定（GUI 10 綠勾 / 排程執行中 / SFTP 連線通過）
+- 待項：E2E 測試（實際送 F0401 sample → EINV 回 C 狀態）→ 上傳檢測報告 → 核發上線通行碼
+
 ## [2.17.0] - 2026-06-17
 
 ### Added -- 交易紀錄查詢（客戶 + 產品）

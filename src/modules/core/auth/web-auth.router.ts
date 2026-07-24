@@ -135,10 +135,14 @@ webAuthRouter.get('/session', async (req: Request, res: Response) => {
       include: { tenant: true },
     });
     if (!emp) { res.status(401).json({ ok: false }); return; }
+    const settings = (emp.tenant.settings ?? {}) as { einvoice?: { enabled?: boolean } };
     res.json({
       ok: true,
       employee: { id: emp.id, employeeId: emp.employeeId, name: emp.name, role: emp.role },
       tenant: { id: emp.tenant.id, companyName: emp.tenant.companyName },
+      modules: {
+        einvoice: settings.einvoice?.enabled === true,
+      },
     });
   } catch {
     res.status(401).json({ ok: false });

@@ -2,8 +2,8 @@ import { prisma } from '../../../shared/prisma.js';
 import { NotFoundError, ValidationError } from '../../../shared/errors.js';
 import { getTenantSettings } from '../../../shared/utils.js';
 import { writeAudit } from '../../../shared/audit.js';
-import { buildC0401, buildC0501 } from './xml-builder.js';
-import { writeIssueXml, writeVoidXml } from './turnkey-writer.js';
+import { buildF0401, buildF0501, buildF0701, computeTaxBreakdown } from './xml-builder.js';
+import { writeIssueXml, writeVoidXml, writeNullifyXml } from './turnkey-writer.js';
 import { assertTenantIsolation } from "../../../shared/tenant-isolation.js";
 
 export interface IssueItemInput {
@@ -13,6 +13,8 @@ export interface IssueItemInput {
   unit?: string;
   unitPrice: number;
   amount?: number; // defaults to round(quantity * unitPrice)
+  /** 品項稅別 "1"=應稅 "2"=零稅 "3"=免稅；未填則沿用全發票 taxType */
+  taxType?: string;
 }
 
 export interface IssueInput {
@@ -22,10 +24,19 @@ export interface IssueInput {
   buyerName: string;
   buyerAddress?: string;
   items: IssueItemInput[];
-  taxType?: string;           // default from tenant settings
+  taxType?: string;           // default from tenant settings；混稅由 items 自動偵測
   invoiceDate?: Date;         // default now
   /** 載具類別：3J0002=手機條碼 CQ0001=自然人憑證 EJ0113=會員載具 */
   carrierType?: string;
+  /**
+   * 載具 ID（v2.17+ 起）：
+   *  - 一般情境（手機條碼/自然人憑證）：填 carrierId1，若未提供 carrierId2 則沿用 carrierId1
+   *  - 信用卡載具：carrierId1=刷卡日期+金額；carrierId2=加密卡號（不同值）
+   * 舊參數 carrierId 保留向後相容，內部映射為 carrierId1。
+   */
+  carrierId1?: string;
+  carrierId2?: string;
+  /** @deprecated 用 carrierId1 / carrierId2；本欄位保留 backward compat */
   carrierId?: string;
   /** 捐贈碼 3-7 碼數字 */
   npoban?: string;
@@ -305,7 +316,10 @@ export async function issue(tenantId: string, input: IssueInput) {
   if (input.buyerTaxId && !/^\d{8}$/.test(input.buyerTaxId.trim())) {
     throw new ValidationError('買受人統一編號應為 8 碼數字（B2C 可留空）');
   }
-  if (input.carrierType || input.carrierId || input.npoban) {
+  // Backward-compat: 舊呼叫端傳 carrierId → 映射到 carrierId1
+  const carrierId1 = input.carrierId1 ?? input.carrierId;
+  const carrierId2 = input.carrierId2 ?? carrierId1;
+  if (input.carrierType || carrierId1 || input.npoban) {
     if (input.buyerTaxId) {
       throw new ValidationError('B2B（有統編）不可使用載具或捐贈碼');
     }
@@ -313,7 +327,8 @@ export async function issue(tenantId: string, input: IssueInput) {
   if (input.carrierType && input.npoban) {
     throw new ValidationError('載具與捐贈碼只能擇一');
   }
-  validateCarrier(input.carrierType, input.carrierId);
+  validateCarrier(input.carrierType, carrierId1);
+  if (carrierId2 && carrierId2 !== carrierId1) validateCarrier(input.carrierType, carrierId2);
   validateNpoban(input.npoban);
 
   const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
@@ -372,11 +387,15 @@ export async function issue(tenantId: string, input: IssueInput) {
       unit: it.unit,
       unitPrice: it.unitPrice,
       amount,
+      taxType: it.taxType,
     };
   });
-  const salesAmount = preparedItems.reduce((s, it) => s + it.amount, 0);
-  const taxAmount = taxType === '1' ? roundMoney(salesAmount * taxRate) : 0;
-  const totalAmount = salesAmount + taxAmount;
+
+  // MIG 4.1 稅別分區：依品項 taxType 自動計算 SalesAmount / FreeTaxSalesAmount / ZeroTaxSalesAmount。
+  // 若品項有多種 taxType，overallTaxType 自動變 '9' 混稅。
+  const breakdown = computeTaxBreakdown(preparedItems, taxRate, taxType);
+  const overallTaxType = breakdown.overallTaxType;
+  const { salesAmount, freeTaxSalesAmount, zeroTaxSalesAmount, taxAmount, totalAmount } = breakdown;
 
   // Allocate BEFORE creating XML so filename / XML use the real number.
   // branchId 隔離：總公司開單抓 branchId=null 的 pool，分支抓自己的（項 9(3)）。
@@ -385,14 +404,21 @@ export async function issue(tenantId: string, input: IssueInput) {
   const invoiceNo = formatInvoiceNo(allocated.trackAlpha, allocated.number);
 
   // MIG 4.1：零稅率必填通關方式，前端未帶則拒絕。
-  if (taxType === '2' && !input.customsClearanceMark) {
-    throw new ValidationError('零稅率（taxType=2）必須填通關方式 customsClearanceMark（1=非經海關 2=經海關）');
+  if ((overallTaxType === '2' || zeroTaxSalesAmount > 0) && !input.customsClearanceMark) {
+    throw new ValidationError('零稅率（taxType=2 或含零稅品項）必須填通關方式 customsClearanceMark（1=非經海關 2=經海關）');
   }
 
-  const xml = buildC0401({
+  const xml = buildF0401({
     invoiceNo,
     invoiceDate,
-    seller: { identifier: sellerTaxId, name: sellerName, address: sellerAddress || undefined },
+    seller: {
+      identifier: sellerTaxId,
+      name: sellerName,
+      address: sellerAddress || undefined,
+      personInCharge: einvCfg.sellerPersonInCharge || undefined,
+      telephoneNumber: einvCfg.sellerTelephoneNumber || undefined,
+      facsimileNumber: einvCfg.sellerFacsimileNumber || undefined,
+    },
     buyer: {
       identifier: input.buyerTaxId?.trim() || null,
       name: input.buyerName.trim(),
@@ -400,13 +426,16 @@ export async function issue(tenantId: string, input: IssueInput) {
     },
     items: preparedItems,
     salesAmount,
+    freeTaxSalesAmount,
+    zeroTaxSalesAmount,
     taxAmount,
     totalAmount,
-    taxType,
+    taxType: overallTaxType,
     taxRate,
     randomCode,
     carrierType: input.carrierType,
-    carrierId: input.carrierId,
+    carrierId1,
+    carrierId2,
     npoban: input.npoban,
     printFlag,
     mainRemark: input.mainRemark,
@@ -436,7 +465,7 @@ export async function issue(tenantId: string, input: IssueInput) {
       salesAmount,
       taxAmount,
       totalAmount,
-      taxType,
+      taxType: overallTaxType,
       status: 'issued',
       branchId,
       xmlPath,
@@ -448,7 +477,7 @@ export async function issue(tenantId: string, input: IssueInput) {
       zeroTaxRateReason: input.zeroTaxRateReason,
       randomCode,
       carrierType: input.carrierType,
-      carrierId: input.carrierId,
+      carrierId: carrierId1,
       npoban: input.npoban,
       printFlag,
       receivableId: input.receivableId,
@@ -508,14 +537,23 @@ export async function voidInvoice(tenantId: string, id: string, reason: string, 
   const voidPeriod = periodOfDate(voidDate);
   if (invPeriod !== voidPeriod) {
     throw new ValidationError(
-      `發票期別 ${invPeriod} 與作廢日期 ${voidPeriod} 不同期，跨期作廢請改用折讓單（D0401）`,
+      `發票期別 ${invPeriod} 與作廢日期 ${voidPeriod} 不同期，跨期作廢請改用「註銷」(F0701) 或折讓單 (G0401)`,
     );
   }
-  const xml = buildC0501({
+  const sellerTaxId = tenant.taxId || '';
+  const xml = buildF0501({
     invoiceNo: inv.invoiceNo,
     invoiceDate: inv.invoiceDate,
     voidDate,
     voidReason: reason.trim(),
+    buyer: {
+      identifier: inv.buyerTaxId,
+      name: inv.buyerName,
+    },
+    seller: {
+      identifier: sellerTaxId,
+      name: tenant.companyName,
+    },
   });
   const wrote = await writeVoidXml({
     inboundDir: settings.einvoice.turnkeyInboundDir,
@@ -547,6 +585,84 @@ export async function voidInvoice(tenantId: string, id: string, reason: string, 
       tenantId, userId: voidedBy,
       action: 'EINVOICE_VOID', entity: 'Einvoice', entityId: id,
       detail: { invoiceNo: inv.invoiceNo, reason: reason.trim() },
+    });
+  }
+
+  return updated;
+}
+
+// ----- nullify (F0701 註銷) -----
+
+/**
+ * F0701 註銷發票。用於：
+ *  1. 跨期修正（發票已跨期，F0501 作廢不再受理）
+ *  2. 發票內容錯誤需正式撤銷後重開
+ *
+ * 允許來源狀態：
+ *  - 'issued'（直接註銷）
+ *  - 'voided'（先作廢後註銷，通常搭配情境 1 或需重開的情境）
+ *
+ * 註銷後：status=nullified，AR 上的 invoiceNo 清空，可重開新發票（走 issue()）。
+ */
+export async function nullifyInvoice(tenantId: string, id: string, reason: string, actedBy?: string) {
+  if (!reason?.trim()) throw new ValidationError('請填寫註銷原因');
+  const inv = await prisma.einvoice.findFirst({ where: { id, tenantId } });
+  if (!inv) throw new NotFoundError('Einvoice', id);
+  if (inv.status === 'nullified') throw new ValidationError('此發票已註銷');
+  if (inv.status !== 'issued' && inv.status !== 'voided') {
+    throw new ValidationError(`此狀態（${inv.status}）不可註銷；僅 issued / voided 可執行 F0701`);
+  }
+
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+  if (!tenant) throw new NotFoundError('Tenant', tenantId);
+  const settings = getTenantSettings(tenant.settings);
+  const einvCfg = settings.einvoice;
+  if (!einvCfg.turnkeyInboundDir) {
+    throw new ValidationError('尚未設定 Turnkey 匯入目錄');
+  }
+  const sellerTaxId = tenant.taxId || '';
+  if (!/^\d{8}$/.test(sellerTaxId)) {
+    throw new ValidationError('Tenant.taxId 未設定或格式錯誤（請至「公司資料」填 8 碼統編）');
+  }
+
+  const voidDate = new Date();
+  const xml = buildF0701({
+    invoiceNo: inv.invoiceNo,
+    invoiceDate: inv.invoiceDate,
+    voidDate,
+    voidReason: reason.trim(),
+    buyer: { identifier: inv.buyerTaxId, name: inv.buyerName },
+    seller: { identifier: sellerTaxId, name: tenant.companyName },
+  });
+  const wrote = await writeNullifyXml({
+    inboundDir: einvCfg.turnkeyInboundDir,
+    invoiceNo: inv.invoiceNo,
+    xml,
+  });
+
+  const updated = await prisma.einvoice.update({
+    where: { id },
+    data: {
+      status: 'nullified',
+      nullifiedAt: voidDate,
+      nullifyReason: reason.trim(),
+      nullifyXmlPath: wrote.absolutePath,
+      nullifyXmlBody: xml,
+    },
+  });
+
+  // 註銷後 AR 的 invoiceNo 清空，代表可重開新發票
+  if (inv.receivableId) {
+    await prisma.accountReceivable.update({
+      where: { id: inv.receivableId }, data: { invoiceNo: null },
+    }).catch(() => {});
+  }
+
+  if (actedBy) {
+    await writeAudit({
+      tenantId, userId: actedBy,
+      action: 'EINVOICE_NULLIFY', entity: 'Einvoice', entityId: id,
+      detail: { invoiceNo: inv.invoiceNo, reason: reason.trim(), previousStatus: inv.status },
     });
   }
 
@@ -587,13 +703,24 @@ export async function getById(tenantId: string, id: string) {
   return row;
 }
 
-/** Read the raw C0401 / C0501 XML — DB 內容（項 11 二份備份）優先，fallback 到 turnkey 目錄。 */
-export async function readXml(tenantId: string, id: string, kind: 'issue' | 'void'): Promise<string | null> {
+/**
+ * Read the raw F0401 / F0501 / F0701 XML — DB 內容（項 11 二份備份）優先，
+ * fallback 到 turnkey 目錄。
+ */
+export async function readXml(
+  tenantId: string,
+  id: string,
+  kind: 'issue' | 'void' | 'nullify',
+): Promise<string | null> {
   const row = await prisma.einvoice.findFirst({ where: { id, tenantId } });
   if (!row) throw new NotFoundError('Einvoice', id);
-  const body = kind === 'issue' ? row.xmlBody : row.voidXmlBody;
+  const body = kind === 'issue' ? row.xmlBody
+    : kind === 'void' ? row.voidXmlBody
+    : row.nullifyXmlBody;
   if (body) return body;
-  const p = kind === 'issue' ? row.xmlPath : row.voidXmlPath;
+  const p = kind === 'issue' ? row.xmlPath
+    : kind === 'void' ? row.voidXmlPath
+    : row.nullifyXmlPath;
   if (!p) return null;
   const { promises: fs } = await import('node:fs');
   try { return await fs.readFile(p, 'utf8'); } catch { return null; }

@@ -1,7 +1,7 @@
 {
   "tenant": "潤樋",
-  "codebase": "saas-erp-main",
-  "industry": "金屬加工業",
+  "codebase": "general-retail",
+  "industry": "一般零售業",
   "version": "2.x",
   "enabled_modules": [
     "core",
@@ -9,8 +9,9 @@
     "sales",
     "purchase",
     "accounting",
-    "inventory"
+    "inventory",
+    "einvoice"
   ],
   "disabled_modules": [],
-  "notes": "潤樋為 tu33-erp 主幹的第一個正式 tenant，也是 SaaS 功能的參考實作基準"
+  "notes": "潤樋為一般零售業（潤滑油買賣）的內部租戶，免費。同時也是 SaaS 功能的參考實作基準。einvoice 於 2026-07-24 開通 Turnkey 測試環境；運行時開關由 Tenant.settings.einvoice.enabled 控制。"
 }

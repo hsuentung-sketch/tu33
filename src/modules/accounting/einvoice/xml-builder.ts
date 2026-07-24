@@ -1,33 +1,40 @@
 /**
- * MIG 4.1 XML builder for 財政部 Turnkey v3.2+。
+ * MIG 4.1 XML builder for 財政部 Turnkey v3.2+（存證發票 F/G 系列）。
  *
- * 升級自 3.2.1 重點（114-12-16 全面、115-01-01 強制）：
- *  - 所有 namespace 從 `:3.2` 升 `:4.1`（5 種訊息）
- *  - Main 區塊新增：MainRemark / CustomsClearanceMark / ZeroTaxRateReason
- *  - ProductItem 新增 TaxType（混合稅率支援）
- *  - RandomNumber 改為非必填（O）
- *  - 折讓單僅賣方可開立或作廢（D0401/D0501 type=1 賣方）
- *  - 日期格式：民國 YYYMMDD 或 西元 YYYYMMDD（皆受理；本實作沿用西元）
+ * 依「電子發票 Turnkey 上線前自行檢測作業 V4.8」（113-12-30）與
+ * 「電子發票資料交換標準 MIG 4.1」（114-10-29）規範。
  *
  * 涵蓋訊息：
- *  - C0401 B2C 開立發票（B2B 開立用 A0101，本系統一律走 C0401 並依買受人有無統編切換）
- *  - C0501 B2C 作廢發票
- *  - D0401 折讓單（賣方開立）
- *  - D0501 折讓單作廢
- *  - C0701 空白未使用字軌回報
+ *  - F0401 存證發票開立（B2C；有統編買方也走此格式）
+ *  - F0501 存證發票作廢（限當期內作廢）
+ *  - F0701 存證發票註銷（跨期或需重開時使用）
+ *  - G0401 折讓證明單（賣方開立）
+ *  - G0501 作廢折讓證明單
+ *  - E0402 空白未使用字軌回報（每期 10 號前必上傳）
  *
- * Reference: 電子發票資料交換標準 MIG 4.1（114-10-29）
- *            https://www.einvoice.nat.gov.tw/static/ptl/ein_upload/download/5340.pdf
+ * 稅別金額分區（MIG 4.1 Amount 區塊）：
+ *  - TaxType=1 應稅：SalesAmount>0, FreeTax=0, ZeroTax=0, TaxAmount=Sales×Rate
+ *  - TaxType=2 零稅：SalesAmount=0, FreeTax=0, ZeroTax>0, TaxAmount=0
+ *  - TaxType=3 免稅：SalesAmount=0, FreeTax>0, ZeroTax=0, TaxAmount=0
+ *  - TaxType=9 混稅：Sales>0 且 FreeTax>0（依品項 taxType 分區）
  */
 
+// ---------- 共用型別 ----------
+
 export interface XmlSeller {
-  identifier: string; // 8-digit 統編
+  identifier: string; // 8 碼統編
   name: string;
   address?: string;
+  /** 賣方負責人姓名（MIG 4.1 檢測要求） */
+  personInCharge?: string;
+  /** 賣方電話（檢測要求） */
+  telephoneNumber?: string;
+  /** 賣方傳真（選填） */
+  facsimileNumber?: string;
 }
 
 export interface XmlBuyer {
-  identifier: string | null; // null / empty → "0000000000" for B2C
+  identifier: string | null; // null / 空白 → "0000000000" (B2C)
   name: string;
   address?: string;
 }
@@ -39,9 +46,8 @@ export interface XmlInvoiceItem {
   unit?: string;
   unitPrice: number;
   amount: number;
-  /** MIG 4.1 新增：每品項稅別（支援混合稅率）。預設沿用全發票 taxType。 */
+  /** 每品項稅別（混稅情境用）；預設沿用全發票 taxType */
   taxType?: string;
-  /** 該品項稅額（混合稅情境下品項分別計稅）。MIG 4.1 ProductItem 內可有 Tax，但本實作仍以 Amount 區塊總稅額為準。 */
   remark?: string;
 }
 
@@ -51,33 +57,54 @@ export interface XmlInvoiceInput {
   seller: XmlSeller;
   buyer: XmlBuyer;
   items: XmlInvoiceItem[];
-  salesAmount: number;     // 未稅
+  /** 應稅銷售額（TaxType=1 部分的合計） */
+  salesAmount: number;
+  /** 免稅銷售額（TaxType=3 部分的合計，MIG 4.1 required 欄位） */
+  freeTaxSalesAmount: number;
+  /** 零稅率銷售額（TaxType=2 部分的合計，MIG 4.1 required 欄位） */
+  zeroTaxSalesAmount: number;
   taxAmount: number;
   totalAmount: number;
-  taxType: string;         // "1"=應稅 "2"=零稅率 "3"=免稅 "4"=應稅(特種稅率)
+  /** 全發票稅別："1"=應稅 "2"=零稅 "3"=免稅 "9"=混稅 */
+  taxType: string;
   taxRate?: number;        // default 0.05
-  /** 4 碼隨機碼，B2C 證明聯 QR 驗證用；MIG 4.1 改為非必填，缺省時 builder 會產生 "0000" */
+  /** 4 碼隨機碼；MIG 4.1 為非必填但買方為消費者時建議填 */
   randomCode?: string;
   /** 載具類別：3J0002=手機條碼 CQ0001=自然人憑證 EJ0113=會員載具等 */
   carrierType?: string;
-  carrierId?: string;
-  /** 捐贈碼（NPOBAN 3-7 位數字） */
+  /** 載具顯碼（Id1）。手機條碼情境：Id1=Id2 皆為手機碼 */
+  carrierId1?: string;
+  /** 載具隱碼（Id2）。若未提供，會 fallback 為 Id1 */
+  carrierId2?: string;
+  /** 捐贈碼 NPOBAN 3-7 位數字 */
   npoban?: string;
-  /** Y=列印 N=不列印 */
+  /** Y=列印證明聯 N=不列印 */
   printFlag?: string;
-  /** MIG 4.1 新增：總備註，最多 200 字 */
+  /** 總備註最多 200 字（MIG 4.1 新增） */
   mainRemark?: string;
-  /** MIG 4.1 新增：通關方式（"1"=非經海關出口 "2"=經海關出口），零稅率必填 */
+  /** 通關方式 "1"=非經海關 "2"=經海關；零稅率必填（MIG 4.1 新增） */
   customsClearanceMark?: string;
-  /** MIG 4.1 新增：零稅率原因（搭配 taxType=2 使用） */
+  /** 零稅率原因（搭配 taxType=2 使用；MIG 4.1 新增） */
   zeroTaxRateReason?: string;
 }
 
 export interface XmlVoidInput {
   invoiceNo: string;
-  invoiceDate: Date;  // 原開立日期
+  invoiceDate: Date;    // 原開立日期
   voidDate: Date;
   voidReason: string;
+  buyer?: XmlBuyer;     // 用於填 BuyerId
+  seller?: XmlSeller;   // 用於填 SellerId
+}
+
+/** F0701 註銷發票輸入（跨期修正用） */
+export interface XmlVoidF0701Input {
+  invoiceNo: string;
+  invoiceDate: Date;    // 原開立日期
+  voidDate: Date;       // 註銷日期
+  voidReason: string;
+  buyer: XmlBuyer;
+  seller: XmlSeller;
 }
 
 // ---------- helpers ----------
@@ -93,7 +120,7 @@ function esc(v: unknown): string {
     .replace(/'/g, '&apos;');
 }
 
-/** YYYYMMDD in Asia/Taipei. MIG expects Western year (not ROC) for C0401 date fields. */
+/** YYYYMMDD in Asia/Taipei. MIG 接受西元或民國，本實作沿用西元。 */
 function ymd(date: Date): string {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Taipei',
@@ -105,8 +132,8 @@ function ymd(date: Date): string {
   return `${y}${m}${d}`;
 }
 
-/** HHmmss in Asia/Taipei. */
-function hms(date: Date): string {
+/** HH:MM:SS in Asia/Taipei（MIG 4.1 VoidTime/CancelTime 使用冒號分隔） */
+function hmsColon(date: Date): string {
   const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Asia/Taipei',
     hour12: false,
@@ -115,7 +142,12 @@ function hms(date: Date): string {
   const h = parts.find((p) => p.type === 'hour')!.value;
   const m = parts.find((p) => p.type === 'minute')!.value;
   const s = parts.find((p) => p.type === 'second')!.value;
-  return `${h}${m}${s}`;
+  return `${h}:${m}:${s}`;
+}
+
+/** HHmmss (no separator) — legacy fmt for InvoiceTime */
+function hms(date: Date): string {
+  return hmsColon(date).replace(/:/g, '');
 }
 
 /** MIG amounts: numbers rounded to integer or fixed 2-decimal, no thousands separator. */
@@ -123,22 +155,31 @@ function amt(n: number, decimals = 0): string {
   return n.toFixed(decimals);
 }
 
-/** MIG invoice number is 10 chars: "AB12345678" — seller-assigned. */
-function splitInvoiceNo(no: string): { track: string; number: string } {
-  return { track: no.slice(0, 2), number: no.slice(2) };
+/** 買方統編補齊：空白/null → 10 個 0（B2C） */
+function normalizeBuyerId(id: string | null | undefined): string {
+  const v = (id ?? '').trim();
+  return v ? v : '0000000000';
 }
 
-// ---------- C0401 開立 ----------
+/** 賣方擴充資訊區塊 */
+function sellerExtraTags(s: XmlSeller): string {
+  const parts: string[] = [];
+  if (s.address) parts.push(`<Address>${esc(s.address)}</Address>`);
+  if (s.personInCharge) parts.push(`<PersonInCharge>${esc(s.personInCharge)}</PersonInCharge>`);
+  if (s.telephoneNumber) parts.push(`<TelephoneNumber>${esc(s.telephoneNumber)}</TelephoneNumber>`);
+  if (s.facsimileNumber) parts.push(`<FacsimileNumber>${esc(s.facsimileNumber)}</FacsimileNumber>`);
+  return parts.length ? '\n      ' + parts.join('\n      ') : '';
+}
 
-export function buildC0401(input: XmlInvoiceInput): string {
+// ---------- F0401 存證發票開立 ----------
+
+export function buildF0401(input: XmlInvoiceInput): string {
   const taxRate = input.taxRate ?? 0.05;
-  const buyerId = input.buyer.identifier && input.buyer.identifier.trim()
-    ? input.buyer.identifier.trim()
-    : '0000000000';
+  const buyerId = normalizeBuyerId(input.buyer.identifier);
   const randomCode = input.randomCode ?? '0000';
   const printFlag = input.printFlag ?? 'Y';
 
-  // MIG 4.1：每品項 TaxType（無填則沿用全發票 taxType），支援混合稅率。
+  // 每品項 TaxType（無填則沿用全發票 taxType），支援混合稅率。
   const itemsXml = input.items.map((it) => `
     <ProductItem>
       <Description>${esc(it.description)}</Description>
@@ -151,20 +192,22 @@ export function buildC0401(input: XmlInvoiceInput): string {
       <Remark>${esc(it.remark)}</Remark>` : ''}
     </ProductItem>`).join('');
 
-  // 載具 / 捐贈碼 區塊（擇一或皆無）
+  // 載具區塊：CarrierId1=顯碼、CarrierId2=隱碼（若未提供隱碼則沿用顯碼）
   let carrierBlock = '';
-  if (input.carrierType && input.carrierId) {
+  if (input.carrierType && input.carrierId1) {
+    const id1 = input.carrierId1;
+    const id2 = input.carrierId2 ?? input.carrierId1;
     carrierBlock = `
     <CarrierType>${esc(input.carrierType)}</CarrierType>
-    <CarrierId1>${esc(input.carrierId)}</CarrierId1>
-    <CarrierId2>${esc(input.carrierId)}</CarrierId2>`;
+    <CarrierId1>${esc(id1)}</CarrierId1>
+    <CarrierId2>${esc(id2)}</CarrierId2>`;
   }
   const donationBlock = input.npoban
     ? `
     <NPOBAN>${esc(input.npoban)}</NPOBAN>`
     : '';
 
-  // MIG 4.1 新增 Main-level optional 欄位
+  // MIG 4.1 Main-level optional 欄位
   const mainRemarkBlock = input.mainRemark ? `
     <MainRemark>${esc(input.mainRemark.slice(0, 200))}</MainRemark>` : '';
   const customsBlock = input.customsClearanceMark ? `
@@ -173,15 +216,14 @@ export function buildC0401(input: XmlInvoiceInput): string {
     <ZeroTaxRateReason>${esc(input.zeroTaxRateReason)}</ZeroTaxRateReason>` : '';
 
   return `<?xml version="1.0" encoding="UTF-8"?>
-<Invoice xmlns="urn:GEINV:eInvoiceMessage:C0401:4.1">
+<Invoice xmlns="urn:GEINV:eInvoiceMessage:F0401:4.1">
   <Main>
     <InvoiceNumber>${esc(input.invoiceNo)}</InvoiceNumber>
     <InvoiceDate>${ymd(input.invoiceDate)}</InvoiceDate>
-    <InvoiceTime>${hms(input.invoiceDate)}</InvoiceTime>
+    <InvoiceTime>${hmsColon(input.invoiceDate)}</InvoiceTime>
     <Seller>
       <Identifier>${esc(input.seller.identifier)}</Identifier>
-      <Name>${esc(input.seller.name)}</Name>
-      ${input.seller.address ? `<Address>${esc(input.seller.address)}</Address>` : ''}
+      <Name>${esc(input.seller.name)}</Name>${sellerExtraTags(input.seller)}
     </Seller>
     <Buyer>
       <Identifier>${esc(buyerId)}</Identifier>
@@ -197,6 +239,8 @@ export function buildC0401(input: XmlInvoiceInput): string {
   </Details>
   <Amount>
     <SalesAmount>${amt(input.salesAmount, 0)}</SalesAmount>
+    <FreeTaxSalesAmount>${amt(input.freeTaxSalesAmount, 0)}</FreeTaxSalesAmount>
+    <ZeroTaxSalesAmount>${amt(input.zeroTaxSalesAmount, 0)}</ZeroTaxSalesAmount>
     <TaxType>${esc(input.taxType)}</TaxType>
     <TaxRate>${amt(taxRate, 4)}</TaxRate>
     <TaxAmount>${amt(input.taxAmount, 0)}</TaxAmount>
@@ -206,7 +250,47 @@ export function buildC0401(input: XmlInvoiceInput): string {
 `;
 }
 
-// ---------- D0401 / D0501 折讓單 ----------
+// ---------- F0501 存證發票作廢（當期內） ----------
+
+export function buildF0501(input: XmlVoidInput): string {
+  const buyerId = normalizeBuyerId(input.buyer?.identifier);
+  const sellerId = input.seller?.identifier ?? '';
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<CancelInvoice xmlns="urn:GEINV:eInvoiceMessage:F0501:4.1">
+  <Main>
+    <CancelInvoiceNumber>${esc(input.invoiceNo)}</CancelInvoiceNumber>
+    <BuyerId>${esc(buyerId)}</BuyerId>
+    <SellerId>${esc(sellerId)}</SellerId>
+    <InvoiceDate>${ymd(input.invoiceDate)}</InvoiceDate>
+    <CancelDate>${ymd(input.voidDate)}</CancelDate>
+    <CancelTime>${hmsColon(input.voidDate)}</CancelTime>
+    <CancelReason>${esc(input.voidReason)}</CancelReason>
+  </Main>
+</CancelInvoice>
+`;
+}
+
+// ---------- F0701 存證發票註銷（跨期或需重開時） ----------
+
+export function buildF0701(input: XmlVoidF0701Input): string {
+  const buyerId = normalizeBuyerId(input.buyer.identifier);
+  const sellerId = input.seller.identifier;
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<VoidInvoice xmlns="urn:GEINV:eInvoiceMessage:F0701:4.1">
+  <Main>
+    <VoidInvoiceNumber>${esc(input.invoiceNo)}</VoidInvoiceNumber>
+    <BuyerId>${esc(buyerId)}</BuyerId>
+    <SellerId>${esc(sellerId)}</SellerId>
+    <InvoiceDate>${ymd(input.invoiceDate)}</InvoiceDate>
+    <VoidDate>${ymd(input.voidDate)}</VoidDate>
+    <VoidTime>${hmsColon(input.voidDate)}</VoidTime>
+    <VoidReason>${esc(input.voidReason)}</VoidReason>
+  </Main>
+</VoidInvoice>
+`;
+}
+
+// ---------- G0401 折讓證明單 ----------
 
 export interface XmlAllowanceItem {
   sequence: number;
@@ -229,14 +313,16 @@ export interface XmlAllowanceInput {
   originalInvoiceDate: Date;
   items: XmlAllowanceItem[];
   salesAmount: number;
+  freeTaxSalesAmount: number;
+  zeroTaxSalesAmount: number;
   taxAmount: number;
   totalAmount: number;
+  /** 折讓種類："1"=買方 "2"=賣方 "3"=雙方；MIG 4.1 依實際發起方填入 */
+  allowanceType: string;
 }
 
-export function buildD0401(input: XmlAllowanceInput): string {
-  const buyerId = input.buyer.identifier && input.buyer.identifier.trim()
-    ? input.buyer.identifier.trim()
-    : '0000000000';
+export function buildG0401(input: XmlAllowanceInput): string {
+  const buyerId = normalizeBuyerId(input.buyer.identifier);
 
   const itemsXml = input.items.map((it) => `
     <ProductItem>
@@ -254,14 +340,14 @@ export function buildD0401(input: XmlAllowanceInput): string {
     </ProductItem>`).join('');
 
   return `<?xml version="1.0" encoding="UTF-8"?>
-<Allowance xmlns="urn:GEINV:eInvoiceMessage:D0401:4.1">
+<Allowance xmlns="urn:GEINV:eInvoiceMessage:G0401:4.1">
   <Main>
     <AllowanceNumber>${esc(input.allowanceNo)}</AllowanceNumber>
     <AllowanceDate>${ymd(input.allowanceDate)}</AllowanceDate>
-    <AllowanceType>1</AllowanceType>
+    <AllowanceType>${esc(input.allowanceType)}</AllowanceType>
     <Seller>
       <Identifier>${esc(input.seller.identifier)}</Identifier>
-      <Name>${esc(input.seller.name)}</Name>
+      <Name>${esc(input.seller.name)}</Name>${sellerExtraTags(input.seller)}
     </Seller>
     <Buyer>
       <Identifier>${esc(buyerId)}</Identifier>
@@ -271,12 +357,17 @@ export function buildD0401(input: XmlAllowanceInput): string {
   <Details>${itemsXml}
   </Details>
   <Amount>
+    <SalesAmount>${amt(input.salesAmount, 0)}</SalesAmount>
+    <FreeTaxSalesAmount>${amt(input.freeTaxSalesAmount, 0)}</FreeTaxSalesAmount>
+    <ZeroTaxSalesAmount>${amt(input.zeroTaxSalesAmount, 0)}</ZeroTaxSalesAmount>
     <TaxAmount>${amt(input.taxAmount, 0)}</TaxAmount>
     <TotalAmount>${amt(input.totalAmount, 0)}</TotalAmount>
   </Amount>
 </Allowance>
 `;
 }
+
+// ---------- G0501 作廢折讓證明單 ----------
 
 export interface XmlAllowanceVoidInput {
   allowanceNo: string;
@@ -285,19 +376,21 @@ export interface XmlAllowanceVoidInput {
   voidReason: string;
   seller: XmlSeller;
   buyer: XmlBuyer;
+  /** 折讓種類（同 G0401） */
+  allowanceType: string;
 }
 
-export function buildD0501(input: XmlAllowanceVoidInput): string {
-  const buyerId = input.buyer.identifier && input.buyer.identifier.trim()
-    ? input.buyer.identifier.trim()
-    : '0000000000';
+export function buildG0501(input: XmlAllowanceVoidInput): string {
+  const buyerId = normalizeBuyerId(input.buyer.identifier);
   return `<?xml version="1.0" encoding="UTF-8"?>
-<CancelAllowance xmlns="urn:GEINV:eInvoiceMessage:D0501:4.1">
+<CancelAllowance xmlns="urn:GEINV:eInvoiceMessage:G0501:4.1">
   <Main>
     <CancelAllowanceNumber>${esc(input.allowanceNo)}</CancelAllowanceNumber>
     <AllowanceDate>${ymd(input.allowanceDate)}</AllowanceDate>
     <CancelDate>${ymd(input.voidDate)}</CancelDate>
+    <CancelTime>${hmsColon(input.voidDate)}</CancelTime>
     <CancelReason>${esc(input.voidReason)}</CancelReason>
+    <AllowanceType>${esc(input.allowanceType)}</AllowanceType>
     <Seller>
       <Identifier>${esc(input.seller.identifier)}</Identifier>
     </Seller>
@@ -309,20 +402,25 @@ export function buildD0501(input: XmlAllowanceVoidInput): string {
 `;
 }
 
-// ---------- C0701 空白字軌回報 ----------
+// ---------- E0402 空白未使用字軌回報 ----------
 
 export interface XmlBlankRangeInput {
   seller: XmlSeller;
-  yearMonth: string;   // "11311"
-  trackAlpha: string;  // "AB"
-  startNumber: string; // "12345678"
-  endNumber: string;   // "12349999"
-  reason: '1' | '2' | '3'; // 1=跳開 2=未使用 3=其他
+  /** 期別：民國 3+2+2 = 7 碼，例 "1131112" = 民國 113 年 11-12 月期 */
+  yearMonth: string;
+  /** 字軌 2 碼英文 */
+  trackAlpha: string;
+  /** 起號 8 碼 */
+  startNumber: string;
+  /** 迄號 8 碼 */
+  endNumber: string;
+  /** 空白原因 "1"=跳開 "2"=未使用 "3"=其他 */
+  reason: '1' | '2' | '3';
 }
 
-export function buildC0701(input: XmlBlankRangeInput): string {
+export function buildE0402(input: XmlBlankRangeInput): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
-<BlankInvoiceNumber xmlns="urn:GEINV:eInvoiceMessage:C0701:4.1">
+<BlankInvoiceNumber xmlns="urn:GEINV:eInvoiceMessage:E0402:4.1">
   <Main>
     <Seller>
       <Identifier>${esc(input.seller.identifier)}</Identifier>
@@ -338,20 +436,66 @@ export function buildC0701(input: XmlBlankRangeInput): string {
 `;
 }
 
-// ---------- C0501 作廢 ----------
+// ---------- 稅別金額分區 helper（供 service 呼叫） ----------
 
-export function buildC0501(input: XmlVoidInput): string {
-  const { track, number } = splitInvoiceNo(input.invoiceNo);
-  void track; void number;
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<CancelInvoice xmlns="urn:GEINV:eInvoiceMessage:C0501:4.1">
-  <Main>
-    <CancelInvoiceNumber>${esc(input.invoiceNo)}</CancelInvoiceNumber>
-    <InvoiceDate>${ymd(input.invoiceDate)}</InvoiceDate>
-    <CancelDate>${ymd(input.voidDate)}</CancelDate>
-    <CancelTime>${hms(input.voidDate)}</CancelTime>
-    <CancelReason>${esc(input.voidReason)}</CancelReason>
-  </Main>
-</CancelInvoice>
-`;
+export interface TaxBreakdown {
+  /** 應稅銷售額（TaxType=1 部分） */
+  salesAmount: number;
+  /** 免稅銷售額（TaxType=3 部分） */
+  freeTaxSalesAmount: number;
+  /** 零稅率銷售額（TaxType=2 部分） */
+  zeroTaxSalesAmount: number;
+  /** 稅額 = 應稅銷售額 × 稅率（四捨五入） */
+  taxAmount: number;
+  /** 總計 */
+  totalAmount: number;
+  /** 全發票稅別（1/2/3/9），依 items 內容自動判斷 */
+  overallTaxType: string;
+}
+
+/**
+ * 依品項 taxType 分區計算 SalesAmount / FreeTaxSalesAmount / ZeroTaxSalesAmount。
+ *
+ * MIG 4.1 金額規則：
+ *  - 應稅（1）→ SalesAmount>0, FreeTax=0, ZeroTax=0, TaxAmount=Sales×Rate
+ *  - 零稅（2）→ SalesAmount=0, FreeTax=0, ZeroTax>0, TaxAmount=0
+ *  - 免稅（3）→ SalesAmount=0, FreeTax>0, ZeroTax=0, TaxAmount=0
+ *  - 混稅（9）→ 至少兩種同時 >0；本 helper 自動偵測並回傳 overallTaxType='9'
+ *
+ * @param items 每筆需含 amount 與 taxType
+ * @param taxRate 應稅稅率，預設 0.05
+ * @param fallbackTaxType 若品項未填 taxType 時的預設值
+ */
+export function computeTaxBreakdown(
+  items: Array<{ amount: number; taxType?: string }>,
+  taxRate: number,
+  fallbackTaxType: string,
+): TaxBreakdown {
+  let sales = 0;
+  let free = 0;
+  let zero = 0;
+  const seen = new Set<string>();
+  for (const it of items) {
+    const t = it.taxType ?? fallbackTaxType;
+    seen.add(t);
+    if (t === '1') sales += it.amount;
+    else if (t === '2') zero += it.amount;
+    else if (t === '3') free += it.amount;
+    else {
+      // 未知 taxType 一律歸應稅（安全 fallback）
+      sales += it.amount;
+      seen.add('1');
+    }
+  }
+  const taxAmount = Math.round(sales * taxRate);
+  const totalAmount = sales + free + zero + taxAmount;
+  const overallTaxType = seen.size > 1 ? '9' : ([...seen][0] ?? fallbackTaxType);
+  return {
+    salesAmount: Math.round(sales),
+    freeTaxSalesAmount: Math.round(free),
+    zeroTaxSalesAmount: Math.round(zero),
+    taxAmount,
+    totalAmount: Math.round(totalAmount),
+    overallTaxType,
+  };
 }

@@ -209,6 +209,9 @@ const einvoiceDefaults: EinvoiceSettings = {
   sellerTaxId: '',
   sellerName: '',
   sellerAddress: '',
+  sellerPersonInCharge: '',
+  sellerTelephoneNumber: '',
+  sellerFacsimileNumber: '',
   taxRegistrationNo: '',
   turnkeyBackend: 'local',
   turnkeyInboundDir: '',
@@ -227,6 +230,12 @@ export interface EinvoiceSettings {
   sellerName: string;
   /** 證明聯左側欄顯示的賣方地址 */
   sellerAddress: string;
+  /** MIG 4.1 檢測要求：賣方負責人姓名。E-invoice XML `<Seller><PersonInCharge>`。 */
+  sellerPersonInCharge: string;
+  /** MIG 4.1 檢測要求：賣方電話。E-invoice XML `<Seller><TelephoneNumber>`。 */
+  sellerTelephoneNumber: string;
+  /** 賣方傳真（選填）。 */
+  sellerFacsimileNumber: string;
   /** 稅籍編號（字軌申請書欄位） */
   taxRegistrationNo: string;
   /**

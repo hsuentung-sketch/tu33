@@ -26,11 +26,12 @@ import { versionRouter } from '../modules/core/version/version.router.js';
 import { billingRouter } from '../modules/core/billing/billing.router.js';
 import { advancedBillingRouter } from '../modules/core/billing/billing-advanced.router.js';
 import { featureRouter } from '../modules/core/feature/feature.router.js';
-import { requireModule } from '../middleware/feature-gate.js';
+import { requireModule, requireEinvoiceModule } from '../middleware/feature-gate.js';
 import { demoRouter } from '../modules/core/demo/demo.router.js';
 import { announcementRouter } from '../modules/core/announcement/announcement.router.js';
 import { dashboardRouter } from './dashboard.router.js';
 import { VERSION_INFO } from '../shared/version.js';
+import { prisma } from '../shared/prisma.js';
 
 export const apiRouter = Router();
 
@@ -50,13 +51,25 @@ apiRouter.use('/demo', demoRouter);
 apiRouter.use(authMiddleware);
 
 // Identity helper for LIFF clients — returns the authenticated employee.
-apiRouter.get('/me', (req, res) => {
-  res.json({
-    id: req.employee.id,
-    employeeId: req.employee.employeeId,
-    name: req.employee.name,
-    role: req.employee.role,
-  });
+apiRouter.get('/me', async (req, res, next) => {
+  try {
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: req.tenantId },
+      select: { settings: true },
+    });
+    const settings = (tenant?.settings ?? {}) as { einvoice?: { enabled?: boolean } };
+    res.json({
+      id: req.employee.id,
+      employeeId: req.employee.employeeId,
+      name: req.employee.name,
+      role: req.employee.role,
+      modules: {
+        einvoice: settings.einvoice?.enabled === true,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
 });
 
 apiRouter.use('/dashboard', dashboardRouter);
@@ -73,9 +86,9 @@ apiRouter.use('/commission', requireModule('sales'), commissionRouter);
 apiRouter.use('/purchase-orders', requireModule('purchase'), purchaseOrderRouter);
 apiRouter.use('/receivables', requireModule('accounting'), receivableRouter);
 apiRouter.use('/payables', requireModule('accounting'), payableRouter);
-apiRouter.use('/einvoices', requireModule('accounting'), einvoiceRouter);
-apiRouter.use('/einvoice-number-pools', requireModule('accounting'), einvoicePoolRouter);
-apiRouter.use('/einvoice-allowances', requireModule('accounting'), allowanceRouter);
+apiRouter.use('/einvoices', requireEinvoiceModule(), einvoiceRouter);
+apiRouter.use('/einvoice-number-pools', requireEinvoiceModule(), einvoicePoolRouter);
+apiRouter.use('/einvoice-allowances', requireEinvoiceModule(), allowanceRouter);
 apiRouter.use('/accounting', requireModule('accounting'), accountingRouter);
 apiRouter.use('/inventory', requireModule('inventory'), inventoryRouter);
 apiRouter.use('/statements', statementsRouter);

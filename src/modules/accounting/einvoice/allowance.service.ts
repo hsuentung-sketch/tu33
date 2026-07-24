@@ -2,7 +2,7 @@ import { prisma } from '../../../shared/prisma.js';
 import { NotFoundError, ValidationError } from '../../../shared/errors.js';
 import { getTenantSettings, generateDocumentNo } from '../../../shared/utils.js';
 import { writeAudit } from '../../../shared/audit.js';
-import { buildD0401, buildD0501 } from './xml-builder.js';
+import { buildG0401, buildG0501, computeTaxBreakdown } from './xml-builder.js';
 import { writeIssueXml, writeVoidXml } from './turnkey-writer.js';
 import { assertTenantIsolation } from "../../../shared/tenant-isolation.js";
 
@@ -53,8 +53,13 @@ export async function issueAllowance(tenantId: string, input: IssueAllowanceInpu
   if (!tenant) throw new NotFoundError('Tenant', tenantId);
   const settings = getTenantSettings(tenant.settings);
   const einvCfg = settings.einvoice;
-  const sellerTaxId = einvCfg.sellerTaxId || tenant.taxId || '';
-  const sellerName = einvCfg.sellerName || tenant.companyName;
+  // 折讓賣方一律用 Tenant 主表資料（同 issue() 邏輯，避免 settings.einvoice.sellerXxx override
+  // 造成折讓單賣方統編與原發票不一致 → 財政部會退件）。
+  const sellerTaxId = tenant.taxId || '';
+  const sellerName = tenant.companyName;
+  if (!/^\d{8}$/.test(sellerTaxId)) {
+    throw new ValidationError('Tenant.taxId 未設定或格式錯誤（請至「公司資料」填 8 碼統編）');
+  }
   if (!einvCfg.turnkeyInboundDir) throw new ValidationError('尚未設定 Turnkey 匯入目錄');
 
   const taxRate = settings.taxRate;
@@ -77,9 +82,14 @@ export async function issueAllowance(tenantId: string, input: IssueAllowanceInpu
       taxAmount,
     };
   });
-  const salesAmount = prepared.reduce((s, it) => s + it.amount, 0);
+
+  // MIG 4.1 稅別分區：折讓金額也要按 taxType 拆 Sales/FreeTax/ZeroTax。
+  const breakdown = computeTaxBreakdown(prepared, taxRate, inv.taxType ?? '1');
+  const { salesAmount, freeTaxSalesAmount, zeroTaxSalesAmount } = breakdown;
+  // taxAmount 直接沿用 items 累加（每筆的 taxAmount 由 issuer 決定或依 taxType 自動），
+  // 而非 breakdown.taxAmount（那是重新計算）——這樣支援 issuer 手動微調每筆稅額。
   const taxAmount = prepared.reduce((s, it) => s + it.taxAmount, 0);
-  const totalAmount = salesAmount + taxAmount;
+  const totalAmount = salesAmount + freeTaxSalesAmount + zeroTaxSalesAmount + taxAmount;
 
   if (totalAmount > Number(inv.totalAmount)) {
     throw new ValidationError('折讓總額超過原發票金額');
@@ -87,17 +97,27 @@ export async function issueAllowance(tenantId: string, input: IssueAllowanceInpu
 
   const allowanceNo = await nextAllowanceNo(tenantId, allowanceDate);
 
-  const xml = buildD0401({
+  const xml = buildG0401({
     allowanceNo,
     allowanceDate,
-    seller: { identifier: sellerTaxId, name: sellerName },
+    seller: {
+      identifier: sellerTaxId,
+      name: sellerName,
+      personInCharge: einvCfg.sellerPersonInCharge || undefined,
+      telephoneNumber: einvCfg.sellerTelephoneNumber || undefined,
+    },
     buyer: { identifier: inv.buyerTaxId, name: inv.buyerName, address: inv.buyerAddress ?? undefined },
     originalInvoiceNo: inv.invoiceNo,
     originalInvoiceDate: inv.invoiceDate,
     items: prepared,
     salesAmount,
+    freeTaxSalesAmount,
+    zeroTaxSalesAmount,
     taxAmount,
     totalAmount,
+    // 目前 issueAllowance 由賣方發起（seller/type='seller'），對應 AllowanceType='2'。
+    // 若未來加入買方發起（type='buyer'），需傳 '1'；雙方協議 '3'。
+    allowanceType: '2',
   });
 
   const wrote = await writeIssueXml({
@@ -162,16 +182,21 @@ export async function voidAllowance(tenantId: string, id: string, reason: string
   const einvCfg = settings.einvoice;
   if (!einvCfg.turnkeyInboundDir) throw new ValidationError('尚未設定 Turnkey 匯入目錄');
 
-  const sellerTaxId = einvCfg.sellerTaxId || tenant.taxId || '';
-  const sellerName = einvCfg.sellerName || tenant.companyName;
+  const sellerTaxId = tenant.taxId || '';
+  const sellerName = tenant.companyName;
+  if (!/^\d{8}$/.test(sellerTaxId)) {
+    throw new ValidationError('Tenant.taxId 未設定或格式錯誤（請至「公司資料」填 8 碼統編）');
+  }
   const voidDate = new Date();
-  const xml = buildD0501({
+  const xml = buildG0501({
     allowanceNo: row.allowanceNo,
     allowanceDate: row.allowanceDate,
     voidDate,
     voidReason: reason.trim(),
     seller: { identifier: sellerTaxId, name: sellerName },
     buyer: { identifier: row.invoice.buyerTaxId, name: row.invoice.buyerName },
+    // 對應 issueAllowance 的 AllowanceType='2'（賣方發起）
+    allowanceType: '2',
   });
   const wrote = await writeVoidXml({
     inboundDir: einvCfg.turnkeyInboundDir,

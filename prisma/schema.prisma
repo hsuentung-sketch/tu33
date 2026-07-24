@@ -673,8 +673,42 @@ model EinvoiceNumberPool {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  blankReports EinvoiceBlankReport[]
+
   @@index([tenantId, isActive])
   @@index([tenantId, yearMonth, branchId])
+}
+
+/**
+ * E0402 空白未使用字軌回報記錄。
+ * 依「電子發票 Turnkey 上線前自行檢測作業 V4.8」項 5(2)：每期 10 號前必上傳。
+ *
+ * 冪等保證：同一 pool 同一 startNumber 只回報一次（unique constraint），
+ * cron 重複執行不會產生重複 E0402 XML。
+ */
+model EinvoiceBlankReport {
+  id          String   @id @default(cuid())
+  tenantId    String
+  poolId      String
+  pool        EinvoiceNumberPool @relation(fields: [poolId], references: [id], onDelete: Cascade)
+  /** 回報的期別 (民國年 3 + 單月 2 + 雙月 2)，等同 pool.yearMonth */
+  yearMonth   String
+  /** 字軌 2 碼英文，等同 pool.trackAlpha */
+  trackAlpha  String
+  /** 回報「未使用」的起號（含） */
+  startNumber Int
+  /** 回報「未使用」的迄號（含） */
+  endNumber   Int
+  reportedAt  DateTime @default(now())
+  /** 送 Turnkey 時的檔案路徑 / bucket key */
+  xmlPath     String?
+  /** XML 內容存 DB 第二份（同其他 einvoice 二份備份） */
+  xmlBody     String?  @db.Text
+  /** 觸發者：'cron' 或 employee id */
+  createdBy   String?
+
+  @@unique([poolId, startNumber])
+  @@index([tenantId, yearMonth])
 }
 
 // 單張電子發票主檔。與 AccountReceivable 1:1、SalesOrder N:1（同一銷貨單
@@ -692,14 +726,19 @@ model Einvoice {
   taxAmount     Decimal   @db.Decimal(14, 2)
   totalAmount   Decimal   @db.Decimal(14, 2)
   taxType       String    @default("1") // 1=應稅 2=零稅率 3=免稅
-  status        String    @default("issued") // issued|uploaded|confirmed|rejected|voided
+  status        String    @default("issued") // issued|uploaded|confirmed|rejected|voided|nullified
   voidedAt      DateTime?
   voidReason    String?
+  /** F0701 註銷（跨期或需重開時使用；F0501 作廢僅限當期）。註銷後可重開新發票。 */
+  nullifiedAt   DateTime?
+  nullifyReason String?
   xmlPath       String?   // 寫到 Turnkey inbound 目錄後的檔名（絕對路徑）
   voidXmlPath   String?
+  nullifyXmlPath String?
   /** XML 內容存 DB 第二份，避免 Turnkey 主機毀損時 metadata 對不到原始 XML（項 11） */
   xmlBody       String?   @db.Text
   voidXmlBody   String?   @db.Text
+  nullifyXmlBody String?  @db.Text
   /** 分支機構（總公司=null）；對應 EinvoiceNumberPool.branchId */
   branchId      String?
   /** MIG 4.1 新增：總備註 (200 字內)。寫入 XML <MainRemark>。 */

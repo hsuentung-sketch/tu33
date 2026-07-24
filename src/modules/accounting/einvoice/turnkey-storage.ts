@@ -41,7 +41,18 @@ import { ValidationError } from '../../../shared/errors.js';
 import { logger } from '../../../shared/logger.js';
 
 export type TurnkeyBackend = 'local' | 's3';
-export type TurnkeyXmlKind = 'C0401' | 'C0501' | 'D0401' | 'D0501';
+/**
+ * MIG 4.1 訊息代碼（filename prefix 用；不影響 XML 內容）：
+ *  - F0401 存證開立 / F0501 存證作廢 / F0701 存證註銷
+ *  - G0401 折讓 / G0501 作廢折讓
+ *  - E0402 空白未使用字軌
+ * 舊 C/D 代碼保留為 alias 供既有歷史檔案識別（不再產出）。
+ */
+export type TurnkeyXmlKind =
+  | 'F0401' | 'F0501' | 'F0701'
+  | 'G0401' | 'G0501'
+  | 'E0402'
+  | 'C0401' | 'C0501' | 'D0401' | 'D0501';
 
 export interface TurnkeyStorageEnv {
   backend: TurnkeyBackend;

@@ -8,17 +8,17 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">
+    <a href="#dashboard" class="brand" style="text-decoration:none;color:inherit;cursor:pointer;">
       ERP 後台
       <small id="brandSub">載入中…</small>
-    </div>
+    </a>
     <button class="hamburger" id="navToggle" aria-label="選單" aria-expanded="false">≡</button>
     <nav id="nav">
       <a href="#management" data-view="management">管理</a>
       <a href="#sales" data-view="sales">業務功能</a>
       <a href="#purchase-orders" data-view="purchase-orders" data-deny-sales>進貨單</a>
       <a href="#accounts" data-view="accounts">帳款</a>
-      <a href="#invoices" data-view="invoices">發票</a>
+      <a href="#invoices" data-view="invoices" data-requires-module="einvoice">發票</a>
       <a href="#accounting" data-view="accounting" data-deny-sales>會計</a>
       <a href="#inventory" data-view="inventory">庫存</a>
       <a href="#company" data-view="company" data-admin-only>公司資料</a>

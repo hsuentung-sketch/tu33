@@ -3155,16 +3155,27 @@ async function viewEinvoices(main) {
         el('td', { class: 'actions wrap' },
           el('a', { class: 'btn small', href: `/api/einvoices/${e.id}/proof.pdf`, target: '_blank' }, 'PDF'),
           ' ',
-          el('a', { class: 'btn small', href: `/api/einvoices/${e.id}/xml`, target: '_blank' }, 'C0401 XML'),
+          el('a', { class: 'btn small', href: `/api/einvoices/${e.id}/xml`, target: '_blank' }, 'F0401 XML'),
           e.voidXmlPath ? ' ' : null,
-          e.voidXmlPath ? el('a', { class: 'btn small', href: `/api/einvoices/${e.id}/xml?kind=void`, target: '_blank' }, 'C0501 XML') : null,
+          e.voidXmlPath ? el('a', { class: 'btn small', href: `/api/einvoices/${e.id}/xml?kind=void`, target: '_blank' }, 'F0501 XML') : null,
+          e.nullifyXmlPath ? ' ' : null,
+          e.nullifyXmlPath ? el('a', { class: 'btn small', href: `/api/einvoices/${e.id}/xml?kind=nullify`, target: '_blank' }, 'F0701 XML') : null,
           ' ',
-          window.__session?.employee?.role === 'ADMIN'
+          window.__session?.employee?.role === 'ADMIN' && e.status !== 'voided' && e.status !== 'nullified'
             ? el('button', { class: 'btn small', onClick: () => openAllowanceModal(e, reload) }, '折讓')
             : null,
-          e.status !== 'voided' && window.__session?.employee?.role === 'ADMIN' ? ' ' : null,
-          e.status !== 'voided' && window.__session?.employee?.role === 'ADMIN'
+          e.status !== 'voided' && e.status !== 'nullified' && window.__session?.employee?.role === 'ADMIN' ? ' ' : null,
+          e.status !== 'voided' && e.status !== 'nullified' && window.__session?.employee?.role === 'ADMIN'
             ? el('button', { class: 'btn small danger', onClick: () => voidEinvoice(e, reload) }, '作廢')
+            : null,
+          // F0701 註銷：allowed 來源狀態 issued 或 voided（不含 nullified）
+          e.status !== 'nullified' && window.__session?.employee?.role === 'ADMIN' ? ' ' : null,
+          e.status !== 'nullified' && window.__session?.employee?.role === 'ADMIN'
+            ? el('button', {
+                class: 'btn small danger',
+                onClick: () => nullifyEinvoice(e, reload),
+                title: '註銷（F0701）— 跨期或需重開時使用；註銷後可重新開立',
+              }, '註銷')
             : null,
         ),
       ));
@@ -3176,6 +3187,17 @@ async function viewEinvoices(main) {
     if (!reason || !reason.trim()) return;
     api.post(`/einvoices/${e.id}/void`, { reason: reason.trim() })
       .then(() => { toast('已作廢', 'ok'); return after(); })
+      .catch((err) => toast(err.message, 'err'));
+  }
+
+  function nullifyEinvoice(e, after) {
+    const msg = `註銷發票 ${e.invoiceNo}（F0701）\n\n`
+      + '註銷用於跨期修正或發票內容錯誤需正式撤銷後重開。\n'
+      + '註銷後可重新開立新發票。\n\n請輸入原因：';
+    const reason = window.prompt(msg);
+    if (!reason || !reason.trim()) return;
+    api.post(`/einvoices/${e.id}/nullify`, { reason: reason.trim() })
+      .then(() => { toast('已註銷', 'ok'); return after(); })
       .catch((err) => toast(err.message, 'err'));
   }
 
@@ -5617,6 +5639,7 @@ const GROUPS = {
   },
   invoices: {
     title: '發票',
+    requiresModule: 'einvoice',
     tabs: [
       { key: 'einvoices',       label: '電子發票', view: 'einvoices' },
       { key: 'einvoice-pools',  label: '發票配號', view: 'einvoice-pools', adminOnly: true },
@@ -5664,6 +5687,10 @@ const LEGACY_REDIRECT = {
   'error-logs': 'logs/error-logs',
 };
 
+function isModuleEnabled(name) {
+  return window.__session?.modules?.[name] === true;
+}
+
 function visibleTabs(group) {
   const role = window.__session?.employee?.role;
   return group.tabs.filter((t) => {
@@ -5674,8 +5701,19 @@ function visibleTabs(group) {
   });
 }
 
+function isGroupVisible(group) {
+  if (group.requiresModule && !isModuleEnabled(group.requiresModule)) return false;
+  return true;
+}
+
 async function renderGroup(main, groupKey, selectedTabKey) {
   const group = GROUPS[groupKey];
+  if (!isGroupVisible(group)) {
+    main.innerHTML = '';
+    main.append(el('h2', {}, group.title));
+    main.append(el('div', { class: 'empty' }, `此模組（${group.requiresModule}）未啟用，請聯絡管理員於「公司資料」開啟。`));
+    return;
+  }
   const tabs = visibleTabs(group);
   if (!tabs.length) {
     main.innerHTML = '';
@@ -5796,6 +5834,11 @@ async function boot() {
     for (const a of document.querySelectorAll('#nav a[data-deny-sales]')) {
       a.style.display = 'none';
     }
+  }
+  // Hide nav entries whose required module is not enabled for this tenant.
+  for (const a of document.querySelectorAll('#nav a[data-requires-module]')) {
+    const mod = a.getAttribute('data-requires-module');
+    if (!session.modules?.[mod]) a.style.display = 'none';
   }
   // System version display (fire-and-forget; failure is non-fatal).
   try {

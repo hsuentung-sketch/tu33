@@ -110,3 +110,46 @@ export function requireModule(moduleName: string) {
     }
   };
 }
+
+/**
+ * einvoice 模組 opt-in 閘門。
+ * 兩層檢查：
+ *  1. 計費層：租戶方案要有 'accounting' feature
+ *  2. 運行層：Tenant.settings.einvoice.enabled === true（租戶自己可關）
+ *
+ * 用途：讓客戶能在申請 Turnkey 前先關閉功能（介面不顯示、API 拒絕），
+ *      申請完成後 admin 到公司資料頁打開即可。
+ */
+export function requireEinvoiceModule() {
+  return async (req: Request, _res: Response, next: NextFunction) => {
+    try {
+      if (!req.tenantId) {
+        return next(new ForbiddenError('Tenant not identified'));
+      }
+
+      const { features, planName } = await getEnabledFeatures(req.tenantId);
+      if (!features.has('accounting')) {
+        return next(
+          new ForbiddenError(
+            `您的方案「${planName}」不包含「accounting」模組，請升級方案以使用電子發票功能`,
+          ),
+        );
+      }
+
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: req.tenantId },
+        select: { settings: true },
+      });
+      const settings = (tenant?.settings ?? {}) as { einvoice?: { enabled?: boolean } };
+      if (!settings.einvoice?.enabled) {
+        return next(
+          new ForbiddenError('電子發票模組未啟用，請至公司資料頁開啟'),
+        );
+      }
+
+      next();
+    } catch (err) {
+      next(err);
+    }
+  };
+}

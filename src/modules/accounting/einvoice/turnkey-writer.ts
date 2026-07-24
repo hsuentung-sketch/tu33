@@ -52,18 +52,25 @@ function envOf(opts: LegacyOpts) {
 
 export async function writeIssueXml(opts: LegacyOpts): Promise<WriteResult> {
   const env = envOf(opts);
-  const { locator } = await putXml(env, 'C0401', opts.invoiceNo, opts.xml);
+  const { locator } = await putXml(env, 'F0401', opts.invoiceNo, opts.xml);
   return { absolutePath: locator };
 }
 
 export async function writeVoidXml(opts: LegacyOpts): Promise<WriteResult> {
   const env = envOf(opts);
-  const { locator } = await putXml(env, 'C0501', opts.invoiceNo, opts.xml);
+  const { locator } = await putXml(env, 'F0501', opts.invoiceNo, opts.xml);
   return { absolutePath: locator };
 }
 
-/** 折讓單 D0401 / D0501。 */
-export async function writeAllowanceXml(opts: LegacyOpts & { kind: 'D0401' | 'D0501' }): Promise<WriteResult> {
+/** F0701 註銷發票（跨期或需重開時使用）。 */
+export async function writeNullifyXml(opts: LegacyOpts): Promise<WriteResult> {
+  const env = envOf(opts);
+  const { locator } = await putXml(env, 'F0701', opts.invoiceNo, opts.xml);
+  return { absolutePath: locator };
+}
+
+/** 折讓單 G0401 / G0501。 */
+export async function writeAllowanceXml(opts: LegacyOpts & { kind: 'G0401' | 'G0501' }): Promise<WriteResult> {
   const env = envOf(opts);
   const { locator } = await putXml(env, opts.kind, opts.invoiceNo, opts.xml);
   return { absolutePath: locator };

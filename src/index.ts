@@ -14,6 +14,7 @@ import { scheduleOverdueReminder } from './jobs/overdue-reminder.js';
 import { scheduleMonthlyStatements } from './jobs/monthly-statement.js';
 import { scheduleDailyBackup } from './jobs/daily-backup.js';
 import { scheduleEinvoiceSync } from './jobs/einvoice-sync.js';
+import { scheduleEinvoiceBlankReport } from './jobs/einvoice-blank-report.js';
 import { scheduleDailyVersionAutoUpgrade } from './jobs/daily-version-auto-upgrade.js';
 import { scheduleDailyBillingAutoRenewal } from './jobs/daily-billing-auto-renewal.js';
 import { scheduleDailyBillingOverdueCheck } from './jobs/daily-billing-overdue-check.js';
@@ -201,6 +202,7 @@ app.listen(config.port, '0.0.0.0', async () => {
   scheduleMonthlyStatements();
   scheduleDailyBackup();
   scheduleEinvoiceSync();
+  scheduleEinvoiceBlankReport();
   scheduleDailyVersionAutoUpgrade();
   scheduleDailyBillingAutoRenewal();
   scheduleDailyBillingOverdueCheck(); // P0-3c: Daily overdue check at 04:00

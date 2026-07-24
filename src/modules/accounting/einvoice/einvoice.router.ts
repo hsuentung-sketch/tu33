@@ -46,6 +46,10 @@ const voidSchema = z.object({
   reason: z.string().min(1, '請填寫作廢原因'),
 });
 
+const nullifySchema = z.object({
+  reason: z.string().min(1, '請填寫註銷原因'),
+});
+
 einvoiceRouter.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const status = req.query.status ? String(req.query.status) : undefined;
@@ -63,7 +67,11 @@ einvoiceRouter.get('/:id', async (req: Request, res: Response, next: NextFunctio
 
 einvoiceRouter.get('/:id/xml', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const kind = req.query.kind === 'void' ? 'void' : 'issue';
+    const rawKind = req.query.kind;
+    const kind: 'issue' | 'void' | 'nullify' =
+      rawKind === 'void' ? 'void'
+      : rawKind === 'nullify' ? 'nullify'
+      : 'issue';
     const xml = await einvoiceService.readXml(req.tenantId, String(req.params.id), kind);
     if (xml == null) {
       res.status(404).send('XML not found');
@@ -183,5 +191,23 @@ einvoiceRouter.post('/:id/void', async (req: Request, res: Response, next: NextF
       req.tenantId, String(req.params.id), parsed.data.reason, req.employee.id,
     );
     res.json(voided);
+  } catch (err) { next(err); }
+});
+
+/**
+ * F0701 註銷發票（跨期或發票內容需正式撤銷後重開時使用）。
+ * 允許來源狀態：'issued' 或 'voided'。
+ */
+einvoiceRouter.post('/:id/nullify', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    requireAdmin(req, '僅 ADMIN 可註銷電子發票');
+    const parsed = nullifySchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new ValidationError(parsed.error.issues.map((i) => i.message).join(', '));
+    }
+    const nullified = await einvoiceService.nullifyInvoice(
+      req.tenantId, String(req.params.id), parsed.data.reason, req.employee.id,
+    );
+    res.json(nullified);
   } catch (err) { next(err); }
 });

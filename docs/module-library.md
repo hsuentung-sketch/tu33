@@ -43,7 +43,7 @@
 |-----|-------|------|------|
 | accounting | 應收帳款 | 標準 | AR + 月結 N 天 + 到期提醒 + 結案 |
 | accounting | 應付帳款 | 標準 | AP + 月結 + 結案 |
-| accounting | 電子發票 | 選配 | MIG 4.1 XML + Turnkey + 字軌配號 + 證明聯 PDF + 折讓 |
+| accounting | 電子發票 | 選配 | MIG 4.1 XML + Turnkey + 字軌配號 + 證明聯 PDF + 折讓。opt-in：`Tenant.settings.einvoice.enabled=true`；後端 `requireEinvoiceModule()`；前端 `<a data-requires-module="einvoice">` |
 | accounting | 費用管理 | 選配 | 公務支出 + 憑證 + 分類 |
 | accounting | 總帳 / 分錄 | 選配 | 科目表 (CoA) + 手動/自動分錄 + 試算表 |
 | accounting | 會計期別 | 選配 | 開/關帳期 |
