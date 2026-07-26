@@ -3030,7 +3030,7 @@ async function openEinvoiceIssueModal(ar, onSaved) {
   updateTaxFields();
 
   const backdrop = el('div', { class: 'modal-backdrop' });
-  const modal = el('div', { class: 'modal', style: 'max-width:720px;' },
+  const modal = el('div', { class: 'modal', style: 'max-width:900px;' },
     el('h3', {}, `開立電子發票 — ${customer.name || ''}`),
     el('div', { class: 'body' },
       wrapField('買受人型態', typeSelect),
