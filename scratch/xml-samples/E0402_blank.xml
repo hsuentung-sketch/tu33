@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<BlankInvoiceNumber xmlns="urn:GEINV:eInvoiceMessage:E0402:4.1">
+  <Main>
+    <Seller>
+      <Identifier>62198132</Identifier>
+      <Name>潤樋實業有限公司</Name>
+    </Seller>
+    <InvoiceTrack>AB</InvoiceTrack>
+    <InvoiceBeginNo>12345700</InvoiceBeginNo>
+    <InvoiceEndNo>12345799</InvoiceEndNo>
+    <InvoiceYearMonth>1140506</InvoiceYearMonth>
+    <BlankReason>2</BlankReason>
+  </Main>
+</BlankInvoiceNumber>

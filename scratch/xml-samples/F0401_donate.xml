@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Invoice xmlns="urn:GEINV:eInvoiceMessage:F0401:4.1">
+  <Main>
+    <InvoiceNumber>AB12345683</InvoiceNumber>
+    <InvoiceDate>20260724</InvoiceDate>
+    <InvoiceTime>15:10:30</InvoiceTime>
+    <Seller>
+      <Identifier>62198132</Identifier>
+      <Name>潤樋實業有限公司</Name>
+      <Address>新北市中和區某某路 88 號</Address>
+      <PersonInCharge>許先生</PersonInCharge>
+      <TelephoneNumber>02-2222-3333</TelephoneNumber>
+      <FacsimileNumber>02-2222-3334</FacsimileNumber>
+    </Seller>
+    <Buyer>
+      <Identifier>0000000000</Identifier>
+      <Name>一般消費者</Name>
+      
+    </Buyer>
+    <InvoiceType>07</InvoiceType>
+    <DonateMark>1</DonateMark>
+    <PrintMark>N</PrintMark>
+    <RandomNumber>1357</RandomNumber>
+    <NPOBAN>12345</NPOBAN>
+  </Main>
+  <Details>
+    <ProductItem>
+      <Description>零售商品</Description>
+      <Quantity>1.0000</Quantity>
+      
+      <UnitPrice>300.0000</UnitPrice>
+      <TaxType>1</TaxType>
+      <Amount>300</Amount>
+      <SequenceNumber>1</SequenceNumber>
+    </ProductItem>
+  </Details>
+  <Amount>
+    <SalesAmount>300</SalesAmount>
+    <FreeTaxSalesAmount>0</FreeTaxSalesAmount>
+    <ZeroTaxSalesAmount>0</ZeroTaxSalesAmount>
+    <TaxType>1</TaxType>
+    <TaxRate>0.0500</TaxRate>
+    <TaxAmount>15</TaxAmount>
+    <TotalAmount>315</TotalAmount>
+  </Amount>
+</Invoice>

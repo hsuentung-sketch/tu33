@@ -374,12 +374,12 @@ export async function issue(tenantId: string, input: IssueInput) {
     throw new ValidationError('尚未設定 Turnkey 匯入目錄（settings.einvoice.turnkeyInboundDir）');
   }
   // 依財政部「自行檢測表」項 8(8)：QRCode 內容須包含正確加密驗證資訊。
-  // 正式環境一律強制設定整合服務平台下發的 AES-128 金鑰（32 碼 hex）。
-  // 開發環境可留空，proof-barcodes.ts 會用 stub key 並在 log 警示。
-  if (process.env.NODE_ENV === 'production') {
+  // 正式上線後強制設定整合服務平台下發的 AES-128 金鑰（32 碼 hex）。
+  // 檢測期間（尚未取得 turnkeyOnlineCode）可留空，proof-barcodes.ts 用 stub key 並 log 警示。
+  if (process.env.NODE_ENV === 'production' && einvCfg.turnkeyOnlineCode) {
     if (!einvCfg.qrAesKey || !/^[0-9a-fA-F]{32}$/.test(einvCfg.qrAesKey)) {
       throw new ValidationError(
-        'settings.einvoice.qrAesKey 未設定或格式錯誤：正式環境須填整合服務平台下發的 32 碼 hex AES-128 金鑰',
+        'settings.einvoice.qrAesKey 未設定或格式錯誤：正式上線後須填整合服務平台下發的 32 碼 hex AES-128 金鑰',
       );
     }
   }

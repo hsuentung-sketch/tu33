@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CancelAllowance xmlns="urn:GEINV:eInvoiceMessage:G0501:4.1">
+  <Main>
+    <CancelAllowanceNumber>AL20260724001</CancelAllowanceNumber>
+    <AllowanceDate>20260724</AllowanceDate>
+    <CancelDate>20260724</CancelDate>
+    <CancelTime>15:10:30</CancelTime>
+    <CancelReason>折讓資訊錯誤</CancelReason>
+    <AllowanceType>2</AllowanceType>
+    <Seller>
+      <Identifier>62198132</Identifier>
+    </Seller>
+    <Buyer>
+      <Identifier>12345678</Identifier>
+    </Buyer>
+  </Main>
+</CancelAllowance>

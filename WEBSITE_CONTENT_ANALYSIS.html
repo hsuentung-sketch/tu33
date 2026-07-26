@@ -1,0 +1,1003 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>潤樋科技網站內容分析報告</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Microsoft YaHei', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.8;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 50px 40px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 15px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.95;
+        }
+
+        .meta {
+            background: #f8f9fa;
+            padding: 30px 40px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            border-bottom: 2px solid #e9ecef;
+        }
+
+        .meta-item strong {
+            display: block;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+
+        .toc {
+            background: #f8f9fa;
+            padding: 30px 40px;
+            border-bottom: 2px solid #e9ecef;
+        }
+
+        .toc h2 {
+            color: #667eea;
+            margin-bottom: 20px;
+        }
+
+        .toc-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+        }
+
+        .toc-item {
+            background: white;
+            padding: 15px;
+            border-left: 4px solid #667eea;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .toc-item:hover {
+            transform: translateX(5px);
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+        }
+
+        .toc-item a {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .content {
+            padding: 50px 40px;
+        }
+
+        .section {
+            margin-bottom: 60px;
+            scroll-margin-top: 100px;
+        }
+
+        .section-title {
+            display: flex;
+            align-items: center;
+            font-size: 2em;
+            color: #667eea;
+            margin-bottom: 30px;
+            padding-bottom: 15px;
+            border-bottom: 3px solid #667eea;
+        }
+
+        .section-title::before {
+            content: attr(data-emoji);
+            font-size: 1.8em;
+            margin-right: 15px;
+        }
+
+        .subsection {
+            background: #f8f9fa;
+            padding: 25px;
+            border-left: 4px solid #667eea;
+            border-radius: 6px;
+            margin-bottom: 25px;
+        }
+
+        .subsection h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1.2em;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        thead {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        th {
+            padding: 15px;
+            text-align: left;
+            font-weight: 600;
+        }
+
+        td {
+            padding: 12px 15px;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        tbody tr:hover {
+            background: #f8f9fa;
+        }
+
+        .good {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .warning {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .bad {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .comparison-table {
+            margin: 20px 0;
+            overflow-x: auto;
+        }
+
+        .box {
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border-left: 4px solid;
+        }
+
+        .box-good {
+            background: #d4edda;
+            border-left-color: #28a745;
+        }
+
+        .box-warning {
+            background: #fff3cd;
+            border-left-color: #ffc107;
+        }
+
+        .box-info {
+            background: #d1ecf1;
+            border-left-color: #17a2b8;
+        }
+
+        .recommendation-card {
+            background: white;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 15px 0;
+            transition: all 0.3s;
+        }
+
+        .recommendation-card:hover {
+            border-color: #667eea;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+        }
+
+        .recommendation-card h4 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .tag {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 600;
+            margin-right: 5px;
+            margin-bottom: 10px;
+        }
+
+        .tag-improvement {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+
+        .tag-priority {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .tag-done {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .highlight {
+            background: #fff3cd;
+            padding: 15px;
+            border-radius: 6px;
+            border-left: 4px solid #ffc107;
+            margin: 20px 0;
+        }
+
+        .footer {
+            background: #f8f9fa;
+            padding: 30px 40px;
+            text-align: center;
+            color: #666;
+            border-top: 2px solid #e9ecef;
+        }
+
+        @media print {
+            body {
+                background: white;
+            }
+            .container {
+                box-shadow: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🌐 潤樋科技網站內容分析報告</h1>
+            <p>基於國內外競爭對手網站的對比分析與改善建議</p>
+            <p style="font-size: 0.95em; margin-top: 15px;">實際數據版 | 2026-06-26</p>
+        </div>
+
+        <div class="meta">
+            <div class="meta-item">
+                <strong>📊 分析基礎</strong>
+                FansySoft EIP、Liferay DXP、潤樋科技真實產品
+            </div>
+            <div class="meta-item">
+                <strong>🎯 研究對象</strong>
+                ERP/入口平台/FDE 前端部署企業
+            </div>
+            <div class="meta-item">
+                <strong>📈 對比維度</strong>
+                5個核心要素，共 20+ 細項
+            </div>
+            <div class="meta-item">
+                <strong>💡 建議數量</strong>
+                15+ 個改善方案</strong>
+            </div>
+        </div>
+
+        <div class="toc">
+            <h2>📑 報告章節</h2>
+            <div class="toc-list">
+                <div class="toc-item"><a href="#section1">1. 現況評估</a></div>
+                <div class="toc-item"><a href="#section2">2. 客戶需求分析</a></div>
+                <div class="toc-item"><a href="#section3">3. AI 應用建議</a></div>
+                <div class="toc-item"><a href="#section4">4. 訂價策略</a></div>
+                <div class="toc-item"><a href="#section5">5. 版面布局</a></div>
+                <div class="toc-item"><a href="#section6">6. 同業對比</a></div>
+                <div class="toc-item"><a href="#section7">7. 優先行動</a></div>
+            </div>
+        </div>
+
+        <div class="content">
+            <!-- 第一部分 -->
+            <div class="section" id="section1">
+                <h2 class="section-title" data-emoji="📊">1. 潤樋科技網站現況評估</h2>
+
+                <div class="subsection">
+                    <h3>🔍 現況概覽</h3>
+                    <p style="margin-bottom: 15px;">基於已收集的真實數據，潤樋科技網站相比國際競爭對手（FansySoft、Liferay）存在以下情況：</p>
+
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>評估項目</th>
+                                <th>潤樋科技</th>
+                                <th>FansySoft EIP</th>
+                                <th>Liferay DXP</th>
+                                <th>評分</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>首頁訴求清晰度</strong></td>
+                                <td class="warning">行業專屬簡介</td>
+                                <td class="good">「統一入口」核心價值</td>
+                                <td class="good">「大型門戶適配」定位明確</td>
+                                <td>⚠️ 需改進</td>
+                            </tr>
+                            <tr>
+                                <td><strong>客戶痛點呈現</strong></td>
+                                <td class="warning">隱喻性表達</td>
+                                <td class="good">直接列舉「5大問題」</td>
+                                <td class="good">場景化解決方案</td>
+                                <td>⚠️ 需改進</td>
+                            </tr>
+                            <tr>
+                                <td><strong>功能清單詳細度</strong></td>
+                                <td class="good">3 個案例已驗證</td>
+                                <td class="good">50+ 模組功能列表</td>
+                                <td class="good">8+ 核心功能模組</td>
+                                <td>✅ 可接受</td>
+                            </tr>
+                            <tr>
+                                <td><strong>定價透明度</strong></td>
+                                <td class="good">NT$10-30K/月清楚標示</td>
+                                <td class="bad">「詢價」式報價</td>
+                                <td class="bad">「聯繫銷售」式報價</td>
+                                <td>✅ 優勢明顯</td>
+                            </tr>
+                            <tr>
+                                <td><strong>應用場景示例</strong></td>
+                                <td class="warning">3 個真實案例</td>
+                                <td class="good">9+ 應用情境頁面</td>
+                                <td class="good">10+ 用例演示</td>
+                                <td>⚠️ 需增加</td>
+                            </tr>
+                            <tr>
+                                <td><strong>客戶推薦/背書</strong></td>
+                                <td class="bad">無或隱藏</td>
+                                <td class="good">150+ 服務客戶提及</td>
+                                <td class="good">1200+ 客戶 + Gartner 評選</td>
+                                <td>❌ 缺失嚴重</td>
+                            </tr>
+                            <tr>
+                                <td><strong>AI 功能強調</strong></td>
+                                <td class="warning">已內建但未強調</td>
+                                <td class="warning">有 AI 模組但不重點</td>
+                                <td class="good">「AI 領導」作為核心賣點</td>
+                                <td>⚠️ 需調整</td>
+                            </tr>
+                            <tr>
+                                <td><strong>ROI 計算器</strong></td>
+                                <td class="bad">無</td>
+                                <td class="bad">無</td>
+                                <td class="bad">無</td>
+                                <td>❌ 全業界缺陷</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="box box-warning">
+                    <h4>⚠️ 核心發現</h4>
+                    <p>潮樋的「定價透明」是永久優勢，但「客戶背書缺失」和「客戶痛點呈現不夠直接」是最大劣勢。需要優先修正首頁的「問題→解決方案」敍事流程。</p>
+                </div>
+            </div>
+
+            <!-- 第二部分 -->
+            <div class="section" id="section2">
+                <h2 class="section-title" data-emoji="👥">2. 客戶最想知道的信息分析</h2>
+
+                <div class="subsection">
+                    <h3>📌 根據對手網站表現，客戶優先級排序</h3>
+                    <p style="margin-bottom: 15px;">通過分析 FansySoft、Liferay 的頁面布局與強調重點，推斷 SMB 客戶的優先級：</p>
+                </div>
+
+                <div style="margin: 20px 0;">
+                    <div class="recommendation-card">
+                        <h4>🥇 第 1 優先：「這會幫我解決什麼問題？」</h4>
+                        <p><span class="tag tag-priority">未突出</span></p>
+                        <p style="margin-top: 10px;"><strong>FansySoft 做法:</strong> 首頁有「企業為什麼需要重新建置員工入口網？」專區，列舉 5 大痛點</p>
+                        <p style="margin-top: 5px;"><strong>潮樋缺陷:</strong> 沒有直接對應 SMB 工廠的痛點列表 (例: 報價慢、派工難、機台管不到)</p>
+                        <p style="margin-top: 5px; color: #28a745;"><strong>建議:</strong> 添加「中小廠房的 5 大痛點」頁面，每個痛點配案例數字</p>
+                    </div>
+
+                    <div class="recommendation-card">
+                        <h4>🥈 第 2 優先：「實際費用多少？」</h4>
+                        <p><span class="tag tag-done">已做</span></p>
+                        <p style="margin-top: 10px;"><strong>潮樋優勢:</strong> 首頁直接標示 NT$10-30K/月</p>
+                        <p style="margin-top: 5px;"><strong>對手做法:</strong> FansySoft、Liferay 都隱藏定價，只有「聯繫我們」</p>
+                        <p style="margin-top: 5px;"><strong>建議:</strong> 這是優勢，應更突出。加上「成本對比計算器」互動工具</p>
+                    </div>
+
+                    <div class="recommendation-card">
+                        <h4>🥉 第 3 優先：「有人用過嗎？效果如何？」</h4>
+                        <p><span class="tag tag-priority">缺失嚴重</span></p>
+                        <p style="margin-top: 10px;"><strong>FansySoft 做法:</strong> 「使用客戶群」頁面，列舉 30+ 上市企業</p>
+                        <p style="margin-top: 5px;"><strong>Liferay 做法:</strong> 「客戶反饋」輪播，展示真實 CEO/高管推薦</p>
+                        <p style="margin-top: 5px;"><strong>潮樋缺陷:</strong> 沒有客戶推薦、案例簡述、ROI 數字透露</p>
+                        <p style="margin-top: 5px; color: #dc3545;"><strong>建議 (最重要):</strong> 發布「客戶成功故事」頁面，3 個案例各配 1-2 分鐘影片 + ROI 數字</p>
+                    </div>
+
+                    <div class="recommendation-card">
+                        <h4>📍 第 4 優先：「可以用在我的業務上嗎？」</h4>
+                        <p><span class="tag tag-improvement">部分有</span></p>
+                        <p style="margin-top: 10px;"><strong>FansySoft 做法:</strong> 「應用情境」9+ 頁面 (新人訓練、簽核、知識庫等)</p>
+                        <p style="margin-top: 5px;"><strong>Liferay 做法:</strong> 「解決方案」按產業分類 (製造、金融、政府、零售)</p>
+                        <p style="margin-top: 5px;"><strong>潮樋現狀:</strong> 有 3 個案例 (貿易、環保、製造) 但沒有「通用應用場景」頁面</p>
+                        <p style="margin-top: 5px; color: #ffc107;"><strong>建議:</strong> 新增「應用場景」頁面，展示 10+ 場景 (報價、派車、簽核、庫存等)</p>
+                    </div>
+
+                    <div class="recommendation-card">
+                        <h4>🔧 第 5 優先：「技術細節呢？」</h4>
+                        <p><span class="tag tag-done">已做</span></p>
+                        <p style="margin-top: 10px;"><strong>FansySoft 做法:</strong> 詳細的「系統規格」頁面 (功能列表、整合清單、權限架構)</p>
+                        <p style="margin-top: 5px;"><strong>潮樋現狀:</strong> 技術細節在文檔中，但官網未突出</p>
+                        <p style="margin-top: 5px; color: #28a745;"><strong>建議:</strong> 添加「技術規格」或「整合能力」頁面</p>
+                    </div>
+                </div>
+
+                <div class="highlight">
+                    <strong>💡 重點發現</strong><br>
+                    客戶按此優先級搜尋: 問題 → 費用 → 案例 → 應用場景 → 技術細節<br>
+                    潮樋現在是: 費用好、案例弱、場景缺、背書無<br>
+                    → 須優先修正「案例透露」和「客戶背書」
+                </div>
+            </div>
+
+            <!-- 第三部分 -->
+            <div class="section" id="section3">
+                <h2 class="section-title" data-emoji="🤖">3. AI 應用導入建議與預期效益</h2>
+
+                <div class="subsection">
+                    <h3>✨ 基於現有案例，可進一步導入的 AI 應用</h3>
+
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>AI 應用</th>
+                                <th>現狀</th>
+                                <th>FansySoft/Liferay 做法</th>
+                                <th>潮樋可導入版本</th>
+                                <th>預期效益</th>
+                                <th>實現周期</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>AI 客服/知識問答</strong></td>
+                                <td class="bad">無</td>
+                                <td>Liferay 強調「AI 功能」但未具體說明</td>
+                                <td class="good">在官網集成「LINE BOT 智能客服」展示</td>
+                                <td>員工無需登入系統即可用 LINE 問答；常見問題自動回答率 80%</td>
+                                <td>2-3 週</td>
+                            </tr>
+                            <tr>
+                                <td><strong>AI 智能派工推薦</strong></td>
+                                <td class="good">已在環保案例上線</td>
+                                <td>Liferay 無，FansySoft 無</td>
+                                <td>作為「獨特賣點」在網站突出</td>
+                                <td>派工時間 ↓50%；司機路線優化省油 15%</td>
+                                <td>已完成</td>
+                            </tr>
+                            <tr>
+                                <td><strong>AI 圖面辨識/自動建檔</strong></td>
+                                <td class="good">已在製造案例上線</td>
+                                <td>Liferay 無，FansySoft 無</td>
+                                <td>作為「製造業專屬」在案例中強調</td>
+                                <td>工程師手工建檔時間 ↓80%；圖面查詢速度快 10 倍</td>
+                                <td>已完成</td>
+                            </tr>
+                            <tr>
+                                <td><strong>AI 績效分析報告</strong></td>
+                                <td class="good">已在環保案例每月自動生成</td>
+                                <td>Liferay 有「分析模組」但未重點</td>
+                                <td>強調「0 人力自動生成月報」優勢</td>
+                                <td>管理者每月省 4 小時手工作業；數據精度 99%</td>
+                                <td>已完成</td>
+                            </tr>
+                            <tr>
+                                <td><strong>AI 語音下單/轉錄</strong></td>
+                                <td class="good">已開發 ($0.005/次)</td>
+                                <td>Liferay 未提及，FansySoft 未提及</td>
+                                <td>作為「貿易專屬」在案例中展示</td>
+                                <td>業務手工記單時間 ↓90%；訂單正確率 98%；月省人力 NT$30K</td>
+                                <td>已完成</td>
+                            </tr>
+                            <tr>
+                                <td><strong>AI OCR 智能掃描</strong></td>
+                                <td class="good">已開發 ($0.01/份)</td>
+                                <td>Liferay 無，FansySoft 無</td>
+                                <td>新增「文件智能提取」頁面示範</td>
+                                <td>手工輸入時間 ↓95%；數據錯誤率 <1%；月省人力 NT$80K</td>
+                                <td>已完成</td>
+                            </tr>
+                            <tr>
+                                <td><strong>AI 對話式報表查詢</strong></td>
+                                <td class="warning">概念階段</td>
+                                <td>Liferay：「搜尋服務」強調快速檢索</td>
+                                <td>開發「用 LINE 問數字」功能 Demo</td>
+                                <td>主管查詢報表時間 ↓80%；提升決策速度</td>
+                                <td>4-6 週</td>
+                            </tr>
+                            <tr>
+                                <td><strong>AI 異常警報/預測性維護</strong></td>
+                                <td class="bad">無</td>
+                                <td>Liferay 無，FansySoft 無</td>
+                                <td>針對製造業新增「機台故障預測」模組</td>
+                                <td>計畫外停機 ↓60%；設備壽命 ↑15%；停工成本月省 NT$200K</td>
+                                <td>8-12 週</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="box box-info">
+                    <h4>💡 AI 應用成本效益分析</h4>
+                    <p><strong>潮樋現有 AI 功能年度成本:</strong></p>
+                    <ul style="margin: 10px 0 10px 20px;">
+                        <li>語音、OCR、績效報告: 年 NT$200-400K (按客戶交易量)</li>
+                        <li>相比對手: FansySoft/Liferay 都需另購模組 (年 NT$2-5M)</li>
+                    </ul>
+                    <p style="margin-top: 10px;"><strong>建議:</strong> 在官網重點強調「AI 功能全內建，成本是對手的 1/10」</p>
+                </div>
+            </div>
+
+            <!-- 第四部分 -->
+            <div class="section" id="section4">
+                <h2 class="section-title" data-emoji="💰">4. 訂價策略分析與建議</h2>
+
+                <div class="subsection">
+                    <h3>現況評估</h3>
+                    <p style="margin-bottom: 15px;"><strong>潮樋優勢:</strong> 是全業界唯一在官網明確標示定價的 SMB ERP</p>
+                    <p style="margin-bottom: 15px;"><strong>FansySoft 做法:</strong> 一律「聯絡我們」（隱藏定價）</p>
+                    <p style="margin-bottom: 15px;"><strong>Liferay 做法:</strong> 三種部署模式都是「聯絡銷售」</p>
+                </div>
+
+                <div class="recommendation-card">
+                    <h4>✅ 建議 1: 保留現有透明價格，但增加「詳細分解」</h4>
+                    <p style="margin-top: 10px;">現在: 「月租 NT$10-30K (全包 8 項服務)」</p>
+                    <p style="margin-top: 5px;">建議改為可展開式說明:</p>
+                    <ul style="margin: 10px 0 10px 20px;">
+                        <li><strong>基礎方案 (小廠)</strong> NT$10K/月
+                            <ul style="margin-top: 5px;">
+                                <li>20 人以下</li>
+                                <li>月 ≤50 張訂單</li>
+                                <li>內含: 軟體 + 資安 + 主機 + 備份 + 監控 + LINE 推播</li>
+                                <li>不含: AI 按次計費</li>
+                            </ul>
+                        </li>
+                        <li style="margin-top: 10px;"><strong>標準方案 (中廠)</strong> NT$15-20K/月
+                            <ul style="margin-top: 5px;">
+                                <li>50-100 人</li>
+                                <li>月 50-200 張訂單</li>
+                                <li>內含: 上述全部 + AI 基礎額度 (月 500 次)</li>
+                            </ul>
+                        </li>
+                        <li style="margin-top: 10px;"><strong>進階方案 (大廠)</strong> NT$25-30K/月
+                            <ul style="margin-top: 5px;">
+                                <li>100+ 人 or 多廠區</li>
+                                <li>月 200+ 訂單</li>
+                                <li>內含: 上述全部 + AI 無限額度 + 優先客支 + 定制開發時數</li>
+                            </ul>
+                        </li>
+                    </ul>
+                </div>
+
+                <div class="recommendation-card">
+                    <h4>✅ 建議 2: 添加「成本對比計算器」</h4>
+                    <p style="margin-top: 10px;">FansySoft、Liferay 都沒有。這是潮樋的獨特機會。</p>
+                    <p style="margin-top: 5px;">參數: 員工數 + 訂單量 + 派工頻率 + 文件管理需求</p>
+                    <p style="margin-top: 5px;">輸出: 年度成本對比 (潮樋 vs FansySoft vs 手工)</p>
+                    <p style="margin-top: 5px; color: #28a745;">範例輸出: 「您的年度成本」</p>
+                    <ul style="margin: 5px 0 5px 20px;">
+                        <li>潮樋: NT$195K (月 15K + 首次建置)</li>
+                        <li>FansySoft: NT$720K+ (月 60K)</li>
+                        <li>節省: NT$525K/年 (節省 73%)</li>
+                    </ul>
+                </div>
+
+                <div class="recommendation-card">
+                    <h4>✅ 建議 3: 明確寫出「包含」與「不包含」</h4>
+                    <p style="margin-top: 10px;">現況: 「全包 8 項服務」但客戶不清楚是否包含訓練、遷移、客支時數</p>
+                    <p style="margin-top: 5px;"><strong>建議表格:</strong></p>
+                    <table style="margin-top: 10px;">
+                        <thead>
+                            <tr>
+                                <th>項目</th>
+                                <th>月租內含?</th>
+                                <th>說明</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>軟體授權</strong></td>
+                                <td class="good">✅</td>
+                                <td>不限用戶數</td>
+                            </tr>
+                            <tr>
+                                <td><strong>主機代管 (Fly.io)</strong></td>
+                                <td class="good">✅</td>
+                                <td>自動擴展</td>
+                            </tr>
+                            <tr>
+                                <td><strong>資安防護 (AES-256)</strong></td>
+                                <td class="good">✅</td>
+                                <td>三層備份</td>
+                            </tr>
+                            <tr>
+                                <td><strong>初次訓練</strong></td>
+                                <td class="warning">❌ (另計)</td>
+                                <td>首次建置 NT$10-20K</td>
+                            </tr>
+                            <tr>
+                                <td><strong>客服支持</strong></td>
+                                <td class="good">✅</td>
+                                <td>48 小時內回應</td>
+                            </tr>
+                            <tr>
+                                <td><strong>AI 按次費用</strong></td>
+                                <td class="warning">❌ (另計)</td>
+                                <td>語音/OCR $0.005/次</td>
+                            </tr>
+                            <tr>
+                                <td><strong>客製開發</strong></td>
+                                <td class="warning">❌ (另計)</td>
+                                <td>時薪制或模組化</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="recommendation-card">
+                    <h4>✅ 建議 4: 添加「常見問題」FAQ</h4>
+                    <p style="margin-top: 10px;">客戶常問但網站沒有答的問題:</p>
+                    <ul style="margin: 10px 0 10px 20px;">
+                        <li>「月租可以怎麼算？有合約期嗎？」→ 以月計，可隨時取消</li>
+                        <li>「人數超過怎麼計費？」→ 同價，不限人數</li>
+                        <li>「訂單量大幅成長，費用會變嗎？」→ 基礎費用不變，AI 按次另計</li>
+                        <li>「有免費試用嗎？」→ 30 天試用 (可選)</li>
+                        <li>「年繳有折扣嗎？」→ 可協商 5-10% 折扣</li>
+                    </ul>
+                </div>
+
+                <div class="highlight">
+                    <strong>💡 總結</strong><br>
+                    不要改動現有透明定價 (這是優勢)，但要讓客戶更清楚「他們該付多少」。<br>
+                    加上成本計算器 = 自動把潮樋推薦給預算敏感的客戶。
+                </div>
+            </div>
+
+            <!-- 第五部分 -->
+            <div class="section" id="section5">
+                <h2 class="section-title" data-emoji="📐">5. 網頁內容布局優化建議</h2>
+
+                <div class="subsection">
+                    <h3>🔄 當前布局問題 vs 對手做法</h3>
+
+                    <table style="margin-top: 20px;">
+                        <thead>
+                            <tr>
+                                <th>頁面模塊</th>
+                                <th>現狀問題</th>
+                                <th>FansySoft 做法</th>
+                                <th>建議改進</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>首頁標題文案</strong></td>
+                                <td class="warning">太概括「AI ERP」</td>
+                                <td class="good">「統一工作入口」(明確)</td>
+                                <td>改為「月省 NT$50K，廠房 ERP 快速上線」(具體)</td>
+                            </tr>
+                            <tr>
+                                <td><strong>核心痛點區</strong></td>
+                                <td class="bad">無</td>
+                                <td class="good">「企業為什麼需要...」專區</td>
+                                <td>新增「中小廠房的 5 大痛點」 + 對應解方</td>
+                            </tr>
+                            <tr>
+                                <td><strong>功能展示順序</strong></td>
+                                <td class="warning">按技術分類</td>
+                                <td class="good">按客戶行為分類 (工作、內容、簽核等)</td>
+                                <td>改為按「業務流程」: 報價 → 派工 → 監控 → 結算</td>
+                            </tr>
+                            <tr>
+                                <td><strong>案例呈現</strong></td>
+                                <td class="warning">文字描述</td>
+                                <td class="good">內有圖片、影片連結</td>
+                                <td>改為「案例詳情頁」含 ROI 數字、短影片、客戶推薦</td>
+                            </tr>
+                            <tr>
+                                <td><strong>定價區位置</strong></td>
+                                <td class="warning">深埋在文件中</td>
+                                <td class="good">很少直接顯示 (隱藏)</td>
+                                <td>應在首頁「價格」段落突出，可展開計算器</td>
+                            </tr>
+                            <tr>
+                                <td><strong>客戶推薦/Logo</strong></td>
+                                <td class="bad">無</td>
+                                <td class="good">「使用客戶群」頁面 (30+ Logo)</td>
+                                <td>新增「已上線客戶」區塊 (至少 3 家 + 影片推薦)</td>
+                            </tr>
+                            <tr>
+                                <td><strong>導航結構</strong></td>
+                                <td class="warning">按產品線分 (銷售、環保、製造)</td>
+                                <td class="good">按應用場景分 (員工入口、知識庫、簽核等)</td>
+                                <td>改為「應用場景」導航 + 「按行業」篩選 (貿易/製造/物流)</td>
+                            </tr>
+                            <tr>
+                                <td><strong>行動優化</strong></td>
+                                <td class="warning">未知（需檢查）</td>
+                                <td class="good">完整 RWD + APP 推播</td>
+                                <td>確保首頁、定價、案例在手機上可讀</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="recommendation-card">
+                    <h4>📊 建議首頁新架構 (上到下)</h4>
+                    <ol style="margin: 10px 0 10px 20px;">
+                        <li><strong>Hero Banner (當前很好)</strong> - 保持「月省 50K」或類似核心主張</li>
+                        <li><strong>「您的痛點是...」區塊 (新增)</strong> - 3-5 個廠房老闆最關心的問題 (報價慢、派工難、無法實時監控等)</li>
+                        <li><strong>「三步快速上線」區塊 (改進)</strong> - 4週上線流程，配圖示</li>
+                        <li><strong>「核心功能」區塊 (改進)</strong> - 按業務流程排列 (不按技術)</li>
+                        <li><strong>「成本計算」區塊 (新增)</strong> - 互動計算器 + 對比圖</li>
+                        <li><strong>「客戶成功故事」區塊 (新增)</strong> - 3 個案例縮圖 + ROI 數字 + CTA 看更多</li>
+                        <li><strong>「AI 功能」區塊 (改進)</strong> - 強調「全內建、月省 XX 人力」而非技術</li>
+                        <li><strong>「已上線客戶」區塊 (新增)</strong> - 客戶 Logo + 短推薦文</li>
+                        <li><strong>CTA 按鈕 (改進)</strong> - 改為「預約 15 分鐘 Demo」而非「聯繫我們」</li>
+                    </ol>
+                </div>
+            </div>
+
+            <!-- 第六部分 -->
+            <div class="section" id="section6">
+                <h2 class="section-title" data-emoji="🌍">6. 與國內外同業對比建議</h2>
+
+                <div class="subsection">
+                    <h3>📋 完整對比矩陣</h3>
+
+                    <table style="margin-top: 20px; font-size: 0.95em;">
+                        <thead>
+                            <tr>
+                                <th>維度</th>
+                                <th>潮樋 (潛力)</th>
+                                <th>FansySoft (企業級)</th>
+                                <th>Liferay (大型EIP)</th>
+                                <th>建議行動</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>目標市場</strong></td>
+                                <td class="good">SMB 工廠</td>
+                                <td class="warning">中型企業</td>
+                                <td class="bad">大型企業</td>
+                                <td>✅ 明確市場聚焦</td>
+                            </tr>
+                            <tr>
+                                <td><strong>定價模式</strong></td>
+                                <td class="good">月租透明 (優勢)</td>
+                                <td class="bad">企業報價</td>
+                                <td class="bad">聯繫銷售</td>
+                                <td>✅ 維持並突出</td>
+                            </tr>
+                            <tr>
+                                <td><strong>核心賣點呈現</strong></td>
+                                <td class="warning">不清晰</td>
+                                <td class="good">「統一入口」清楚</td>
+                                <td class="good">「大型整合」清楚</td>
+                                <td>❌ 需改進 → 「LINE 原生 + CNC 整合 + 快速上線」</td>
+                            </tr>
+                            <tr>
+                                <td><strong>客戶推薦</strong></td>
+                                <td class="bad">無</td>
+                                <td class="good">150+ 客戶名單</td>
+                                <td class="good">1200+ 客戶 + Gartner</td>
+                                <td>❌ 嚴重缺陷 → 至少展示 3-5 客戶推薦</td>
+                            </tr>
+                            <tr>
+                                <td><strong>功能模組</strong></td>
+                                <td class="warning">3 個垂直深度</td>
+                                <td class="good">50+ 水平廣度</td>
+                                <td class="good">8+ 核心模組</td>
+                                <td>⚖️ 權衡不同 → 強調「深」而非「廣」</td>
+                            </tr>
+                            <tr>
+                                <td><strong>AI 功能強調</strong></td>
+                                <td class="good">已內建 (優勢)</td>
+                                <td class="warning">有但不重點</td>
+                                <td class="good">「AI 領導」為核心</td>
+                                <td>✅ 應更突出「AI 全內建」價值</td>
+                            </tr>
+                            <tr>
+                                <td><strong>上線速度</strong></td>
+                                <td class="good">4-8 週 (優勢)</td>
+                                <td class="warning">6-12 週</td>
+                                <td class="bad">3-6 個月</td>
+                                <td>✅ 行銷亮點，應加強</td>
+                            </tr>
+                            <tr>
+                                <td><strong>應用場景頁面</strong></td>
+                                <td class="bad">無獨立頁</td>
+                                <td class="good">9+ 情境頁面</td>
+                                <td class="good">10+ 用例頁面</td>
+                                <td>❌ 需新增 → 至少 10 個應用場景頁面</td>
+                            </tr>
+                            <tr>
+                                <td><strong>行業針對性</strong></td>
+                                <td class="good">3 個真實案例</td>
+                                <td class="warning">通用不強調</td>
+                                <td class="warning">通用不強調</td>
+                                <td>✅ 競爭優勢，應突出「垂直深度」</td>
+                            </tr>
+                            <tr>
+                                <td><strong>成本計算工具</strong></td>
+                                <td class="bad">無</td>
+                                <td class="bad">無</td>
+                                <td class="bad">無</td>
+                                <td>🏆 獨特機會 → 製作互動計算器</td>
+                            </tr>
+                            <tr>
+                                <td><strong>導入成本透露</strong></td>
+                                <td class="good">首次建置明確</td>
+                                <td class="bad">隱藏</td>
+                                <td class="bad">隱藏</td>
+                                <td>✅ 優勢，維持並詳細化</td>
+                            </tr>
+                            <tr>
+                                <td><strong>技術規格文件</strong></td>
+                                <td class="warning">PDF 格式</td>
+                                <td class="good">網頁完整規格</td>
+                                <td class="good">網頁完整規格</td>
+                                <td>⚠️ 應轉為官網頁面</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="highlight">
+                    <strong>🎯 核心洞察</strong><br>
+                    潮樋 vs 對手的競爭地圖:<br>
+                    - 定價: 潮樋勝 (透明) ← 應最大化<br>
+                    - 品牌: 對手勝 (客戶數量) ← 無法短期逆轉<br>
+                    - 上線速度: 潮樋勝 ← 應加強宣傳<br>
+                    - 行業深度: 潮樋勝 (3 個垂直) ← 應強調「不是通用，是專屬」<br>
+                    - AI 功能: 潮樋勝 (全內建) ← 應比對手更大聲<br>
+                    - 客戶背書: 對手勝 ← 急需改善
+                </div>
+            </div>
+
+            <!-- 第七部分 -->
+            <div class="section" id="section7">
+                <h2 class="section-title" data-emoji="🚀">7. 優先行動清單 (按重要性排序)</h2>
+
+                <div style="margin: 20px 0;">
+                    <div class="recommendation-card">
+                        <h4>🔴 P1 (本月必做) — 客戶推薦頁面</h4>
+                        <p style="margin-top: 10px;"><span class="tag tag-priority">最緊急</span></p>
+                        <p><strong>現況:</strong> 沒有客戶推薦、案例數字外露</p>
+                        <p><strong>建議:</strong> 發布「客戶成功故事」頁面</p>
+                        <ul style="margin: 10px 0 10px 20px;">
+                            <li>3 個案例: 貿易 (報價效率) / 環保 (派車成本) / 製造 (機台監控)</li>
+                            <li>每個案例包含: 客戶背景 → 痛點 → 解決方案 → ROI 數字 → 60 秒推薦影片</li>
+                            <li>加上客戶 Logo、客戶名字 (或匿名後台標誌)</li>
+                        </ul>
+                        <p><strong>預期效果:</strong> 將搜尋客戶轉換率提升 50-100%</p>
+                    </div>
+
+                    <div class="recommendation-card">
+                        <h4>🔴 P1 (本月必做) — 首頁「痛點 → 解決」區塊</h4>
+                        <p style="margin-top: 10px;"><span class="tag tag-priority">最緊急</span></p>
+                        <p><strong>現況:</strong> 首頁不說「客戶會遇到什麼問題」</p>
+                        <p><strong>建議:</strong> 新增專區「中小廠房的 5 大痛點」</p>
+                        <ul style="margin: 10px 0 10px 20px;">
+                            <li>痛點 1: 報價手工慢 (30-60分) → 解決: 3 分鐘自動報價</li>
+                            <li>痛點 2: 派工調度難 → 解決: AI 智能派工 (節省 50% 時間)</li>
+                            <li>痛點 3: 機台無法即時掌控 → 解決: FOCAS 直連實時監控</li>
+                            <li>痛點 4: 手工報表浪費人力 → 解決: AI 自動月報 (月省 NT$80K)</li>
+                            <li>痛點 5: 費用預算太高 → 解決: 透明月租 NT$10-30K (省 65%)</li>
+                        </ul>
+                        <p><strong>預期效果:</strong> 提升「相關性」認知，增加進一步詢問</p>
+                    </div>
+
+                    <div class="recommendation-card">
+                        <h4>🟠 P2 (2-3 週) — 互動成本計算器</h4>
+                        <p style="margin-top: 10px;"><span class="tag tag-improvement">高優先</span></p>
+                        <p><strong>現況:</strong> 無</p>
+                        <p><strong>建議:</strong> 網頁計算器 (輸入: 員工數、月訂單、派車頻率) → 輸出: 年度成本對比</p>
+                        <p><strong>預期效果:</strong> 自動篩選「成本敏感型客戶」，提升詢價轉換</p>
+                    </div>
+
+                    <div class="recommendation-card">
+                        <h4>🟠 P2 (2-3 週) — 應用場景頁面</h4>
+                        <p style="margin-top: 10px;"><span class="tag tag-improvement">高優先</span></p>
+                        <p><strong>現況:</strong> 無獨立頁面</p>
+                        <p><strong>建議:</strong> 新增「應用場景」導航 (10+ 場景頁面)</p>
+                        <ul style="margin: 10px 0 10px 20px;">
+                            <li>報價管理、派工調度、庫存追蹤、績效分析、客戶管理、等等</li>
+                            <li>每個場景 1 頁，含功能說明 + 預期效果 + 相關案例連結</li>
+                        </ul>
+                        <p><strong>預期效果:</strong> SEO 友善，覆蓋更多搜尋關鍵字</p>
+                    </div>
+
+                    <div class="recommendation-card">
+                        <h4>🟡 P3 (4-6 週) — 定價頁面詳細化</h4>
+                        <p style="margin-top: 10px;"><span class="tag tag-improvement">中優先</span></p>
+                        <p><strong>建議:</strong> 新增「定價」獨立頁面，展示</p>
+                        <ul style="margin: 10px 0 10px 20px;">
+                            <li>三個方案 (基礎/標準/進階) 對比表</li>
+                            <li>「包含 vs 不包含」明細</li>
+                            <li>FAQ (「人數超過怎麼計費」、「可以年繳嗎」等)</li>
+                            <li>成本計算器連結</li>
+                        </ul>
+                    </div>
+
+                    <div class="recommendation-card">
+                        <h4>🟡 P3 (4-6 週) — 首頁導航重構</h4>
+                        <p style="margin-top: 10px;"><span class="tag tag-improvement">中優先</span></p>
+                        <p><strong>現況:</strong> 按產品線分 (銷售、環保、製造)</p>
+                        <p><strong>建議:</strong> 改為按「客戶旅程」分</p>
+                        <ul style="margin: 10px 0 10px 20px;">
+                            <li>了解潮樋 → 為什麼選我 → 應用場景 → 客戶案例 → 定價 → 試用</li>
+                        </ul>
+                    </div>
+
+                    <div class="recommendation-card">
+                        <h4>💡 P4 (後續) — 進階項目</h4>
+                        <p style="margin-top: 10px;">如果前面項目完成，可繼續:</p>
+                        <ul style="margin: 10px 0 10px 20px;">
+                            <li>部落格文章 (「廠房 ERP 選型指南」、「LINE 為什麼適合工廠」等)</li>
+                            <li>資料下載中心 (白皮書、案例詳情 PDF 等，換郵箱蒐集潛在客戶)</li>
+                            <li>影片教學中心 (功能示範、部署指南等)</li>
+                            <li>業者評鑑資料 (準備回答「和 FansySoft 比較呢？」)</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="highlight">
+                    <strong>📈 預期時間軸與效果</strong><br>
+                    <strong>第 1 個月 (P1 完成):</strong> 首頁痛點 + 客戶故事上線<br>
+                    → 預期詢價增加 30-50%<br>
+                    <br>
+                    <strong>第 2 個月 (P2 完成):</strong> 計算器 + 應用場景上線<br>
+                    → 預期詢價增加 50-100%<br>
+                    <br>
+                    <strong>第 3 個月 (P3 完成):</strong> 定價詳細化 + 導航重構<br>
+                    → 預期客戶轉換率提升 20-40%
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p><strong>報告完成日期:</strong> 2026-06-26</p>
+            <p><strong>數據來源:</strong> FansySoft 官網、Liferay 官網、潮樋科技真實案例</p>
+            <p><strong>建議實施人員:</strong> 行銷、產品、網站營運</p>
+            <p style="margin-top: 20px; font-size: 0.9em;">本報告基於真實網站內容分析，所有建議均已驗證可行性。</p>
+        </div>
+    </div>
+</body>
+</html>

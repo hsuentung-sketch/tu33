@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>售價 / 成本 / 毛利 計算工具 DEMO</title>
+<style>
+  :root {
+    --bg: #f7f6f2;
+    --panel: #ffffff;
+    --ink: #1f2430;
+    --muted: #6b7280;
+    --line: #e5e2d8;
+    --accent: #1f6feb;
+    --accent-soft: #eaf1fe;
+    --good: #0f7d4b;
+    --warn: #b45309;
+    font-size: 16pt;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161c;
+      --panel: #1c1f27;
+      --ink: #ececec;
+      --muted: #9aa3b2;
+      --line: #2a2e38;
+      --accent: #6aa2ff;
+      --accent-soft: #1e2a44;
+      --good: #48c98a;
+      --warn: #f0b048;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg:#f7f6f2;--panel:#fff;--ink:#1f2430;--muted:#6b7280;--line:#e5e2d8;
+    --accent:#1f6feb;--accent-soft:#eaf1fe;--good:#0f7d4b;--warn:#b45309;
+  }
+  :root[data-theme="dark"] {
+    --bg:#14161c;--panel:#1c1f27;--ink:#ececec;--muted:#9aa3b2;--line:#2a2e38;
+    --accent:#6aa2ff;--accent-soft:#1e2a44;--good:#48c98a;--warn:#f0b048;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+      "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", sans-serif;
+    font-size: 1rem;
+    line-height: 1.5;
+    -webkit-text-size-adjust: 100%;
+  }
+  .wrap { max-width: 780px; margin: 0 auto; padding: 24px 16px 80px; }
+  header { margin-bottom: 20px; }
+  h1 { font-size: 1.4rem; margin: 0 0 4px; letter-spacing: .5px; }
+  .sub { color: var(--muted); font-size: .9rem; }
+  .tabs { display: flex; gap: 4px; margin: 20px 0 16px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 4px; }
+  .tab { flex: 1; padding: 10px 8px; text-align: center; cursor: pointer;
+    border-radius: 8px; color: var(--muted); font-weight: 600; user-select: none; font-size: .95rem; }
+  .tab.active { background: var(--accent-soft); color: var(--accent); }
+  .card { background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+  .card h2 { font-size: 1.05rem; margin: 0 0 14px; }
+  label { display: block; font-size: .9rem; color: var(--muted); margin: 10px 0 6px; }
+  input, select {
+    width: 100%; font-size: 1rem; padding: 12px 14px;
+    border: 1px solid var(--line); border-radius: 8px;
+    background: var(--bg); color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 520px) { .row { grid-template-columns: 1fr; } }
+  .mode-row { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+  .mode-btn { padding: 8px 14px; border: 1px solid var(--line); background: var(--panel);
+    color: var(--muted); border-radius: 999px; cursor: pointer; font-size: .9rem; }
+  .mode-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .result { margin-top: 16px; padding: 14px 16px; background: var(--accent-soft);
+    border-radius: 8px; font-variant-numeric: tabular-nums; }
+  .result .line { display: flex; justify-content: space-between; padding: 4px 0; }
+  .result .line b { font-weight: 700; }
+  .result .big { font-size: 1.15rem; color: var(--accent); }
+  .formula { margin-top: 14px; padding: 12px 14px; border-left: 3px solid var(--accent);
+    background: var(--bg); font-size: .85rem; color: var(--muted); line-height: 1.7;
+    border-radius: 4px; white-space: pre-wrap; word-break: break-all; }
+  .formula b { color: var(--ink); }
+  .hint { font-size: .8rem; color: var(--muted); margin-top: 4px; }
+  footer { text-align: center; color: var(--muted); font-size: .8rem; margin-top: 24px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>售價 / 成本 / 毛利 計算工具</h1>
+    <div class="sub">DEMO 版 · 單一 HTML 檔 · 可存到手機或其他電腦離線使用</div>
+  </header>
+
+  <div class="tabs" role="tablist">
+    <div class="tab active" data-tab="t1" role="tab">1. 售價 / 成本 / 毛利</div>
+    <div class="tab" data-tab="t2" role="tab">2. 中油牌價 → 成本</div>
+  </div>
+
+  <!-- Tab 1 -->
+  <section id="t1" class="card">
+    <h2>售價、成本、毛利互算</h2>
+    <div class="mode-row" id="mode1">
+      <button class="mode-btn active" data-mode="sp_cost">售價 + 成本</button>
+      <button class="mode-btn" data-mode="cost_margin">成本 + 毛利率</button>
+    </div>
+
+    <div class="row">
+      <div>
+        <label id="lbl-a">售價</label>
+        <input type="number" id="inA" step="0.01" inputmode="decimal" placeholder="0">
+      </div>
+      <div>
+        <label id="lbl-b">成本</label>
+        <input type="number" id="inB" step="0.01" inputmode="decimal" placeholder="0">
+      </div>
+    </div>
+
+    <div class="result" id="out1">
+      <div class="line"><span>請輸入數值</span><b>—</b></div>
+    </div>
+
+    <div class="formula" id="fx1"></div>
+  </section>
+
+  <!-- Tab 2 -->
+  <section id="t2" class="card" style="display:none">
+    <h2>中油牌價 → 成本 → 毛利</h2>
+
+    <label>包裝規格</label>
+    <select id="pack">
+      <option value="200">200 L</option>
+      <option value="under200">低於 200 L / 箱</option>
+    </select>
+    <div class="hint" id="packHint">公式：牌價 ÷ 1.05 × 0.74 × 400</div>
+
+    <label>中油牌價</label>
+    <input type="number" id="price" step="0.01" inputmode="decimal" placeholder="例如 30.5">
+
+    <label>售價（元 / 桶或箱，選填 → 自動算毛利）</label>
+    <input type="number" id="sell" step="0.01" inputmode="decimal" placeholder="輸入後顯示毛利">
+
+    <div class="result" id="out2">
+      <div class="line"><span>請輸入牌價</span><b>—</b></div>
+    </div>
+
+    <div class="formula" id="fx2"></div>
+  </section>
+
+  <footer>
+    <button id="dlBtn" style="font-size:.9rem;padding:10px 18px;border:1px solid var(--line);
+      background:var(--panel);color:var(--ink);border-radius:8px;cursor:pointer;margin-bottom:10px">
+      ⬇ 下載本檔（HTML）
+    </button>
+    <div>下載後雙擊即可離線使用 · 手機可用瀏覽器「加入主畫面」</div>
+  </footer>
+</div>
+
+<script>
+'use strict';
+
+const fmt = (n) => (isFinite(n) ? n.toLocaleString('zh-TW', {maximumFractionDigits: 2, minimumFractionDigits: 2}) : '—');
+const pct = (n) => (isFinite(n) ? n.toLocaleString('zh-TW', {maximumFractionDigits: 2, minimumFractionDigits: 2}) + ' %' : '—');
+
+// Tabs
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    document.getElementById('t1').style.display = t.dataset.tab === 't1' ? '' : 'none';
+    document.getElementById('t2').style.display = t.dataset.tab === 't2' ? '' : 'none';
+  });
+});
+
+// ---- Tab 1 ----
+let mode1 = 'sp_cost';
+const lblA = document.getElementById('lbl-a');
+const lblB = document.getElementById('lbl-b');
+const inA = document.getElementById('inA');
+const inB = document.getElementById('inB');
+const out1 = document.getElementById('out1');
+const fx1 = document.getElementById('fx1');
+
+document.querySelectorAll('#mode1 .mode-btn').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#mode1 .mode-btn').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    mode1 = b.dataset.mode;
+    if (mode1 === 'sp_cost')    { lblA.textContent = '售價';     lblB.textContent = '成本'; }
+    if (mode1 === 'cost_margin'){ lblA.textContent = '成本';     lblB.textContent = '毛利率 (%)'; }
+    if (mode1 === 'sp_margin')  { lblA.textContent = '售價';     lblB.textContent = '毛利率 (%)'; }
+    inA.value = ''; inB.value = '';
+    calc1();
+  });
+});
+
+function calc1() {
+  const a = parseFloat(inA.value);
+  const b = parseFloat(inB.value);
+  if (!isFinite(a) || !isFinite(b)) {
+    out1.innerHTML = '<div class="line"><span>請輸入兩項數值</span><b>—</b></div>';
+    fx1.innerHTML = '';
+    return;
+  }
+  let sp, cost, profit, margin, fxHtml;
+
+  if (mode1 === 'sp_cost') {
+    sp = a; cost = b;
+    profit = sp - cost;
+    margin = sp > 0 ? (profit / sp) * 100 : NaN;
+    fxHtml =
+      '<b>毛利</b> = 售價 − 成本 = ' + fmt(sp) + ' − ' + fmt(cost) + ' = ' + fmt(profit) + '\n' +
+      '<b>毛利率</b> = 毛利 ÷ 售價 × 100% = ' + fmt(profit) + ' ÷ ' + fmt(sp) + ' × 100% = ' + pct(margin);
+  } else if (mode1 === 'cost_margin') {
+    cost = a; margin = b;
+    // margin = (sp - cost)/sp  =>  sp = cost / (1 - margin/100)
+    const m = margin / 100;
+    if (m >= 1) {
+      out1.innerHTML = '<div class="line"><span>毛利率必須小於 100%</span><b>—</b></div>';
+      fx1.innerHTML = ''; return;
+    }
+    sp = cost / (1 - m);
+    profit = sp - cost;
+    fxHtml =
+      '<b>售價</b> = 成本 ÷ (1 − 毛利率) = ' + fmt(cost) + ' ÷ (1 − ' + fmt(margin) + '%) = ' + fmt(sp) + '\n' +
+      '<b>毛利</b> = 售價 − 成本 = ' + fmt(sp) + ' − ' + fmt(cost) + ' = ' + fmt(profit);
+  }
+
+  out1.innerHTML =
+    '<div class="line"><span>售價</span><b>' + fmt(sp) + '</b></div>' +
+    '<div class="line"><span>成本</span><b>' + fmt(cost) + '</b></div>' +
+    '<div class="line"><span>毛利</span><b>' + fmt(profit) + '</b></div>' +
+    '<div class="line"><span>毛利率</span><b class="big">' + pct(margin) + '</b></div>';
+  fx1.innerHTML = fxHtml;
+}
+inA.addEventListener('input', calc1);
+inB.addEventListener('input', calc1);
+
+// ---- Tab 2 ----
+const pack = document.getElementById('pack');
+const packHint = document.getElementById('packHint');
+const price = document.getElementById('price');
+const sell = document.getElementById('sell');
+const out2 = document.getElementById('out2');
+const fx2 = document.getElementById('fx2');
+
+function calc2() {
+  const p = parseFloat(price.value);
+  const s = parseFloat(sell.value);
+  const type = pack.value;
+
+  const isBig = type === '200';
+  const factor = isBig ? 0.74 : 0.65;
+  const addend = isBig ? 400  : 50;
+  const label  = isBig ? '200 L' : '低於 200 L / 箱';
+  packHint.textContent = isBig
+    ? '公式：牌價 ÷ 1.05 × 0.74 + 400'
+    : '公式：牌價 ÷ 1.05 × 0.65 + 50';
+
+  if (!isFinite(p) || p <= 0) {
+    out2.innerHTML = '<div class="line"><span>請輸入牌價</span><b>—</b></div>';
+    fx2.innerHTML = ''; return;
+  }
+
+  const cost = p / 1.05 * factor + addend;
+
+  let lines =
+    '<div class="line"><span>包裝</span><b>' + label + '</b></div>' +
+    '<div class="line"><span>中油牌價</span><b>' + fmt(p) + ' / L</b></div>' +
+    '<div class="line"><span>成本</span><b class="big">' + fmt(cost) + '</b></div>';
+
+  let fxHtml =
+    '<b>成本</b> = 牌價 ÷ 1.05 × ' + factor + ' + ' + addend + '\n' +
+    '     = ' + fmt(p) + ' ÷ 1.05 × ' + factor + ' + ' + addend + '\n' +
+    '     = ' + fmt(cost);
+
+  if (isFinite(s) && s > 0) {
+    const profit = s - cost;
+    const margin = (profit / s) * 100;
+    lines +=
+      '<div class="line"><span>售價</span><b>' + fmt(s) + '</b></div>' +
+      '<div class="line"><span>毛利</span><b>' + fmt(profit) + '</b></div>' +
+      '<div class="line"><span>毛利率</span><b class="big">' + pct(margin) + '</b></div>';
+    fxHtml +=
+      '\n\n<b>毛利</b> = 售價 − 成本 = ' + fmt(s) + ' − ' + fmt(cost) + ' = ' + fmt(profit) +
+      '\n<b>毛利率</b> = 毛利 ÷ 售價 × 100% = ' + pct(margin);
+  }
+
+  out2.innerHTML = lines;
+  fx2.innerHTML = fxHtml;
+}
+[pack, price, sell].forEach(el => el.addEventListener('input', calc2));
+pack.addEventListener('change', calc2);
+
+// ---- 下載本檔 ----
+document.getElementById('dlBtn').addEventListener('click', () => {
+  const html = '<!doctype html>\n' + document.documentElement.outerHTML;
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'price-calculator.html';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
+</script>
+</body>
+</html>

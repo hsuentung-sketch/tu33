@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Invoice xmlns="urn:GEINV:eInvoiceMessage:F0401:4.1">
+  <Main>
+    <InvoiceNumber>AB12345678</InvoiceNumber>
+    <InvoiceDate>20260724</InvoiceDate>
+    <InvoiceTime>15:10:30</InvoiceTime>
+    <Seller>
+      <Identifier>62198132</Identifier>
+      <Name>潤樋實業有限公司</Name>
+      <Address>新北市中和區某某路 88 號</Address>
+      <PersonInCharge>許先生</PersonInCharge>
+      <TelephoneNumber>02-2222-3333</TelephoneNumber>
+      <FacsimileNumber>02-2222-3334</FacsimileNumber>
+    </Seller>
+    <Buyer>
+      <Identifier>12345678</Identifier>
+      <Name>某某買方股份有限公司</Name>
+      <Address>台北市信義區某某路 100 號</Address>
+    </Buyer>
+    <InvoiceType>07</InvoiceType>
+    <DonateMark>0</DonateMark>
+    <PrintMark>Y</PrintMark>
+    <RandomNumber>1234</RandomNumber>
+  </Main>
+  <Details>
+    <ProductItem>
+      <Description>5W-30 引擎油 4L</Description>
+      <Quantity>10.0000</Quantity>
+      
+      <UnitPrice>900.0000</UnitPrice>
+      <TaxType>1</TaxType>
+      <Amount>9000</Amount>
+      <SequenceNumber>1</SequenceNumber>
+    </ProductItem>
+  </Details>
+  <Amount>
+    <SalesAmount>9000</SalesAmount>
+    <FreeTaxSalesAmount>0</FreeTaxSalesAmount>
+    <ZeroTaxSalesAmount>0</ZeroTaxSalesAmount>
+    <TaxType>1</TaxType>
+    <TaxRate>0.0500</TaxRate>
+    <TaxAmount>450</TaxAmount>
+    <TotalAmount>9450</TotalAmount>
+  </Amount>
+</Invoice>

@@ -2,7 +2,7 @@
   "tenant": "潤樋",
   "companyName": "潤樋實業股份有限公司",
   "taxId": "62198132",
-  "industry": "金屬加工業",
+  "industry": "一般零售業",
   "deploy": {
     "flyApp": "erp-line-bot",
     "region": "nrt",
