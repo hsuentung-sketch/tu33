@@ -2925,16 +2925,16 @@ async function openEinvoiceIssueModal(ar, onSaved) {
   function renderItems(host) {
     host.innerHTML = '';
     state.items.forEach((it, idx) => {
-      const row = el('div', { class: 'field row', style: 'gap:6px;align-items:flex-end;' },
-        wrapField('品名', el('input', { type: 'text', value: it.description,
-          oninput: (ev) => { state.items[idx].description = ev.target.value; } })),
-        wrapField('數量', el('input', { type: 'number', min: '0', step: '0.01',
+      const row = el('div', { style: 'display:flex;flex-wrap:nowrap;gap:8px;align-items:flex-end;margin-bottom:8px;' },
+        wrapField('品名', el('input', { type: 'text', value: it.description, style: 'width:100%;',
+          oninput: (ev) => { state.items[idx].description = ev.target.value; } }), null, '1 1 auto;min-width:0'),
+        wrapField('數量', el('input', { type: 'number', min: '0', step: '0.01', style: 'width:100%;',
           value: String(it.quantity),
-          oninput: (ev) => { state.items[idx].quantity = Number(ev.target.value) || 0; } }), 80),
-        wrapField('單價', el('input', { type: 'number', min: '0', step: '0.01',
+          oninput: (ev) => { state.items[idx].quantity = Number(ev.target.value) || 0; } }), 90),
+        wrapField('單價', el('input', { type: 'number', min: '0', step: '0.01', style: 'width:100%;',
           value: String(it.unitPrice),
-          oninput: (ev) => { state.items[idx].unitPrice = Number(ev.target.value) || 0; } }), 100),
-        el('button', { class: 'btn small danger', type: 'button',
+          oninput: (ev) => { state.items[idx].unitPrice = Number(ev.target.value) || 0; } }), 110),
+        el('button', { class: 'btn small danger', type: 'button', style: 'flex:0 0 auto;',
           onClick: () => { state.items.splice(idx, 1); renderItems(host); } }, '移除'),
       );
       host.append(row);
@@ -2943,8 +2943,11 @@ async function openEinvoiceIssueModal(ar, onSaved) {
       onClick: () => { state.items.push({ description: '', quantity: 1, unitPrice: 0 }); renderItems(host); } },
       '＋新增品項'));
   }
-  function wrapField(label, input, width) {
-    return el('div', { class: 'field', style: width ? `max-width:${width}px;` : '' },
+  function wrapField(label, input, width, flexStyle) {
+    const style = flexStyle
+      ? `flex:${flexStyle};`
+      : (width ? `flex:0 0 ${width}px;max-width:${width}px;` : '');
+    return el('div', { class: 'field', style },
       el('label', {}, label), input);
   }
 
