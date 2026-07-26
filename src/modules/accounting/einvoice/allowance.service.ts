@@ -121,9 +121,12 @@ export async function issueAllowance(tenantId: string, input: IssueAllowanceInpu
   });
 
   const wrote = await writeIssueXml({
-    inboundDir: einvCfg.turnkeyInboundDir,
-    invoiceNo: allowanceNo,
-    xml,
+    invoiceNo: allowanceNo, xml,
+    env: {
+      backend: einvCfg.turnkeyBackend,
+      inboundDir: einvCfg.turnkeyInboundDir,
+      outboundDir: einvCfg.turnkeyOutboundDir,
+    },
   });
 
   const row = await prisma.einvoiceAllowance.create({
@@ -199,9 +202,12 @@ export async function voidAllowance(tenantId: string, id: string, reason: string
     allowanceType: '2',
   });
   const wrote = await writeVoidXml({
-    inboundDir: einvCfg.turnkeyInboundDir,
-    invoiceNo: row.allowanceNo,
-    xml,
+    invoiceNo: row.allowanceNo, xml,
+    env: {
+      backend: einvCfg.turnkeyBackend,
+      inboundDir: einvCfg.turnkeyInboundDir,
+      outboundDir: einvCfg.turnkeyOutboundDir,
+    },
   });
 
   const updated = await prisma.einvoiceAllowance.update({

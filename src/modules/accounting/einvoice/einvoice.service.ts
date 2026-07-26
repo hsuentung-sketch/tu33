@@ -471,7 +471,14 @@ export async function issue(tenantId: string, input: IssueInput) {
 
   let xmlPath: string | null = null;
   try {
-    const wrote = await writeIssueXml({ inboundDir: einvCfg.turnkeyInboundDir, invoiceNo, xml });
+    const wrote = await writeIssueXml({
+      invoiceNo, xml,
+      env: {
+        backend: einvCfg.turnkeyBackend,
+        inboundDir: einvCfg.turnkeyInboundDir,
+        outboundDir: einvCfg.turnkeyOutboundDir,
+      },
+    });
     xmlPath = wrote.absolutePath;
   } catch (err) {
     // If the write fails we intentionally keep the number allocated — the
@@ -582,9 +589,12 @@ export async function voidInvoice(tenantId: string, id: string, reason: string, 
     },
   });
   const wrote = await writeVoidXml({
-    inboundDir: settings.einvoice.turnkeyInboundDir,
-    invoiceNo: inv.invoiceNo,
-    xml,
+    invoiceNo: inv.invoiceNo, xml,
+    env: {
+      backend: settings.einvoice.turnkeyBackend,
+      inboundDir: settings.einvoice.turnkeyInboundDir,
+      outboundDir: settings.einvoice.turnkeyOutboundDir,
+    },
   });
 
   const updated = await prisma.einvoice.update({
@@ -661,9 +671,12 @@ export async function nullifyInvoice(tenantId: string, id: string, reason: strin
     seller: { identifier: sellerTaxId, name: tenant.companyName },
   });
   const wrote = await writeNullifyXml({
-    inboundDir: einvCfg.turnkeyInboundDir,
-    invoiceNo: inv.invoiceNo,
-    xml,
+    invoiceNo: inv.invoiceNo, xml,
+    env: {
+      backend: einvCfg.turnkeyBackend,
+      inboundDir: einvCfg.turnkeyInboundDir,
+      outboundDir: einvCfg.turnkeyOutboundDir,
+    },
   });
 
   const updated = await prisma.einvoice.update({

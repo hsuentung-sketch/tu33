@@ -25,7 +25,8 @@ export interface TurnkeyEnvInput {
 
 /** 舊呼叫端用 `{ inboundDir, invoiceNo, xml }` 形式，仍相容。 */
 interface LegacyOpts {
-  inboundDir: string;
+  /** 舊呼叫端可只給 inboundDir；新呼叫端請用 env。 */
+  inboundDir?: string;
   invoiceNo: string;
   xml: string;
   /** 可選：完整 env（含 backend / outboundDir）。沒給就當 local + 用 inboundDir */
