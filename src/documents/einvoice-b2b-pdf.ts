@@ -220,82 +220,93 @@ export async function generateB2BEinvoicePdf(
   for (let i = 1; i < xs.length - 1; i++) {
     doc.moveTo(xs[i], bodyTop).lineTo(xs[i], by).stroke();
   }
-  // 填入合併的備註（跨整個 body 高度，起於第 1 列）
-  doc.fontSize(9).fillColor('#000');
-  doc.text(remarkLines.join('\n'), xs[4] + 4, bodyTop + 4, { width: xs[5] - xs[4] - 8, lineGap: 2 });
+  // 填入合併的備註（跨整個 body 高度）：
+  // 出貨單號/AC 用 9pt；警語用 8pt 避免斷行
+  {
+    const remarkX = xs[4] + 4;
+    const remarkW = xs[5] - xs[4] - 8;
+    let ry2 = bodyTop + 4;
+    doc.fillColor('#000').fontSize(9);
+    if (data.salesOrderNo) {
+      doc.text(`出貨單號：${data.salesOrderNo}`, remarkX, ry2, { width: remarkW, lineBreak: false });
+      ry2 += 14;
+    }
+    if (data.acCode) {
+      doc.text(`AC：${data.acCode}`, remarkX, ry2, { width: remarkW, lineBreak: false });
+      ry2 += 14;
+    }
+    doc.fontSize(8);
+    doc.text('發票內容若有誤，請於當月更正，', remarkX, ry2, { width: remarkW, lineBreak: false });
+    ry2 += 12;
+    doc.text('隔月恕不受理。', remarkX, ry2, { width: remarkW, lineBreak: false });
+  }
   y = by;
 
   // ============================================================
   // 表尾：左半是 4 個 row（銷售額 / 營業稅 / 總計 / 中文大寫），
   //       右半是一個大合併方塊（營業人蓋統一發票專用章 + 賣方 / 統編 / 地址）
   // ============================================================
-  const footRowH = 20;
-  const cnRowH = 22;
+  const footRowH = 22;
+  const cnRowH = 30;
   const footH = footRowH * 3 + cnRowH;
   const footTop = y;
 
-  // 營業稅 row 的 7 個獨立框格寬度（總和 = leftBoxW）
-  // [營業稅 label] [應稅] [√] [零稅率] [√] [免稅] [√] → 稅額
-  // 稅額顯示在最後一格右側；改用最後一小格塞金額（比照信鼎版把金額擠在右）
-  // 為了與其他 rows 對齊 label(100pt) + value(leftBoxW-100)，這裡把
-  // 前 6 小格塞在 100pt 的 label 空間內 + 第 7 格塞在 value 起點放稅額。
-  const labelW = 100;
-  const valueW = leftBoxW - labelW;
+  // 「金額」欄左邊界（延伸至下方 3 rows 作為金額對齊線）
+  const amtColX = left + colName + colQty + colUnit; // = left + 330
+  const amtW = colAmt;                                // 74pt
 
-  // 左半 4 rows
-  // Row 1: 銷售額合計
+  // Row 1: 銷售額合計（單一整格 + 金額欄左邊線）
   let ry = footTop;
   doc.fontSize(10).fillColor('#000');
-  doc.rect(left, ry, labelW, footRowH).stroke();
-  doc.rect(left + labelW, ry, valueW, footRowH).stroke();
-  doc.text('銷售額合計', left + 6, ry + 5);
-  doc.text(Math.round(data.salesAmount).toLocaleString('zh-TW'), left + labelW + 6, ry + 5, { width: valueW - 12, align: 'right' });
+  doc.rect(left, ry, leftBoxW, footRowH).stroke();
+  doc.moveTo(amtColX, ry).lineTo(amtColX, ry + footRowH).stroke();
+  doc.text('銷售額合計', left + 6, ry + 6);
+  doc.text(Math.round(data.salesAmount).toLocaleString('zh-TW'), amtColX + 4, ry + 6, { width: amtW - 8, align: 'right' });
   ry += footRowH;
 
-  // Row 2: 營業稅（7 格：營業稅 | 應稅 | √ | 零稅率 | √ | 免稅 | √ | 稅額）
+  // Row 2: 營業稅（7 格；前 6 格總寬 = amtColX - left；第 7 格 = 稅額）
   const taxType = data.taxType ?? '1';
-  // 前 6 個小格切在 leftBoxW 內（比 label+value 概念更細）：
-  // 使用 leftBoxW 分成 7 欄，最後 1 欄為稅額
-  const taxCells = [
+  const rawTaxCells = [
     { w: 60, text: '營業稅', center: false },
-    { w: 44, text: '應稅', center: true },
-    { w: 34, text: taxType === '1' ? '√' : '', center: true },
-    { w: 54, text: '零稅率', center: true },
-    { w: 34, text: taxType === '2' ? '√' : '', center: true },
-    { w: 44, text: '免稅', center: true },
-    { w: 34, text: taxType === '3' ? '√' : '', center: true },
+    { w: 55, text: '應稅', center: true },
+    { w: 38, text: taxType === '1' ? '√' : '', center: true },
+    { w: 62, text: '零稅率', center: true },
+    { w: 38, text: taxType === '2' ? '√' : '', center: true },
+    { w: 45, text: '免稅', center: true },
+    { w: 32, text: taxType === '3' ? '√' : '', center: true },
   ];
-  const taxCellsTotal = taxCells.reduce((a, c) => a + c.w, 0);
-  const taxAmountW = leftBoxW - taxCellsTotal;
+  const labelSpan = amtColX - left;
+  const rawTotal = rawTaxCells.reduce((a, c) => a + c.w, 0);
+  const scale = labelSpan / rawTotal;
   let cx = left;
-  for (const c of taxCells) {
-    doc.rect(cx, ry, c.w, footRowH).stroke();
-    doc.fontSize(10).fillColor('#000').text(c.text, cx + 4, ry + 5, {
-      width: c.w - 8, align: c.center ? 'center' : 'left',
+  for (const c of rawTaxCells) {
+    const w = c.w * scale;
+    doc.rect(cx, ry, w, footRowH).stroke();
+    doc.fontSize(10).fillColor('#000').text(c.text, cx + 4, ry + 6, {
+      width: w - 8, align: c.center ? 'center' : 'left',
     });
-    cx += c.w;
+    cx += w;
   }
-  doc.rect(cx, ry, taxAmountW, footRowH).stroke();
-  doc.fontSize(10).text(Math.round(data.taxAmount).toLocaleString('zh-TW'), cx + 4, ry + 5, {
-    width: taxAmountW - 8, align: 'right',
+  doc.rect(amtColX, ry, amtW, footRowH).stroke();
+  doc.fontSize(10).text(Math.round(data.taxAmount).toLocaleString('zh-TW'), amtColX + 4, ry + 6, {
+    width: amtW - 8, align: 'right',
   });
   ry += footRowH;
 
-  // Row 3: 總計
-  doc.rect(left, ry, labelW, footRowH).stroke();
-  doc.rect(left + labelW, ry, valueW, footRowH).stroke();
-  doc.fontSize(11).text('總計', left + 6, ry + 4);
-  doc.fontSize(11).text(Math.round(data.totalAmount).toLocaleString('zh-TW'), left + labelW + 6, ry + 4, { width: valueW - 12, align: 'right' });
+  // Row 3: 總計（單一整格 + 金額欄左邊線）
+  doc.rect(left, ry, leftBoxW, footRowH).stroke();
+  doc.moveTo(amtColX, ry).lineTo(amtColX, ry + footRowH).stroke();
+  doc.fontSize(11).text('總計', left + 6, ry + 5);
+  doc.fontSize(11).text(Math.round(data.totalAmount).toLocaleString('zh-TW'), amtColX + 4, ry + 5, { width: amtW - 8, align: 'right' });
   ry += footRowH;
 
-  // Row 4: 總計新台幣（中文大寫）single-line label + single-line value
-  doc.rect(left, ry, labelW, cnRowH).stroke();
-  doc.rect(left + labelW, ry, valueW, cnRowH).stroke();
-  doc.fontSize(10).text('總計新台幣（中文大寫）', left + 4, ry + 6, {
-    width: labelW - 8, height: cnRowH - 8, lineBreak: false,
+  // Row 4: 總計新台幣（中文大寫）— 單一整列，不切分隔線
+  doc.rect(left, ry, leftBoxW, cnRowH).stroke();
+  doc.fontSize(10).text('總計新台幣（中文大寫）', left + 6, ry + 10, {
+    width: 150, height: cnRowH - 8, lineBreak: false,
   });
-  doc.fontSize(10).text(chineseUpperAmount(data.totalAmount), left + labelW + 6, ry + 6, {
-    width: valueW - 12, align: 'right', height: cnRowH - 8, lineBreak: false,
+  doc.fontSize(10).text(chineseUpperAmount(data.totalAmount), left + 160, ry + 10, {
+    width: leftBoxW - 170, align: 'right', height: cnRowH - 8, lineBreak: false,
   });
 
   // 右半合併大方塊
