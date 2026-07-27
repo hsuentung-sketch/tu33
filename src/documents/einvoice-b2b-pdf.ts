@@ -120,6 +120,14 @@ export async function generateB2BEinvoicePdf(
   doc.registerFont('cjk', CJK_FONT);
   doc.font('cjk');
 
+  // Fake bold：把所有 text 呼叫改成 fill+stroke，讓 Regular 字型看起來更粗、更黑。
+  // 之後所有 doc.text(...) 自動套用；一次改所有位置不用逐處加 options。
+  doc.strokeColor('#000').lineWidth(0.25);
+  const _origText = doc.text.bind(doc);
+  (doc as unknown as { text: typeof doc.text }).text = ((text: string, x?: number, y?: number, options?: Record<string, unknown>) => {
+    return _origText(text, x as never, y as never, { ...(options ?? {}), fill: true, stroke: true } as never);
+  }) as typeof doc.text;
+
   const left = M;
   const right = W - M;
   const contentW = right - left;
@@ -135,7 +143,7 @@ export async function generateB2BEinvoicePdf(
   y += 20;
   doc.fontSize(11).text('電子發票證明聯', left, y, { width: contentW, align: 'center' });
   y += 16;
-  doc.fontSize(10).fillColor('#222')
+  doc.fontSize(10).fillColor('#000')
     .text(adDate(data.invoiceDate), left, y, { width: contentW, align: 'center' });
   y += 18;
 
@@ -181,7 +189,8 @@ export async function generateB2BEinvoicePdf(
   doc.fillColor('#000').fontSize(10);
   doc.rect(left, y, contentW, headerH).stroke();
   cols.forEach((c, i) => {
-    doc.text(c.header, xs[i] + 4, y + 5, { width: xs[i + 1] - xs[i] - 8, align: c.align ?? 'left' });
+    // 表頭一律水平+垂直置中（headerH=20，10pt CJK 字高約 11，(20-11)/2 ≈ 4.5 上緣）
+    doc.text(c.header, xs[i] + 4, y + 5, { width: xs[i + 1] - xs[i] - 8, align: 'center' });
   });
   for (let i = 1; i < xs.length - 1; i++) {
     doc.moveTo(xs[i], y).lineTo(xs[i], y + headerH).stroke();
