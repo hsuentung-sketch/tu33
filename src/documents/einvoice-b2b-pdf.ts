@@ -66,16 +66,6 @@ function adDate(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-function periodStr(d: Date): string {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit',
-  }).formatToParts(d);
-  const y = parts.find((p) => p.type === 'year')!.value;
-  let m = Number(parts.find((p) => p.type === 'month')!.value);
-  const period2 = m % 2 === 0 ? `${m - 1}-${m}` : `${m}-${m + 1}`;
-  return `${y}年${period2}月`;
-}
-
 const CN_DIGITS = ['零', '壹', '貳', '參', '肆', '伍', '陸', '柒', '捌', '玖'];
 const CN_UNITS_SMALL = ['', '拾', '佰', '仟'];
 const CN_UNITS_BIG = ['', '萬', '億', '兆'];
@@ -123,9 +113,9 @@ export function chineseUpperAmount(n: number): string {
 export async function generateB2BEinvoicePdf(
   data: B2BEinvoicePdfData,
 ): Promise<InstanceType<typeof PDFDocument>> {
-  // B5 直式 = 498.9 × 708.66pt（PDFKit 'B5' 標準）
-  const doc = new PDFDocument({ size: 'B5', margin: 20 });
-  const W = 498.9, H = 708.66;
+  // A4 直式 = 595.28 × 841.89pt（PDFKit 'A4' 標準）
+  const doc = new PDFDocument({ size: 'A4', margin: 20 });
+  const W = 595.28;
   const M = 20;
   doc.registerFont('cjk', CJK_FONT);
   doc.font('cjk');
@@ -168,16 +158,24 @@ export async function generateB2BEinvoicePdf(
   const headerH = 20;
   const rowH = 18;
   const minRows = 6;
+  // 絕對寬度（pt）：前 4 欄總和 = leftBoxW（下方表尾左半寬），
+  // 使備註欄的左邊界與下方「營業人蓋統一發票專用章」大方塊的左邊界對齊。
+  const colName = 210;
+  const colQty = 46;
+  const colUnit = 74;
+  const colAmt = 74;
+  const leftBoxW = colName + colQty + colUnit + colAmt; // 404pt
+  const rightBoxW = contentW - leftBoxW;
   const cols = [
-    { header: '品名', width: 0.36 },
-    { header: '數量', width: 0.08, align: 'right' as const },
-    { header: '單價', width: 0.13, align: 'right' as const },
-    { header: '金額', width: 0.13, align: 'right' as const },
-    { header: '備註', width: 0.30 },
+    { header: '品名', width: colName },
+    { header: '數量', width: colQty, align: 'right' as const },
+    { header: '單價', width: colUnit, align: 'right' as const },
+    { header: '金額', width: colAmt, align: 'right' as const },
+    { header: '備註', width: rightBoxW },
   ];
   const xs: number[] = [left];
   let acc = left;
-  for (const c of cols) { acc += c.width * contentW; xs.push(acc); }
+  for (const c of cols) { acc += c.width; xs.push(acc); }
 
   // 表頭
   doc.fillColor('#000').fontSize(10);
@@ -232,13 +230,17 @@ export async function generateB2BEinvoicePdf(
   //       右半是一個大合併方塊（營業人蓋統一發票專用章 + 賣方 / 統編 / 地址）
   // ============================================================
   const footRowH = 20;
-  const cnRowH = 26;
+  const cnRowH = 22;
   const footH = footRowH * 3 + cnRowH;
-  const labelW = 100;
-  const rightBoxW = Math.round(contentW * 0.36);
-  const leftBoxW = contentW - rightBoxW;
-  const valueW = leftBoxW - labelW;
   const footTop = y;
+
+  // 營業稅 row 的 7 個獨立框格寬度（總和 = leftBoxW）
+  // [營業稅 label] [應稅] [√] [零稅率] [√] [免稅] [√] → 稅額
+  // 稅額顯示在最後一格右側；改用最後一小格塞金額（比照信鼎版把金額擠在右）
+  // 為了與其他 rows 對齊 label(100pt) + value(leftBoxW-100)，這裡把
+  // 前 6 小格塞在 100pt 的 label 空間內 + 第 7 格塞在 value 起點放稅額。
+  const labelW = 100;
+  const valueW = leftBoxW - labelW;
 
   // 左半 4 rows
   // Row 1: 銷售額合計
@@ -250,16 +252,33 @@ export async function generateB2BEinvoicePdf(
   doc.text(Math.round(data.salesAmount).toLocaleString('zh-TW'), left + labelW + 6, ry + 5, { width: valueW - 12, align: 'right' });
   ry += footRowH;
 
-  // Row 2: 營業稅（三選一勾選）
+  // Row 2: 營業稅（7 格：營業稅 | 應稅 | √ | 零稅率 | √ | 免稅 | √ | 稅額）
   const taxType = data.taxType ?? '1';
-  const check = (on: boolean) => on ? '√' : '□';
-  doc.rect(left, ry, labelW, footRowH).stroke();
-  doc.rect(left + labelW, ry, valueW, footRowH).stroke();
-  // 標籤欄拆兩塊：營業稅 | 勾選；此處直接把勾選寫在 label 欄內
-  doc.fontSize(9).text('營業稅', left + 6, ry + 6, { continued: false });
-  const choices = `${check(taxType === '1')} 應稅   ${check(taxType === '2')} 零稅率   ${check(taxType === '3')} 免稅`;
-  doc.fontSize(9).text(choices, left + 40, ry + 6, { width: labelW - 46 });
-  doc.fontSize(10).text(Math.round(data.taxAmount).toLocaleString('zh-TW'), left + labelW + 6, ry + 5, { width: valueW - 12, align: 'right' });
+  // 前 6 個小格切在 leftBoxW 內（比 label+value 概念更細）：
+  // 使用 leftBoxW 分成 7 欄，最後 1 欄為稅額
+  const taxCells = [
+    { w: 60, text: '營業稅', center: false },
+    { w: 44, text: '應稅', center: true },
+    { w: 34, text: taxType === '1' ? '√' : '', center: true },
+    { w: 54, text: '零稅率', center: true },
+    { w: 34, text: taxType === '2' ? '√' : '', center: true },
+    { w: 44, text: '免稅', center: true },
+    { w: 34, text: taxType === '3' ? '√' : '', center: true },
+  ];
+  const taxCellsTotal = taxCells.reduce((a, c) => a + c.w, 0);
+  const taxAmountW = leftBoxW - taxCellsTotal;
+  let cx = left;
+  for (const c of taxCells) {
+    doc.rect(cx, ry, c.w, footRowH).stroke();
+    doc.fontSize(10).fillColor('#000').text(c.text, cx + 4, ry + 5, {
+      width: c.w - 8, align: c.center ? 'center' : 'left',
+    });
+    cx += c.w;
+  }
+  doc.rect(cx, ry, taxAmountW, footRowH).stroke();
+  doc.fontSize(10).text(Math.round(data.taxAmount).toLocaleString('zh-TW'), cx + 4, ry + 5, {
+    width: taxAmountW - 8, align: 'right',
+  });
   ry += footRowH;
 
   // Row 3: 總計
@@ -269,12 +288,15 @@ export async function generateB2BEinvoicePdf(
   doc.fontSize(11).text(Math.round(data.totalAmount).toLocaleString('zh-TW'), left + labelW + 6, ry + 4, { width: valueW - 12, align: 'right' });
   ry += footRowH;
 
-  // Row 4: 中文大寫（label + value 併成一長列）
+  // Row 4: 總計新台幣（中文大寫）single-line label + single-line value
   doc.rect(left, ry, labelW, cnRowH).stroke();
   doc.rect(left + labelW, ry, valueW, cnRowH).stroke();
-  doc.fontSize(10).text('總計新台幣', left + 6, ry + 3);
-  doc.fontSize(9).fillColor('#444').text('(中文大寫)', left + 6, ry + 15);
-  doc.fillColor('#000').fontSize(10).text(chineseUpperAmount(data.totalAmount), left + labelW + 6, ry + 7, { width: valueW - 12, align: 'right' });
+  doc.fontSize(10).text('總計新台幣（中文大寫）', left + 4, ry + 6, {
+    width: labelW - 8, height: cnRowH - 8, lineBreak: false,
+  });
+  doc.fontSize(10).text(chineseUpperAmount(data.totalAmount), left + labelW + 6, ry + 6, {
+    width: valueW - 12, align: 'right', height: cnRowH - 8, lineBreak: false,
+  });
 
   // 右半合併大方塊
   const rBoxX = left + leftBoxW;
@@ -291,10 +313,6 @@ export async function generateB2BEinvoicePdf(
   doc.text(`地　　址：${data.sellerAddress ?? ''}`, rBoxX + 6, sy + 32, { width: rightBoxW - 12 });
 
   y = footTop + footH + 6;
-
-  // 隨機碼 / 期別（頁尾右下角小字）
-  doc.fillColor('#444').fontSize(8);
-  doc.text(`隨機碼：${data.randomCode ?? '0000'}    期別：${periodStr(data.invoiceDate)}`, left, y, { width: contentW, align: 'right' });
 
   // 已作廢浮水印
   if (data.voided) {
