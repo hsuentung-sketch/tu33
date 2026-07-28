@@ -96,10 +96,7 @@ async function ensureLocalDir(dir: string): Promise<string> {
 }
 
 async function localPut(env: TurnkeyStorageEnv, kind: TurnkeyXmlKind, invoiceNo: string, xml: string): Promise<PutResult> {
-  const root = await ensureLocalDir(env.inboundDir);
-  // Turnkey 期望 <root>/<Kind>/SRC/<filename>.xml；缺子目錄自動建
-  const dir = resolve(root, kind, 'SRC');
-  await fs.mkdir(dir, { recursive: true });
+  const dir = await ensureLocalDir(env.inboundDir);
   const fname = `${kind}_${safeFilenameSegment(invoiceNo)}_${nowEpoch()}.xml`;
   const full = join(dir, fname);
   await fs.writeFile(full, xml, 'utf8');
@@ -179,10 +176,9 @@ function s3Url(cfg: S3Config, key: string): string {
 async function s3Put(env: TurnkeyStorageEnv, kind: TurnkeyXmlKind, invoiceNo: string, xml: string): Promise<PutResult> {
   const cfg = getS3Config();
   const prefix = normalizePrefix(env.inboundDir);
-  // Turnkey 整合服務期望的目錄結構：<inboundRoot>/<Kind>/SRC/<filename>.xml
-  // （Kind 為 MIG 4.1 訊息代碼 F0401 / F0501 / F0701 / G0401 / G0501 / E0402
-  //  或舊 C/D 別名；SRC 為 Turnkey 上傳排程掃描的來源子目錄）
-  const key = `${prefix}${kind}/SRC/${kind}_${safeFilenameSegment(invoiceNo)}_${nowEpoch()}.xml`;
+  // Turnkey TASK_CONFIG.SRC_PATH 為 UpCast/B2SSTORAGE 根目錄（不含 F0401/SRC 子目錄），
+  // Turnkey 掃描根目錄後自己搬檔到內部管理目錄，不需要我們預先分類。
+  const key = `${prefix}${kind}_${safeFilenameSegment(invoiceNo)}_${nowEpoch()}.xml`;
   const res = await cfg.client.fetch(s3Url(cfg, key), {
     method: 'PUT',
     headers: { 'content-type': 'application/xml; charset=utf-8' },
