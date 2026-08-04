@@ -143,6 +143,15 @@ supplierRouter.delete('/:id', async (req: Request, res: Response, next: NextFunc
   }
 });
 
+supplierRouter.post('/:id/activate', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const supplier = await supplierService.activate(req.tenantId, String(req.params.id));
+    res.json(supplier);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // -------- Supplier documents (銀行存摺 / 合約 / 其他) --------
 
 supplierRouter.get(

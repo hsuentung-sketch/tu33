@@ -85,6 +85,14 @@ export async function deactivate(tenantId: string, id: string) {
   });
 }
 
+export async function activate(tenantId: string, id: string) {
+  await getById(tenantId, id);
+  return prisma.supplier.update({
+    where: { id },
+    data: { isActive: true },
+  });
+}
+
 export async function findByName(tenantId: string, query: string) {
   return prisma.supplier.findMany({
     where: {

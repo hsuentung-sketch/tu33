@@ -115,3 +115,12 @@ employeeRouter.delete('/:id', async (req: Request, res: Response, next: NextFunc
     next(err);
   }
 });
+
+employeeRouter.post('/:id/activate', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const employee = await employeeService.activate(req.tenantId, String(req.params.id));
+    res.json(employee);
+  } catch (err) {
+    next(err);
+  }
+});

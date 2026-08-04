@@ -133,6 +133,15 @@ productRouter.delete('/:id', blockSales, async (req: Request, res: Response, nex
   }
 });
 
+productRouter.post('/:id/activate', blockSales, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const product = await productService.activate(req.tenantId, String(req.params.id));
+    res.json(product);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // -------- Product documents (PDS / SDS / DM / OTHER) --------
 
 productRouter.get(

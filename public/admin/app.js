@@ -414,7 +414,10 @@ async function viewCustomers(main) {
                 try { await api.del('/customers/' + c.id); toast('已停用', 'ok'); reload(); }
                 catch (e) { toast(e.message, 'err'); }
               } }, '停用')
-            : null,
+            : el('button', { class: 'btn small', onClick: async () => {
+                try { await api.post('/customers/' + c.id + '/activate', {}); toast('已啟用', 'ok'); reload(); }
+                catch (e) { toast(e.message, 'err'); }
+              } }, '啟用'),
         ),
       ));
     }
@@ -591,11 +594,14 @@ async function viewProducts(main) {
           el('button', { class: 'btn small', onClick: () => openProductCustomers(p) }, '客戶紀錄'),
           ' ',
           el('button', { class: 'btn small', onClick: () => openProductDocs(p) }, '文件'),
-          canEdit && p.isActive !== false ? ' ' : null,
+          canEdit ? ' ' : null,
           canEdit && p.isActive !== false ? el('button', { class: 'btn small danger', onClick: async () => {
             if (!confirmBox(`停用產品「${p.name}」？`)) return;
             try { await api.del('/products/' + p.id); toast('已停用', 'ok'); reload(); } catch (e) { toast(e.message, 'err'); }
           } }, '停用') : null,
+          canEdit && p.isActive === false ? el('button', { class: 'btn small', onClick: async () => {
+            try { await api.post('/products/' + p.id + '/activate', {}); toast('已啟用', 'ok'); reload(); } catch (e) { toast(e.message, 'err'); }
+          } }, '啟用') : null,
         ),
       ));
     }
@@ -920,7 +926,9 @@ async function viewSuppliers(main) {
           s.isActive !== false ? el('button', { class: 'btn small danger', onClick: async () => {
             if (!confirmBox(`停用供應商「${s.name}」？`)) return;
             try { await api.del('/suppliers/' + s.id); toast('已停用', 'ok'); reload(); } catch (e) { toast(e.message, 'err'); }
-          } }, '停用') : null,
+          } }, '停用') : el('button', { class: 'btn small', onClick: async () => {
+            try { await api.post('/suppliers/' + s.id + '/activate', {}); toast('已啟用', 'ok'); reload(); } catch (e) { toast(e.message, 'err'); }
+          } }, '啟用'),
         ),
       ));
     }
@@ -1393,7 +1401,9 @@ async function viewEmployees(main) {
           e.isActive !== false ? el('button', { class: 'btn small danger', onClick: async () => {
             if (!confirmBox(`停用員工「${e.name}」？`)) return;
             try { await api.del('/employees/' + e.id); toast('已停用', 'ok'); reload(); } catch (err) { toast(err.message, 'err'); }
-          } }, '停用') : null,
+          } }, '停用') : el('button', { class: 'btn small', onClick: async () => {
+            try { await api.post('/employees/' + e.id + '/activate', {}); toast('已啟用', 'ok'); reload(); } catch (err) { toast(err.message, 'err'); }
+          } }, '啟用'),
         ),
       ));
     }

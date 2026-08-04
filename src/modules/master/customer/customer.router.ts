@@ -192,3 +192,13 @@ customerRouter.delete('/:id', async (req: Request, res: Response, next: NextFunc
     next(err);
   }
 });
+
+customerRouter.post('/:id/activate', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await ensureSalesCanEdit(req);
+    const customer = await customerService.activate(req.tenantId, String(req.params.id));
+    res.json(customer);
+  } catch (err) {
+    next(err);
+  }
+});

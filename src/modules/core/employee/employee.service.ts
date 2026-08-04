@@ -132,3 +132,12 @@ export async function deactivate(tenantId: string, id: string): Promise<PublicEm
   });
   return toPublic(row);
 }
+
+export async function activate(tenantId: string, id: string): Promise<PublicEmployee> {
+  await getById(tenantId, id);
+  const row = await prisma.employee.update({
+    where: { id },
+    data: { isActive: true },
+  });
+  return toPublic(row);
+}
