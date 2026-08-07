@@ -96,7 +96,11 @@ async function ensureLocalDir(dir: string): Promise<string> {
 }
 
 async function localPut(env: TurnkeyStorageEnv, kind: TurnkeyXmlKind, invoiceNo: string, xml: string): Promise<PutResult> {
-  const dir = await ensureLocalDir(env.inboundDir);
+  const root = await ensureLocalDir(env.inboundDir);
+  // Turnkey Upload 排程實際掃描 <root>/<Kind>/SRC/ 子目錄，
+  // 直接寫根目錄不會被處理（2026-08-07 實測驗證）。缺子目錄自動建。
+  const dir = resolve(root, kind, 'SRC');
+  await fs.mkdir(dir, { recursive: true });
   const fname = `${kind}_${safeFilenameSegment(invoiceNo)}_${nowEpoch()}.xml`;
   const full = join(dir, fname);
   await fs.writeFile(full, xml, 'utf8');
@@ -176,9 +180,9 @@ function s3Url(cfg: S3Config, key: string): string {
 async function s3Put(env: TurnkeyStorageEnv, kind: TurnkeyXmlKind, invoiceNo: string, xml: string): Promise<PutResult> {
   const cfg = getS3Config();
   const prefix = normalizePrefix(env.inboundDir);
-  // Turnkey TASK_CONFIG.SRC_PATH 為 UpCast/B2SSTORAGE 根目錄（不含 F0401/SRC 子目錄），
-  // Turnkey 掃描根目錄後自己搬檔到內部管理目錄，不需要我們預先分類。
-  const key = `${prefix}${kind}_${safeFilenameSegment(invoiceNo)}_${nowEpoch()}.xml`;
+  // Turnkey Upload 排程實際掃描 <root>/<Kind>/SRC/ 子目錄，
+  // 直接寫根目錄不會被處理（2026-08-07 實測驗證）。rclone 保留子目錄結構同步過去。
+  const key = `${prefix}${kind}/SRC/${kind}_${safeFilenameSegment(invoiceNo)}_${nowEpoch()}.xml`;
   const res = await cfg.client.fetch(s3Url(cfg, key), {
     method: 'PUT',
     headers: { 'content-type': 'application/xml; charset=utf-8' },
