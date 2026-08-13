@@ -8,6 +8,7 @@ import { generateProofPdf } from '../../../documents/einvoice-proof-pdf.js';
 import { generateB2BEinvoicePdf } from '../../../documents/einvoice-b2b-pdf.js';
 import { logger } from '../../../shared/logger.js';
 import * as einvoiceService from './einvoice.service.js';
+import { reconcileTenant, hasAlerts, formatAlertText } from './reconcile.js';
 
 export const einvoiceRouter = Router();
 
@@ -209,5 +210,57 @@ einvoiceRouter.post('/:id/nullify', async (req: Request, res: Response, next: Ne
       req.tenantId, String(req.params.id), parsed.data.reason, req.employee.id,
     );
     res.json(nullified);
+  } catch (err) { next(err); }
+});
+
+/**
+ * 檢測儀表板：字軌池狀態 + 過去 24h 對帳報告 + 告警訊息。
+ * 提供給 EINV 檢測委員截圖佐證用（V4.8 前置檢測項次 1-4 對應）。
+ */
+einvoiceRouter.get('/dashboard/cert', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    requireAdmin(req, '僅 ADMIN 可查看檢測儀表板');
+    const pools = await prisma.einvoiceNumberPool.findMany({
+      where: { tenantId: req.tenantId },
+      orderBy: [{ isActive: 'desc' }, { yearMonth: 'desc' }, { trackAlpha: 'asc' }],
+    });
+    const poolStatus = pools.map((p) => {
+      const used = p.nextNumber - p.rangeStart;
+      const total = p.rangeEnd - p.rangeStart + 1;
+      const remaining = Math.max(0, p.rangeEnd - p.nextNumber + 1);
+      return {
+        id: p.id,
+        yearMonth: p.yearMonth,
+        trackAlpha: p.trackAlpha,
+        rangeStart: p.rangeStart,
+        rangeEnd: p.rangeEnd,
+        nextNumber: p.nextNumber,
+        used, total, remaining,
+        percentRemaining: total > 0 ? Math.round((remaining / total) * 1000) / 10 : 0,
+        isActive: p.isActive,
+        branchId: p.branchId,
+      };
+    });
+
+    const report = await reconcileTenant(req.tenantId);
+    const alertText = hasAlerts(report) ? formatAlertText(report) : '';
+
+    // 近 7 天發票狀態彙總（給檢測用）
+    const now = new Date();
+    const since = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
+    const byStatus = await prisma.einvoice.groupBy({
+      by: ['status'],
+      where: { tenantId: req.tenantId, createdAt: { gte: since } },
+      _count: { status: true },
+    });
+
+    res.json({
+      generatedAt: now.toISOString(),
+      pools: poolStatus,
+      reconcileReport: report,
+      hasAlerts: hasAlerts(report),
+      alertText,
+      recentStatus7d: byStatus.map((s) => ({ status: s.status, count: s._count.status })),
+    });
   } catch (err) { next(err); }
 });

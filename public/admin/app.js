@@ -3328,6 +3328,130 @@ async function viewEinvoicePools(main) {
   reload();
 }
 
+async function viewEinvoiceCert(main) {
+  main.innerHTML = '';
+  main.append(el('h2', {}, '電子發票 — 檢測儀表板'));
+  main.append(el('div', { class: 'page-sub' },
+    '對應「Turnkey 上線前自行檢測作業 V4.8」前置檢測項次 1-4：字軌檢核 / 重號檢核 / 漏上傳每日對帳 / Turnkey 異常告警。' +
+    '本頁即時查詢，供 EINV 檢測委員截圖佐證用。'));
+
+  const host = el('div', { style: 'margin-top:16px;' });
+  const refresh = el('button', { class: 'btn primary', onClick: () => load() }, '重新整理');
+  main.append(el('div', { class: 'toolbar' }, refresh), host);
+
+  async function load() {
+    host.innerHTML = '';
+    host.append(el('div', { style: 'color:var(--muted);padding:20px;text-align:center;' }, '載入中…'));
+    try {
+      const data = await api.get('/einvoices/dashboard/cert');
+      host.innerHTML = '';
+
+      // 產生時間
+      host.append(el('div', { style: 'font-size:12px;color:var(--muted);margin-bottom:16px;' },
+        `產生時間：${new Date(data.generatedAt).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })}`));
+
+      // === 過去 24 小時對帳 ===
+      const r = data.reconcileReport;
+      const alertBox = el('div', {
+        style: `padding:16px;border-radius:6px;margin-bottom:16px;background:${data.hasAlerts ? '#fff3cd' : '#d1ecf1'};` +
+               `border:1px solid ${data.hasAlerts ? '#ffc107' : '#0c5460'};`,
+      },
+        el('div', { style: 'font-weight:600;font-size:14px;margin-bottom:8px;' },
+          `A3+A4 每日對帳結果：${data.hasAlerts ? '⚠ 有告警（會 push LINE 給 ADMIN/ACCOUNTING）' : '✅ 全部正常'}`),
+        el('div', { style: 'font-size:13px;color:#333;' },
+          `過去 24 小時：開立 ${r.issued24h} / 已確認 ${r.confirmed} / 拒絕 ${r.rejected}`),
+        el('div', { style: 'font-size:13px;color:#333;' },
+          `Stuck (逾 24h 未確認)：${r.stuck.length} 筆`),
+        el('div', { style: 'font-size:13px;color:#333;' },
+          `重號組數：${r.duplicates.length}`),
+        el('div', { style: 'font-size:13px;color:#333;' },
+          `字軌即將耗盡：${r.poolLowWarnings.length} 個池`),
+      );
+      if (data.alertText) {
+        alertBox.append(el('pre', {
+          style: 'margin-top:12px;padding:10px;background:#fff;border:1px solid #ddd;border-radius:4px;font-size:12px;white-space:pre-wrap;line-height:1.5;',
+        }, data.alertText));
+      }
+      host.append(alertBox);
+
+      // === 字軌池狀態 (A1) ===
+      host.append(el('h3', { style: 'margin-top:20px;' }, 'A1 字軌檢核 — 目前配號池'));
+      host.append(el('div', { style: 'font-size:12px;color:var(--muted);margin-bottom:8px;' },
+        '邏輯：allocateNumber() 依交易日算期別，找對應 pool 拿下一號碼；nextNumber > rangeEnd 自動停用該池 + retry。'));
+      const poolTable = el('table', { class: 'data' },
+        el('thead', {}, el('tr', {},
+          el('th', {}, '期別'),
+          el('th', {}, '字軌'),
+          el('th', {}, '區間'),
+          el('th', { class: 'num' }, '已用'),
+          el('th', { class: 'num' }, '剩餘'),
+          el('th', { class: 'num' }, '剩餘 %'),
+          el('th', {}, '狀態'),
+          el('th', {}, '分支'),
+        )),
+      );
+      const poolBody = el('tbody');
+      poolTable.append(poolBody);
+      if (data.pools.length === 0) {
+        poolBody.append(el('tr', {}, el('td', { colspan: '8', style: 'text-align:center;padding:20px;color:var(--muted);' }, '尚無字軌池')));
+      } else {
+        for (const p of data.pools) {
+          poolBody.append(el('tr', {},
+            el('td', {}, p.yearMonth),
+            el('td', {}, p.trackAlpha),
+            el('td', {}, `${p.rangeStart} - ${p.rangeEnd}`),
+            el('td', { class: 'num' }, String(p.used)),
+            el('td', { class: 'num' }, String(p.remaining)),
+            el('td', { class: 'num', style: p.percentRemaining < 10 ? 'color:#dc3545;font-weight:600;' : '' }, `${p.percentRemaining}%`),
+            el('td', {}, el('span', { class: 'badge ' + (p.isActive ? 'ok' : 'mute') }, p.isActive ? '啟用' : '停用')),
+            el('td', {}, p.branchId || '總公司'),
+          ));
+        }
+      }
+      host.append(poolTable);
+
+      // === A2 重號檢核 ===
+      host.append(el('h3', { style: 'margin-top:20px;' }, 'A2 重號檢核'));
+      host.append(el('div', { style: 'font-size:12px;color:var(--muted);margin-bottom:8px;' },
+        '邏輯：Prisma @@unique([tenantId, invoiceNo]) DB 層 constraint + service 層檢查。違反時 P2002 unique violation。'));
+      host.append(el('div', {
+        style: `padding:12px;background:${r.duplicates.length === 0 ? '#d4edda' : '#f8d7da'};` +
+               `border:1px solid ${r.duplicates.length === 0 ? '#28a745' : '#dc3545'};border-radius:4px;`,
+      }, r.duplicates.length === 0 ? '✅ 目前資料庫中無任何重號發票' : `❌ 發現 ${r.duplicates.length} 組重號：${r.duplicates.map((d) => d.invoiceNo).join(', ')}`));
+
+      // === 近 7 天狀態 ===
+      host.append(el('h3', { style: 'margin-top:20px;' }, '近 7 天發票狀態'));
+      const statusTable = el('table', { class: 'data' },
+        el('thead', {}, el('tr', {}, el('th', {}, '狀態'), el('th', { class: 'num' }, '筆數'))),
+      );
+      const statusBody = el('tbody');
+      statusTable.append(statusBody);
+      const STATUS_LABELS = {
+        issued: '已開立（等待 Turnkey 上傳）', uploaded: '已上傳（等待平台回覆）',
+        confirmed: '平台已確認', rejected: '平台拒絕',
+        voided: '已作廢 (F0501)', nullified: '已註銷 (F0701)',
+      };
+      if (data.recentStatus7d.length === 0) {
+        statusBody.append(el('tr', {}, el('td', { colspan: '2', style: 'text-align:center;padding:16px;color:var(--muted);' }, '近 7 天無資料')));
+      } else {
+        for (const s of data.recentStatus7d) {
+          statusBody.append(el('tr', {},
+            el('td', {}, STATUS_LABELS[s.status] || s.status),
+            el('td', { class: 'num' }, String(s.count)),
+          ));
+        }
+      }
+      host.append(statusTable);
+
+    } catch (e) {
+      host.innerHTML = '';
+      host.append(el('div', { style: 'color:#dc3545;padding:16px;' }, '載入失敗：' + e.message));
+    }
+  }
+
+  load();
+}
+
 async function viewAccount(main, path, title, partyLabel) {
   main.innerHTML = '';
   main.append(el('h2', {}, title));
@@ -5666,6 +5790,7 @@ const GROUPS = {
     tabs: [
       { key: 'einvoices',       label: '電子發票', view: 'einvoices' },
       { key: 'einvoice-pools',  label: '發票配號', view: 'einvoice-pools', adminOnly: true },
+      { key: 'einvoice-cert',   label: '檢測儀表板', view: 'einvoice-cert', adminOnly: true },
     ],
   },
   accounting: {
@@ -5787,6 +5912,7 @@ const LEAF_VIEWS = {
   payables: viewPayables,
   einvoices: viewEinvoices,
   'einvoice-pools': viewEinvoicePools,
+  'einvoice-cert': viewEinvoiceCert,
   inventory: viewInventory,
   'acct-overview':       viewAcctOverview,
   'acct-coa':            viewAcctCoa,
