@@ -3328,6 +3328,69 @@ async function viewEinvoicePools(main) {
   reload();
 }
 
+async function viewEinvoiceAllowances(main) {
+  main.innerHTML = '';
+  main.append(el('h2', {}, '折讓單'));
+  main.append(el('div', { class: 'page-sub' },
+    '對應每張已開立的電子發票。開立折讓 = G0401，作廢折讓 = G0501。'));
+
+  const tbody = el('tbody');
+  const table = el('table', { class: 'data' },
+    el('thead', {}, el('tr', {},
+      el('th', {}, '折讓號碼'),
+      el('th', {}, '原發票號'),
+      el('th', {}, '買方'),
+      el('th', {}, '折讓日期'),
+      el('th', { class: 'num' }, '金額'),
+      el('th', {}, '狀態'),
+      el('th', {}, '操作'),
+    )),
+    tbody,
+  );
+
+  async function reload() {
+    const list = await api.get('/einvoice-allowances');
+    tbody.innerHTML = '';
+    if (!list.length) {
+      tbody.append(el('tr', {}, el('td', { colspan: '7',
+        style: 'text-align:center;color:var(--muted);padding:24px;' }, '尚無折讓單')));
+      return;
+    }
+    for (const a of list) {
+      const badgeClass = a.status === 'voided' ? 'mute' : 'ok';
+      const statusText = a.status === 'voided' ? '已作廢' : '已開立';
+      const buyerLabel = a.invoice ? `${a.invoice.buyerName}${a.invoice.buyerTaxId ? '（' + a.invoice.buyerTaxId + '）' : ''}` : '';
+      tbody.append(el('tr', {},
+        el('td', {}, a.allowanceNo),
+        el('td', {}, a.invoice?.invoiceNo || ''),
+        el('td', {}, buyerLabel),
+        el('td', {}, a.allowanceDate ? new Date(a.allowanceDate).toISOString().slice(0, 10) : ''),
+        el('td', { class: 'num' }, fmtMoney(Number(a.totalAmount || 0))),
+        el('td', {}, el('span', { class: 'badge ' + badgeClass }, statusText)),
+        el('td', { class: 'actions wrap' },
+          el('a', { class: 'btn small', href: `/api/einvoice-allowances/${a.id}/xml`, target: '_blank' }, 'G0401 XML'),
+          a.voidXmlPath ? ' ' : null,
+          a.voidXmlPath ? el('a', { class: 'btn small', href: `/api/einvoice-allowances/${a.id}/xml?kind=void`, target: '_blank' }, 'G0501 XML') : null,
+          window.__session?.employee?.role === 'ADMIN' && a.status !== 'voided'
+            ? el('button', { class: 'btn small danger', onClick: () => voidAllowance(a) }, '作廢')
+            : null,
+        ),
+      ));
+    }
+  }
+
+  function voidAllowance(a) {
+    const reason = window.prompt(`作廢折讓單 ${a.allowanceNo}，請輸入原因：`);
+    if (!reason || !reason.trim()) return;
+    api.post(`/einvoice-allowances/${a.id}/void`, { reason: reason.trim() })
+      .then(() => { toast('已作廢', 'ok'); return reload(); })
+      .catch((err) => toast(err.message, 'err'));
+  }
+
+  main.append(table);
+  reload();
+}
+
 async function viewEinvoiceCert(main) {
   main.innerHTML = '';
   main.append(el('h2', {}, '電子發票 — 檢測儀表板'));
@@ -5789,6 +5852,7 @@ const GROUPS = {
     requiresModule: 'einvoice',
     tabs: [
       { key: 'einvoices',       label: '電子發票', view: 'einvoices' },
+      { key: 'einvoice-allowances', label: '折讓單', view: 'einvoice-allowances' },
       { key: 'einvoice-pools',  label: '發票配號', view: 'einvoice-pools', adminOnly: true },
       { key: 'einvoice-cert',   label: '檢測儀表板', view: 'einvoice-cert', adminOnly: true },
     ],
@@ -5911,6 +5975,7 @@ const LEAF_VIEWS = {
   receivables: viewReceivables,
   payables: viewPayables,
   einvoices: viewEinvoices,
+  'einvoice-allowances': viewEinvoiceAllowances,
   'einvoice-pools': viewEinvoicePools,
   'einvoice-cert': viewEinvoiceCert,
   inventory: viewInventory,
