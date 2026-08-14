@@ -3,7 +3,7 @@ import { NotFoundError, ValidationError } from '../../../shared/errors.js';
 import { getTenantSettings, generateDocumentNo } from '../../../shared/utils.js';
 import { writeAudit } from '../../../shared/audit.js';
 import { buildG0401, buildG0501, computeTaxBreakdown } from './xml-builder.js';
-import { writeIssueXml, writeVoidXml } from './turnkey-writer.js';
+import { writeAllowanceXml } from './turnkey-writer.js';
 import { assertTenantIsolation } from "../../../shared/tenant-isolation.js";
 
 export interface AllowanceItemInput {
@@ -120,7 +120,8 @@ export async function issueAllowance(tenantId: string, input: IssueAllowanceInpu
     allowanceType: '2',
   });
 
-  const wrote = await writeIssueXml({
+  const wrote = await writeAllowanceXml({
+    kind: 'G0401',
     invoiceNo: allowanceNo, xml,
     env: {
       backend: einvCfg.turnkeyBackend,
@@ -201,7 +202,8 @@ export async function voidAllowance(tenantId: string, id: string, reason: string
     // 對應 issueAllowance 的 AllowanceType='2'（賣方發起）
     allowanceType: '2',
   });
-  const wrote = await writeVoidXml({
+  const wrote = await writeAllowanceXml({
+    kind: 'G0501',
     invoiceNo: row.allowanceNo, xml,
     env: {
       backend: einvCfg.turnkeyBackend,
