@@ -324,6 +324,8 @@ export interface XmlAllowanceInput {
 export function buildG0401(input: XmlAllowanceInput): string {
   const buyerId = normalizeBuyerId(input.buyer.identifier);
 
+  // MIG 4.1 G0401 ProductItem XSD 要求：Tax 後必須至少一個 {Unit, AllowanceSequenceNumber} 才能到 SequenceNumber。
+  // 補上 AllowanceSequenceNumber = 原發票品項序號，滿足 choice group。
   const itemsXml = input.items.map((it) => `
     <ProductItem>
       <OriginalSequenceNumber>${it.originalSequence ?? it.sequence}</OriginalSequenceNumber>
@@ -336,6 +338,7 @@ export function buildG0401(input: XmlAllowanceInput): string {
       <Amount>${amt(it.amount, 0)}</Amount>
       <TaxType>${esc(it.taxType)}</TaxType>
       <Tax>${amt(it.taxAmount, 0)}</Tax>
+      <AllowanceSequenceNumber>${it.originalSequence ?? it.sequence}</AllowanceSequenceNumber>
       <SequenceNumber>${it.sequence}</SequenceNumber>
     </ProductItem>`).join('');
 
