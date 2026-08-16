@@ -333,7 +333,7 @@ export function buildG0401(input: XmlAllowanceInput): string {
       <OriginalInvoiceDate>${ymd(input.originalInvoiceDate)}</OriginalInvoiceDate>
       <OriginalDescription>${esc(it.description)}</OriginalDescription>
       <Quantity>${amt(it.quantity, 4)}</Quantity>
-      ${it.unit ? `<Unit>${esc(it.unit)}</Unit>` : ''}
+      <Unit>${esc(it.unit || '個')}</Unit>
       <UnitPrice>${amt(it.unitPrice, 4)}</UnitPrice>
       <Amount>${amt(it.amount, 0)}</Amount>
       <TaxType>${esc(it.taxType)}</TaxType>
