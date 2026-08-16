@@ -339,7 +339,6 @@ export function buildG0401(input: XmlAllowanceInput): string {
       <TaxType>${esc(it.taxType)}</TaxType>
       <Tax>${amt(it.taxAmount, 0)}</Tax>
       <AllowanceSequenceNumber>${it.originalSequence ?? it.sequence}</AllowanceSequenceNumber>
-      <SequenceNumber>${it.sequence}</SequenceNumber>
     </ProductItem>`).join('');
 
   return `<?xml version="1.0" encoding="UTF-8"?>
