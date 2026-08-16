@@ -359,9 +359,6 @@ export function buildG0401(input: XmlAllowanceInput): string {
   <Details>${itemsXml}
   </Details>
   <Amount>
-    <SalesAmount>${amt(input.salesAmount, 0)}</SalesAmount>
-    <FreeTaxSalesAmount>${amt(input.freeTaxSalesAmount, 0)}</FreeTaxSalesAmount>
-    <ZeroTaxSalesAmount>${amt(input.zeroTaxSalesAmount, 0)}</ZeroTaxSalesAmount>
     <TaxAmount>${amt(input.taxAmount, 0)}</TaxAmount>
     <TotalAmount>${amt(input.totalAmount, 0)}</TotalAmount>
   </Amount>
