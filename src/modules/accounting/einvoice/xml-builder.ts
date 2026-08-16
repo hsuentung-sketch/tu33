@@ -381,22 +381,19 @@ export interface XmlAllowanceVoidInput {
 
 export function buildG0501(input: XmlAllowanceVoidInput): string {
   const buyerId = normalizeBuyerId(input.buyer.identifier);
+  // MIG 4.1 G0501 為 flat 結構，元素直接掛在 root 底下（沒有 Main/Seller/Buyer 巢狀）。
+  // 順序依 XSD：CancelAllowanceNumber, AllowanceType, AllowanceDate, BuyerId, SellerId,
+  // CancelDate, CancelTime, CancelReason, [Remark].
   return `<?xml version="1.0" encoding="UTF-8"?>
 <CancelAllowance xmlns="urn:GEINV:eInvoiceMessage:G0501:4.1">
-  <Main>
-    <CancelAllowanceNumber>${esc(input.allowanceNo)}</CancelAllowanceNumber>
-    <AllowanceDate>${ymd(input.allowanceDate)}</AllowanceDate>
-    <CancelDate>${ymd(input.voidDate)}</CancelDate>
-    <CancelTime>${hmsColon(input.voidDate)}</CancelTime>
-    <CancelReason>${esc(input.voidReason)}</CancelReason>
-    <AllowanceType>${esc(input.allowanceType)}</AllowanceType>
-    <Seller>
-      <Identifier>${esc(input.seller.identifier)}</Identifier>
-    </Seller>
-    <Buyer>
-      <Identifier>${esc(buyerId)}</Identifier>
-    </Buyer>
-  </Main>
+  <CancelAllowanceNumber>${esc(input.allowanceNo)}</CancelAllowanceNumber>
+  <AllowanceType>${esc(input.allowanceType)}</AllowanceType>
+  <AllowanceDate>${ymd(input.allowanceDate)}</AllowanceDate>
+  <BuyerId>${esc(buyerId)}</BuyerId>
+  <SellerId>${esc(input.seller.identifier)}</SellerId>
+  <CancelDate>${ymd(input.voidDate)}</CancelDate>
+  <CancelTime>${hmsColon(input.voidDate)}</CancelTime>
+  <CancelReason>${esc(input.voidReason)}</CancelReason>
 </CancelAllowance>
 `;
 }
