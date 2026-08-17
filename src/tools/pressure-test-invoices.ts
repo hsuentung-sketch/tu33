@@ -29,6 +29,7 @@ interface Args {
   batchSize: number;
   batchDelaySec: number;
   dryRun: boolean;
+  invoiceDate: Date;
 }
 
 function parseArgs(): Args {
@@ -44,12 +45,24 @@ function parseArgs(): Args {
   const batchSize = Number(get('batch-size') ?? '100');
   const batchDelaySec = Number(get('batch-delay') ?? '60');
   const dryRun = has('dry-run');
+  const dateStr = get('invoice-date');
+
+  let invoiceDate = new Date();
+  if (dateStr) {
+    // Parse YYYY-MM-DD strictly; use noon local time to avoid TZ drift
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+    if (!m) {
+      console.error(`--invoice-date 格式錯誤，需 YYYY-MM-DD，得到 "${dateStr}"`);
+      process.exit(1);
+    }
+    invoiceDate = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0);
+  }
 
   if (!tenantHint || !Number.isFinite(count) || count <= 0) {
-    console.error('Usage: tsx pressure-test-invoices.ts --tenant "<關鍵字>" --count N [--batch-size 100] [--batch-delay 60] [--dry-run]');
+    console.error('Usage: tsx pressure-test-invoices.ts --tenant "<關鍵字>" --count N [--batch-size 100] [--batch-delay 60] [--invoice-date YYYY-MM-DD] [--dry-run]');
     process.exit(1);
   }
-  return { tenantHint, count, batchSize, batchDelaySec, dryRun };
+  return { tenantHint, count, batchSize, batchDelaySec, dryRun, invoiceDate };
 }
 
 function randInt(min: number, max: number): number {
@@ -78,10 +91,9 @@ async function resolveTenant(hint: string): Promise<{ id: string; name: string }
   return { id: rows[0].id, name: rows[0].companyName };
 }
 
-async function checkPoolCapacity(tenantId: string, need: number): Promise<{ available: number; period: string }> {
-  const now = new Date();
-  const roc = now.getFullYear() - 1911;
-  const m = now.getMonth() + 1; // 1..12
+async function checkPoolCapacity(tenantId: string, invoiceDate: Date): Promise<{ available: number; period: string }> {
+  const roc = invoiceDate.getFullYear() - 1911;
+  const m = invoiceDate.getMonth() + 1; // 1..12
   const oddStart = m % 2 === 1 ? m : m - 1;
   const period = `${roc}${String(oddStart).padStart(2, '0')}`;
 
@@ -92,7 +104,7 @@ async function checkPoolCapacity(tenantId: string, need: number): Promise<{ avai
   return { available, period };
 }
 
-async function runOne(tenantId: string, seq: number): Promise<{ invoiceNo: string }> {
+async function runOne(tenantId: string, seq: number, invoiceDate: Date): Promise<{ invoiceNo: string }> {
   const unitPrice = randInt(100, 1000);
   const result = await issueInvoice(tenantId, {
     buyerName: '壓力測試買方',
@@ -108,6 +120,7 @@ async function runOne(tenantId: string, seq: number): Promise<{ invoiceNo: strin
     ],
     taxType: '1',
     printFlag: 'N',
+    invoiceDate,
   });
   return { invoiceNo: (result as any).invoiceNo };
 }
@@ -126,13 +139,14 @@ async function main() {
   console.log(`張數: ${args.count}`);
   console.log(`批次: ${args.batchSize} 張 / 批`);
   console.log(`批間延遲: ${args.batchDelaySec} 秒`);
+  console.log(`發票日: ${args.invoiceDate.toISOString().slice(0, 10)}`);
   console.log(`Dry run: ${args.dryRun}`);
   console.log('');
 
   const tenant = await resolveTenant(args.tenantHint);
   console.log(`Tenant: ${tenant.name} (${tenant.id})`);
 
-  const cap = await checkPoolCapacity(tenant.id, args.count);
+  const cap = await checkPoolCapacity(tenant.id, args.invoiceDate);
   console.log(`當期字軌可用數: ${cap.available} (期別 ${cap.period})`);
   if (cap.available < args.count) {
     console.error(`字軌不足！需 ${args.count} 張，僅剩 ${cap.available} 張。請先到 EINV 平台取字軌。`);
@@ -162,7 +176,7 @@ async function main() {
     for (let i = batchStart; i < batchEnd; i++) {
       const seq = i + 1;
       try {
-        const { invoiceNo } = await runOne(tenant.id, seq);
+        const { invoiceNo } = await runOne(tenant.id, seq, args.invoiceDate);
         invoiceNos.push(invoiceNo);
         doneCount++;
         if (doneCount % 10 === 0 || doneCount === args.count) {
