@@ -113,8 +113,8 @@
 | B10 | 部分品項折讓 | G0401 | AL20260813001（原 B07）| <!-- TODO --> | <!-- TODO --> |
 | B11 | 全額折讓 | G0401 | AL20260813002（原 B08）| <!-- TODO --> | <!-- TODO --> |
 | B12 | 作廢折讓 | G0501 | AL20260813002 voided | <!-- TODO --> | <!-- TODO --> |
-| B13 | 當期作廢發票 | F0501 | JZ50075661 voided | <!-- TODO --> | <!-- TODO --> |
-| B14 | 註銷發票 | F0701 | JZ50075655 nullified | <!-- TODO --> | <!-- TODO --> |
+| B13 | 當期作廢發票 | F0501 | ~~JZ50075661 voided~~ → **JZ50075670 voided**（重測，見 5.6）| <!-- TODO --> | <!-- TODO --> |
+| B14 | 註銷發票 | F0701 | ~~JZ50075655 nullified~~ → **JZ50075672 nullified**（重測，見 5.6）| <!-- TODO --> | <!-- TODO --> |
 | B15 | 註銷後重開 | F0401 | JZ50075664 | <!-- TODO --> | <!-- TODO --> |
 | B16 | MainRemark 主備註 | F0401 | JZ50075665 | <!-- TODO --> | <!-- TODO --> |
 | B17 | CustomsClearanceMark 通關方式 | F0401 | ~~JZ50075666~~ → **JZ50075679**（重測，見 5.6）| <!-- TODO --> | <!-- TODO --> |
@@ -230,6 +230,43 @@
 | B18 | JZ50075667 | **JZ50075680** | 2 經海關 | 74 銷售與保稅區之貨物勞務 |
 
 3 張全數通過 Turnkey UpCast XSD + Pack + SendFile SFTP 送出至 EINV。
+
+### 5.6.b F0501/F0701 XSD 結構修正（B13/B14）
+
+**發現**：檢測比對 EINV 匯出時發現 B13 作廢（JZ50075661）與 B14 註銷（JZ50075655）EINV 端「查無資料」。追查 Linode 發現落於 `UpCast/F0501/ERR/` + `F0701/ERR/`。
+
+**Turnkey XSD 錯誤明確指出結構**：
+```
+Invalid content was found starting with element 'Main'.
+One of 'CancelInvoiceNumber, InvoiceDate, BuyerId, SellerId,
+CancelDate, CancelTime, CancelReason, ...' is expected.
+```
+
+即 MIG 4.1 F0501/F0701 XSD 期望子元素**直接位於 root 底下**（無 `<Main>` wrapper），與 G0501 相同的 flat 結構模式（此發現與先前 G0501 修正一致，見 obsidian runbook #41）。
+
+**修正**（commit `8507eb1`）：`xml-builder.ts` 的 `buildF0501` / `buildF0701` 移除 `<Main>` wrapper。
+
+**重測結果**：
+
+| 情境 | 舊號 (未通過) | 新號 (通過) |
+|---|---|---|
+| B13 F0501 作廢 | JZ50075661 | **JZ50075670 voided** |
+| B14 F0701 註銷 | JZ50075655 | **JZ50075672 nullified** |
+
+新號 XML 通過 Turnkey UpCast XSD → Pack/BAK → SendFile/BAK → SFTP 送出至 EINV，全鏈路 15 分鐘內完成。
+
+### MIG 4.1 消息類別 XSD 結構速查表（本次檢測歸納）
+
+| 消息類別 | 用途 | XSD 結構 |
+|---|---|---|
+| F0401 | 存證發票開立 | 有 `<Main>` + `<Details>` + `<Amount>` 巢狀 |
+| **F0501** | 存證發票作廢 | **flat（無 `<Main>`）** |
+| **F0701** | 存證發票註銷 | **flat（無 `<Main>`）** |
+| G0401 | 折讓證明開立 | 有 `<Main>` + `<Details>` + `<Amount>` 巢狀 |
+| **G0501** | 折讓作廢 | **flat（無 `<Main>`）** |
+| E0402 | 空白字軌回報 | 有 `<Main>` + `<Details>` |
+
+此表為檢測過程逐一驗證產出，可作為下家客戶模板初始化的直接參考。
 
 **Silver lining（工程觀點）**：此發現進一步驗證：
 1. Turnkey XSD 層 defense-in-depth 有效（第一時間攔截 3 張中文字串誤入，避免污染 EINV）
