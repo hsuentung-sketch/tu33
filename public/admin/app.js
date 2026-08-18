@@ -2324,7 +2324,13 @@ async function viewVisitLogs(main) {
   // Filters
   const today = new Date(); today.setHours(0,0,0,0);
   const thirty = new Date(today); thirty.setDate(thirty.getDate() - 30);
-  const isoOf = (d) => d.toISOString().slice(0,10);
+  // 用本地日期（非 UTC），避免時區跨界誤差（台北 8/18 00:00 → UTC 8/17 16:00 → toISOString 得到 8/17）
+  const isoOf = (d) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${dd}`;
+  };
   const fromInput = el('input', { type: 'date', value: isoOf(thirty) });
   const toInput = el('input', { type: 'date', value: isoOf(today) });
   const empSelect = el('select', {});
@@ -2527,15 +2533,24 @@ async function openVisitLogEditor(log, onSaved) {
   try { customers = await api.get('/customers'); } catch (e) {}
   const customerMap = new Map(customers.map((c) => [c.name, c.id]));
 
+  // 本地日期字串（避免時區跨界誤差）
+  const localIsoDate = (d) => {
+    if (!d) return '';
+    const x = new Date(d);
+    const y = x.getFullYear();
+    const m = String(x.getMonth() + 1).padStart(2, '0');
+    const dd = String(x.getDate()).padStart(2, '0');
+    return `${y}-${m}-${dd}`;
+  };
   const initial = log
     ? {
-      visitDate: log.visitDate ? new Date(log.visitDate).toISOString().slice(0, 10) : '',
+      visitDate: log.visitDate ? localIsoDate(log.visitDate) : '',
       customerName: log.customer?.name || '',
       content: log.content || '',
-      nextActionDate: log.nextActionDate ? new Date(log.nextActionDate).toISOString().slice(0, 10) : '',
+      nextActionDate: log.nextActionDate ? localIsoDate(log.nextActionDate) : '',
     }
     : {
-      visitDate: new Date().toISOString().slice(0, 10),
+      visitDate: localIsoDate(new Date()),
       customerName: '',
       content: '',
       nextActionDate: '',
