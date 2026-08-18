@@ -212,24 +212,27 @@ export function buildF0401(input: XmlInvoiceInput): string {
     <MainRemark>${esc(input.mainRemark.slice(0, 200))}</MainRemark>` : '';
   const customsBlock = input.customsClearanceMark ? `
     <CustomsClearanceMark>${esc(input.customsClearanceMark)}</CustomsClearanceMark>` : '';
-  // MIG 4.1 ZeroTaxRateReason 是 2 碼 enum，非中文字串（XSD maxLength=2）。
-  // 舊資料若存中文（如「輸出貨物」）→ 對照表轉 code，找不到則報錯。
+  // MIG 4.1 ZeroTaxRateReason 是 2 碼 enum: 71-79（XSD enumeration constraint）
+  // Turnkey XSD 錯誤明確列出合法值: [71,72,73,74,75,76,77,78,79]
   const ZERO_TAX_REASON_MAP: Record<string, string> = {
-    '01': '01', '02': '02', '03': '03', '04': '04', '05': '05', '06': '06', '07': '07', '08': '08',
-    '外銷貨物': '01', '輸出貨物': '01',
-    '與外銷有關之勞務': '02',
-    '依法或經核准免徵營業稅之外銷貨物': '03', '依法免徵營業稅之外銷貨物': '03',
-    '銷售與保稅區之貨物': '04', '保稅區': '04', '銷售與保稅區之貨物勞務': '04',
-    '國際運輸': '05',
-    '國際運輸用之船舶航空器': '06',
-    '保稅區營業人銷售': '07',
-    '保稅區營業人銷售給國內': '08',
+    '71': '71', '72': '72', '73': '73', '74': '74',
+    '75': '75', '76': '76', '77': '77', '78': '78', '79': '79',
+    // 常見中文別名 → 代碼（依 MIG 4.1 對照）
+    '外銷貨物': '71', '輸出貨物': '71',
+    '與外銷有關之勞務': '72',
+    '依法免徵之外銷貨物': '73', '依法或經核准免徵營業稅之外銷貨物': '73',
+    '銷售與保稅區之貨物勞務': '74', '銷售與保稅區之貨物': '74', '保稅區': '74',
+    '國際運輸': '75',
+    '國際運輸用之船舶航空器': '76',
+    '保稅區營業人銷售': '77',
+    '保稅區營業人銷售給國內': '78',
+    '其他': '79',
   };
   let zeroTaxBlock = '';
   if (input.zeroTaxRateReason) {
     const code = ZERO_TAX_REASON_MAP[input.zeroTaxRateReason.trim()];
     if (!code) {
-      throw new Error(`零稅率原因 "${input.zeroTaxRateReason}" 非合法代碼（需 01-08，或已知中文別名）`);
+      throw new Error(`零稅率原因 "${input.zeroTaxRateReason}" 非合法代碼（需 71-79，或已知中文別名）`);
     }
     zeroTaxBlock = `
     <ZeroTaxRateReason>${code}</ZeroTaxRateReason>`;
