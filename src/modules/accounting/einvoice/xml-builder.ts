@@ -212,8 +212,28 @@ export function buildF0401(input: XmlInvoiceInput): string {
     <MainRemark>${esc(input.mainRemark.slice(0, 200))}</MainRemark>` : '';
   const customsBlock = input.customsClearanceMark ? `
     <CustomsClearanceMark>${esc(input.customsClearanceMark)}</CustomsClearanceMark>` : '';
-  const zeroTaxBlock = input.zeroTaxRateReason ? `
-    <ZeroTaxRateReason>${esc(input.zeroTaxRateReason)}</ZeroTaxRateReason>` : '';
+  // MIG 4.1 ZeroTaxRateReason 是 2 碼 enum，非中文字串（XSD maxLength=2）。
+  // 舊資料若存中文（如「輸出貨物」）→ 對照表轉 code，找不到則報錯。
+  const ZERO_TAX_REASON_MAP: Record<string, string> = {
+    '01': '01', '02': '02', '03': '03', '04': '04', '05': '05', '06': '06', '07': '07', '08': '08',
+    '外銷貨物': '01', '輸出貨物': '01',
+    '與外銷有關之勞務': '02',
+    '依法或經核准免徵營業稅之外銷貨物': '03', '依法免徵營業稅之外銷貨物': '03',
+    '銷售與保稅區之貨物': '04', '保稅區': '04', '銷售與保稅區之貨物勞務': '04',
+    '國際運輸': '05',
+    '國際運輸用之船舶航空器': '06',
+    '保稅區營業人銷售': '07',
+    '保稅區營業人銷售給國內': '08',
+  };
+  let zeroTaxBlock = '';
+  if (input.zeroTaxRateReason) {
+    const code = ZERO_TAX_REASON_MAP[input.zeroTaxRateReason.trim()];
+    if (!code) {
+      throw new Error(`零稅率原因 "${input.zeroTaxRateReason}" 非合法代碼（需 01-08，或已知中文別名）`);
+    }
+    zeroTaxBlock = `
+    <ZeroTaxRateReason>${code}</ZeroTaxRateReason>`;
+  }
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Invoice xmlns="urn:GEINV:eInvoiceMessage:F0401:4.1">

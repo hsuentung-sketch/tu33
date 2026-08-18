@@ -3025,10 +3025,19 @@ async function openEinvoiceIssueModal(ar, onSaved) {
     el('option', { value: '1' }, '1 非經海關出口'),
     el('option', { value: '2' }, '2 經海關出口'),
   );
-  const zeroReasonInput = el('input', {
-    type: 'text', maxlength: 60, placeholder: '如「外銷」、「保稅區」',
-    oninput: (ev) => { state.zeroTaxRateReason = ev.target.value; },
-  });
+  const zeroReasonInput = el('select', {
+    onChange: (ev) => { state.zeroTaxRateReason = ev.target.value; },
+  },
+    el('option', { value: '' }, '（不適用）'),
+    el('option', { value: '01' }, '01 外銷貨物'),
+    el('option', { value: '02' }, '02 與外銷有關之勞務'),
+    el('option', { value: '03' }, '03 依法免徵營業稅之外銷貨物'),
+    el('option', { value: '04' }, '04 銷售與保稅區之貨物勞務'),
+    el('option', { value: '05' }, '05 國際運輸'),
+    el('option', { value: '06' }, '06 國際運輸用之船舶航空器'),
+    el('option', { value: '07' }, '07 保稅區營業人銷售'),
+    el('option', { value: '08' }, '08 保稅區營業人銷售給國內'),
+  );
   const remarkInput = el('input', {
     type: 'text', maxlength: 200, placeholder: '寫入 XML <MainRemark>，最多 200 字',
     oninput: (ev) => { state.mainRemark = ev.target.value; },
