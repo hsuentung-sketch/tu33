@@ -124,7 +124,11 @@ async function runOne(tenantId: string, seq: number, invoiceDate: Date): Promise
       },
     ],
     taxType: '1',
-    printFlag: 'N',
+    // MIG 4.1 規則：B2C 二聯式（InvoiceType=07）三選一：
+    //   printFlag=Y（列印證明聯）/ 有 carrier / 有 npoban
+    // 三者皆無 → Turnkey XSD 攔截落 ERR/（無獎金領取管道）。
+    // 壓測選最簡單的 printFlag=Y，避免 tool 需要維護 carrier 池。
+    printFlag: 'Y',
     invoiceDate,
   });
   return { invoiceNo: (result as any).invoiceNo };
