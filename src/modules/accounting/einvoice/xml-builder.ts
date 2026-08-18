@@ -278,17 +278,16 @@ export function buildF0401(input: XmlInvoiceInput): string {
 export function buildF0501(input: XmlVoidInput): string {
   const buyerId = normalizeBuyerId(input.buyer?.identifier);
   const sellerId = input.seller?.identifier ?? '';
+  // MIG 4.1 F0501: flat 結構（無 <Main> wrapper）— XSD 直接期望子元素在 root 底下
   return `<?xml version="1.0" encoding="UTF-8"?>
 <CancelInvoice xmlns="urn:GEINV:eInvoiceMessage:F0501:4.1">
-  <Main>
-    <CancelInvoiceNumber>${esc(input.invoiceNo)}</CancelInvoiceNumber>
-    <BuyerId>${esc(buyerId)}</BuyerId>
-    <SellerId>${esc(sellerId)}</SellerId>
-    <InvoiceDate>${ymd(input.invoiceDate)}</InvoiceDate>
-    <CancelDate>${ymd(input.voidDate)}</CancelDate>
-    <CancelTime>${hmsColon(input.voidDate)}</CancelTime>
-    <CancelReason>${esc(input.voidReason)}</CancelReason>
-  </Main>
+  <CancelInvoiceNumber>${esc(input.invoiceNo)}</CancelInvoiceNumber>
+  <InvoiceDate>${ymd(input.invoiceDate)}</InvoiceDate>
+  <BuyerId>${esc(buyerId)}</BuyerId>
+  <SellerId>${esc(sellerId)}</SellerId>
+  <CancelDate>${ymd(input.voidDate)}</CancelDate>
+  <CancelTime>${hmsColon(input.voidDate)}</CancelTime>
+  <CancelReason>${esc(input.voidReason)}</CancelReason>
 </CancelInvoice>
 `;
 }
@@ -298,17 +297,16 @@ export function buildF0501(input: XmlVoidInput): string {
 export function buildF0701(input: XmlVoidF0701Input): string {
   const buyerId = normalizeBuyerId(input.buyer.identifier);
   const sellerId = input.seller.identifier;
+  // MIG 4.1 F0701: flat 結構（無 <Main> wrapper）— 與 F0501/G0501 一致
   return `<?xml version="1.0" encoding="UTF-8"?>
 <VoidInvoice xmlns="urn:GEINV:eInvoiceMessage:F0701:4.1">
-  <Main>
-    <VoidInvoiceNumber>${esc(input.invoiceNo)}</VoidInvoiceNumber>
-    <BuyerId>${esc(buyerId)}</BuyerId>
-    <SellerId>${esc(sellerId)}</SellerId>
-    <InvoiceDate>${ymd(input.invoiceDate)}</InvoiceDate>
-    <VoidDate>${ymd(input.voidDate)}</VoidDate>
-    <VoidTime>${hmsColon(input.voidDate)}</VoidTime>
-    <VoidReason>${esc(input.voidReason)}</VoidReason>
-  </Main>
+  <VoidInvoiceNumber>${esc(input.invoiceNo)}</VoidInvoiceNumber>
+  <InvoiceDate>${ymd(input.invoiceDate)}</InvoiceDate>
+  <BuyerId>${esc(buyerId)}</BuyerId>
+  <SellerId>${esc(sellerId)}</SellerId>
+  <VoidDate>${ymd(input.voidDate)}</VoidDate>
+  <VoidTime>${hmsColon(input.voidDate)}</VoidTime>
+  <VoidReason>${esc(input.voidReason)}</VoidReason>
 </VoidInvoice>
 `;
 }
