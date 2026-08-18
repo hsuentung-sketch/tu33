@@ -92,10 +92,15 @@ async function resolveTenant(hint: string): Promise<{ id: string; name: string }
 }
 
 async function checkPoolCapacity(tenantId: string, invoiceDate: Date): Promise<{ available: number; period: string }> {
-  const roc = invoiceDate.getFullYear() - 1911;
-  const m = invoiceDate.getMonth() + 1; // 1..12
+  // 期別 7 碼 = 民國年 3 + 單月 2 + 雙月 2（與 einvoice.service.ts periodOfDate 一致）
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit',
+  }).formatToParts(invoiceDate);
+  const y = Number(parts.find((p) => p.type === 'year')!.value) - 1911;
+  const m = Number(parts.find((p) => p.type === 'month')!.value);
   const oddStart = m % 2 === 1 ? m : m - 1;
-  const period = `${roc}${String(oddStart).padStart(2, '0')}`;
+  const evenEnd = oddStart + 1;
+  const period = `${String(y).padStart(3, '0')}${String(oddStart).padStart(2, '0')}${String(evenEnd).padStart(2, '0')}`;
 
   const pools = await prisma.einvoiceNumberPool.findMany({
     where: { tenantId, isActive: true, yearMonth: period, branchId: null },
