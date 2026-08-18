@@ -108,7 +108,7 @@
 | B05 | 列印無載具 | F0401 | JZ50075659 | <!-- TODO --> | <!-- TODO --> |
 | B06 | 混稅 + 手機條碼 | F0401 | JZ50075660 | <!-- TODO --> | <!-- TODO --> |
 | B07 | B2B 應稅標準 | F0401 | JZ50075661（後 B13 作廢）| <!-- TODO --> | <!-- TODO --> |
-| B08 | B2B 零稅率 | F0401 | JZ50075662 | <!-- TODO --> | <!-- TODO --> |
+| B08 | B2B 零稅率 | F0401 | ~~JZ50075662~~ → **JZ50075678**（重測，見 5.6）| <!-- TODO --> | <!-- TODO --> |
 | B09 | B2B 免稅 | F0401 | JZ50075663 | <!-- TODO --> | <!-- TODO --> |
 | B10 | 部分品項折讓 | G0401 | AL20260813001（原 B07）| <!-- TODO --> | <!-- TODO --> |
 | B11 | 全額折讓 | G0401 | AL20260813002（原 B08）| <!-- TODO --> | <!-- TODO --> |
@@ -117,8 +117,8 @@
 | B14 | 註銷發票 | F0701 | JZ50075655 nullified | <!-- TODO --> | <!-- TODO --> |
 | B15 | 註銷後重開 | F0401 | JZ50075664 | <!-- TODO --> | <!-- TODO --> |
 | B16 | MainRemark 主備註 | F0401 | JZ50075665 | <!-- TODO --> | <!-- TODO --> |
-| B17 | CustomsClearanceMark 通關方式 | F0401 | JZ50075666 | <!-- TODO --> | <!-- TODO --> |
-| B18 | ZeroTaxRateReason 零稅率原因 | F0401 | JZ50075667 | <!-- TODO --> | <!-- TODO --> |
+| B17 | CustomsClearanceMark 通關方式 | F0401 | ~~JZ50075666~~ → **JZ50075679**（重測，見 5.6）| <!-- TODO --> | <!-- TODO --> |
+| B18 | ZeroTaxRateReason 零稅率原因 | F0401 | ~~JZ50075667~~ → **JZ50075680**（重測，見 5.6）| <!-- TODO --> | <!-- TODO --> |
 
 ### 3.2 修正驗證補測（G0401/G0501 XSD 修正後）
 
@@ -212,7 +212,31 @@
 
 **Tool 修正**：壓測工具已於 commit `65317d6` 修正為 `printFlag: 'Y'`（列印證明聯），供未來壓測使用；本次結果保留原樣，以完整揭露此 defense-in-depth 佐證。
 
-### 5.5 佐證檔案
+### 5.6 零稅率 3 張重測（B08/B17/B18）
+
+**背景**：檢測過程比對 EINV 平台匯出資料時發現，原 Phase B 開立的 3 張零稅率發票（JZ50075662/666/667）在 EINV 平台查無資料。追查 Linode Turnkey 端發現落於 `UpCast/F0401/ERR/`，Turnkey XSD 錯誤明確指出 `ZeroTaxRateReason` 為 2 碼 enum（`71`-`79`），非自由文字。舊 xml-builder 直接將 UI 輸入的中文（如「輸出貨物」）寫入 XML → XSD 攔截。
+
+**修正**：
+- `src/modules/accounting/einvoice/xml-builder.ts` — ZeroTaxRateReason 加對照表轉 2 碼代碼 + 白名單驗證（commit `c8f29c8`）
+- `public/admin/app.js` — 零稅率原因欄位改下拉選單（71-79 選項）
+- 驗證的正確代碼區間 71-79 由 Turnkey XSD 錯誤訊息 `enumeration '[71-79]'` 直接得知（網路上代碼版本混亂，以 XSD 為準）
+
+**重測結果**（commit `c8f29c8` 部署後）：
+
+| 情境 | 舊號 (未通過) | 新號 (通過) | 通關方式 | 零稅率原因 |
+|---|---|---|---|---|
+| B08 | JZ50075662 | **JZ50075678** | 1 非經海關 | 71 外銷貨物 |
+| B17 | JZ50075666 | **JZ50075679** | 2 經海關 | 71 外銷貨物 |
+| B18 | JZ50075667 | **JZ50075680** | 2 經海關 | 74 銷售與保稅區之貨物勞務 |
+
+3 張全數通過 Turnkey UpCast XSD + Pack + SendFile SFTP 送出至 EINV。
+
+**Silver lining（工程觀點）**：此發現進一步驗證：
+1. Turnkey XSD 層 defense-in-depth 有效（第一時間攔截 3 張中文字串誤入，避免污染 EINV）
+2. 系統可迭代修正：發現問題 → 修 xml-builder → deploy → 補測驗證，全流程 30 分鐘
+3. 檢測本身即為漏洞發現機會 — 若不做壓測與資料比對，此 bug 會潛藏至上線後真實客戶開零稅率時才炸
+
+### 5.7 佐證檔案
 
 - Fly 執行輸出：`docs/audit/einvoice-pressure-test-2026-08-18T*.md`（5 份，每 round 一份）
 - Linode UpCast 全 1000 檔位置：`/opt/turnkey/app/linux/EINVTurnkey/UpCast/B2SSTORAGE/F0401/ERR/20260818/10-11/*.xml`
