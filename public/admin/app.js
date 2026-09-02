@@ -51,6 +51,17 @@ function toast(msg, kind) {
   setTimeout(() => t.remove(), 3000);
 }
 
+function installClickOutsideClose(backdrop) {
+  let downOnBackdrop = false;
+  backdrop.addEventListener('mousedown', (ev) => {
+    downOnBackdrop = (ev.target === backdrop);
+  });
+  backdrop.addEventListener('click', (ev) => {
+    if (ev.target === backdrop && downOnBackdrop) backdrop.remove();
+    downOnBackdrop = false;
+  });
+}
+
 function confirmBox(msg) { return window.confirm(msg); }
 
 function skeletonRows(cols, rows = 5) {
@@ -113,7 +124,7 @@ function openModal({ title, fields, initial = {}, onSubmit }) {
     ),
   );
   backdrop.append(modal);
-  backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
+  installClickOutsideClose(backdrop);
   backdrop.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') backdrop.remove(); });
   document.body.append(backdrop);
   const firstInput = modal.querySelector('input, select, textarea');
@@ -288,7 +299,7 @@ async function viewDashboard(main) {
           modal.append(actions);
           const backdrop = el('div', { class: 'modal-backdrop' });
           backdrop.append(modal);
-          backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
+          installClickOutsideClose(backdrop);
           document.body.append(backdrop);
         },
       },
@@ -799,7 +810,7 @@ function openProductDocs(product) {
     ),
   );
   backdrop.append(modal);
-  backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
+  installClickOutsideClose(backdrop);
   document.body.append(backdrop);
 
   async function refresh() {
@@ -1060,7 +1071,7 @@ function openSupplierDocs(supplier) {
     ),
   );
   backdrop.append(modal);
-  backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
+  installClickOutsideClose(backdrop);
   document.body.append(backdrop);
 
   async function refresh() {
@@ -1366,7 +1377,7 @@ function openEmployeeEditor(emp, onSaved) {
     ),
   );
   backdrop.append(modal);
-  backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
+  installClickOutsideClose(backdrop);
   document.body.append(backdrop);
 }
 
@@ -1901,7 +1912,14 @@ async function openOrderEditor(kind, orderId, onSaved) {
     ),
   );
   backdrop.append(modal);
-  backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) { cleanupDropdowns(); backdrop.remove(); } });
+  {
+    let _down = false;
+    backdrop.addEventListener('mousedown', (ev) => { _down = (ev.target === backdrop); });
+    backdrop.addEventListener('click', (ev) => {
+      if (ev.target === backdrop && _down) { cleanupDropdowns(); backdrop.remove(); }
+      _down = false;
+    });
+  }
   document.body.append(backdrop);
 }
 
@@ -2053,7 +2071,7 @@ async function openOrderViewer(kind, orderId) {
     ),
   );
   backdrop.append(modal);
-  backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
+  installClickOutsideClose(backdrop);
   document.body.append(backdrop);
 }
 
@@ -2211,7 +2229,7 @@ function openAnnouncementModal(existing, onSaved) {
 
   const backdrop = el('div', { class: 'modal-backdrop' });
   backdrop.append(modal);
-  backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
+  installClickOutsideClose(backdrop);
   document.body.append(backdrop);
 }
 
@@ -2818,7 +2836,7 @@ async function openBatchMonthlyInvoiceDialog() {
   yearInput.style.width = '100%';
   monthInput.style.width = '100%';
   backdrop.append(modal);
-  backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
+  installClickOutsideClose(backdrop);
   document.body.append(backdrop);
   await refresh();
 }
@@ -2933,7 +2951,7 @@ async function openAllowanceModal(inv, onSaved) {
     ),
   );
   backdrop.append(modal);
-  backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
+  installClickOutsideClose(backdrop);
   document.body.append(backdrop);
 }
 
@@ -3156,7 +3174,7 @@ async function openEinvoiceIssueModal(ar, onSaved) {
     ),
   );
   backdrop.append(modal);
-  backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
+  installClickOutsideClose(backdrop);
   document.body.append(backdrop);
 }
 
@@ -4857,7 +4875,7 @@ async function openJournalEntryEditor(entry, onSaved) {
     ),
   );
   backdrop.append(modal);
-  backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
+  installClickOutsideClose(backdrop);
   document.body.append(backdrop);
 }
 
@@ -5021,7 +5039,7 @@ async function openQuickExpenseModal(onSaved, prefill) {
     ),
   );
   backdrop.append(modal);
-  backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
+  installClickOutsideClose(backdrop);
   document.body.append(backdrop);
 }
 
@@ -5082,7 +5100,7 @@ async function openPettyCashModal(onSaved) {
     ),
   );
   backdrop.append(modal);
-  backdrop.addEventListener('click', (ev) => { if (ev.target === backdrop) backdrop.remove(); });
+  installClickOutsideClose(backdrop);
   document.body.append(backdrop);
 }
 
