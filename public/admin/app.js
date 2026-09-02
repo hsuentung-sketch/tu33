@@ -483,8 +483,9 @@ async function viewCustomers(main) {
         { name: 'bankAccountLast5', label: '匯款帳號末五碼' },
       ],
       onSubmit: async (v) => {
-        const body = cleanObj(v, ['name','contactName','title','phone','taxId','email','zipCode','address','paymentDays','statementDay','fixedPaymentDay','paymentMethod','createdByEmployeeId','grade','bankCode','bankName','bankAccountLast5']);
-        if (!body.name) throw new Error('公司名稱必填');
+        const keys = ['name','contactName','title','phone','taxId','email','zipCode','address','paymentDays','statementDay','fixedPaymentDay','paymentMethod','createdByEmployeeId','grade','bankCode','bankName','bankAccountLast5'];
+        const body = c ? bodyForUpdate(v, keys) : cleanObj(v, keys);
+        if (!body.name && !c) throw new Error('公司名稱必填');
         // 空字串 select → null
         if (body.paymentMethod === '') body.paymentMethod = null;
         if (body.createdByEmployeeId === '') body.createdByEmployeeId = null;
@@ -623,7 +624,8 @@ async function viewProducts(main) {
       ],
       onSubmit: async (v) => {
         if (!v.code || !v.name) throw new Error('編號/名稱必填');
-        const body = cleanObj(v, ['code','name','category','salePrice','costPrice','note']);
+        const keys = ['code','name','category','salePrice','costPrice','note'];
+        const body = p ? bodyForUpdate(v, keys) : cleanObj(v, keys);
         if (p) { delete body.code; await api.put('/products/' + p.id, body); }
         else await api.post('/products', body);
         toast(p ? '已更新' : '已新增', 'ok');
@@ -977,7 +979,8 @@ async function viewSuppliers(main) {
       ],
       onSubmit: async (v) => {
         if (!v.name) throw new Error('名稱必填');
-        const body = cleanObj(v, ['name','type','contactName','phone','taxId','email','zipCode','address','paymentDays','bankCode','bankName','bankBranch','bankAccount','bankAccountName']);
+        const keys = ['name','type','contactName','phone','taxId','email','zipCode','address','paymentDays','bankCode','bankName','bankBranch','bankAccount','bankAccountName'];
+        const body = s ? bodyForUpdate(v, keys) : cleanObj(v, keys);
         if (s) await api.put('/suppliers/' + s.id, body);
         else await api.post('/suppliers', body);
         toast(s ? '已更新' : '已新增', 'ok');
@@ -1302,8 +1305,24 @@ function openEmployeeEditor(emp, onSaved) {
           if (!state.name) throw new Error('姓名必填');
           if (!isEdit && !state.employeeId) throw new Error('員工編號必填');
 
-          const body = {
+          const etn = (v) => (v == null || v === '') ? null : v;
+          const body = isEdit ? {
             name: state.name,
+            role: state.role || 'VIEWER',
+            phone: etn(state.phone),
+            email: etn(state.email),
+            address: etn(state.address),
+            taxDeductRate: (state.taxDeductRate === '' || state.taxDeductRate == null)
+              ? null : Number(state.taxDeductRate),
+            notes: state.notes?.trim() || null,
+            bankCode: etn(state.bankCode),
+            bankName: etn(state.bankName),
+            bankBranch: etn(state.bankBranch),
+            bankAccountName: etn(state.bankAccountName),
+            bankAccountNo: etn(state.bankAccountNo),
+          } : {
+            name: state.name,
+            employeeId: state.employeeId,
             role: state.role || 'VIEWER',
             phone: state.phone || undefined,
             email: state.email || undefined,
@@ -1317,7 +1336,6 @@ function openEmployeeEditor(emp, onSaved) {
             bankAccountName: state.bankAccountName || null,
             bankAccountNo: state.bankAccountNo || null,
           };
-          if (!isEdit) body.employeeId = state.employeeId;
 
           // Password handling
           if (isAdmin) {
@@ -5751,6 +5769,16 @@ function cleanObj(src, keys) {
     const v = src[k];
     if (v === undefined || v === '' || v === null) continue;
     out[k] = v;
+  }
+  return out;
+}
+
+function bodyForUpdate(src, keys) {
+  const out = {};
+  for (const k of keys) {
+    const v = src[k];
+    if (v === undefined) continue;
+    out[k] = (v === '') ? null : v;
   }
   return out;
 }

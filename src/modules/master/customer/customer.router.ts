@@ -23,6 +23,12 @@ const bankFields = {
   bankAccountLast5: z.string().optional(),
 };
 
+const bankFieldsUpdate = {
+  bankCode: z.string().nullable().optional(),
+  bankName: z.string().nullable().optional(),
+  bankAccountLast5: z.string().nullable().optional(),
+};
+
 const createSchema = z.object({
   name: z.string().min(1),
   contactName: z.string().optional(),
@@ -45,22 +51,24 @@ const createSchema = z.object({
 
 const updateSchema = z.object({
   name: z.string().min(1).optional(),
-  contactName: z.string().optional(),
-  title: z.string().optional(),
-  taxId: z.string().optional(),
-  phone: z.string().optional(),
-  zipCode: z.string().optional(),
-  address: z.string().optional(),
+  contactName: z.string().nullable().optional(),
+  title: z.string().nullable().optional(),
+  taxId: z.string().nullable().optional(),
+  phone: z.string().nullable().optional(),
+  zipCode: z.string().nullable().optional(),
+  address: z.string().nullable().optional(),
   paymentDays: z.number().int().nonnegative().optional(),
   statementDay: dayOfMonth,
   fixedPaymentDay: dayOfMonth,
   paymentMethod: paymentMethodEnum,
   createdByEmployeeId: z.string().nullable().optional(),
-  lineUserId: z.string().optional(),
-  email: z.string().email().optional(),
-  grade: z.enum(['A', 'B', 'C']).optional(),
+  lineUserId: z.string().nullable().optional(),
+  email: z.union([z.string().email(), z.literal(''), z.null()])
+    .optional()
+    .transform((v) => v === '' ? null : v),
+  grade: z.enum(['A', 'B', 'C']).nullable().optional(),
   tags: z.array(z.string()).optional(),
-  ...bankFields,
+  ...bankFieldsUpdate,
 });
 
 customerRouter.get('/', async (req: Request, res: Response, next: NextFunction) => {

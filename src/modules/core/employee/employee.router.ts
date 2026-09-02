@@ -36,10 +36,13 @@ const createSchema = z.object({
 const updateSchema = z.object({
   name: z.string().min(1).optional(),
   role: z.enum(['ADMIN', 'SALES', 'PURCHASING', 'ACCOUNTING', 'VIEWER']).optional(),
-  phone: z.string().optional(),
-  email: z.string().email().optional(),
-  address: z.string().optional(),
+  phone: z.string().nullable().optional(),
+  email: z.union([z.string().email(), z.literal(''), z.null()])
+    .optional()
+    .transform((v) => v === '' ? null : v),
+  address: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
+  taxDeductRate: z.number().min(0).max(100).nullable().optional(),
   ...bankFields,
   password: z.union([passwordSchema, z.null()]).optional(),
 });

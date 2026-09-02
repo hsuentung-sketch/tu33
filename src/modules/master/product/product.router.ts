@@ -52,10 +52,10 @@ const createSchema = z.object({
 
 const updateSchema = z.object({
   name: z.string().min(1).optional(),
-  category: z.string().optional(),
+  category: z.string().nullable().optional(),
   salePrice: z.number().nonnegative().optional(),
   costPrice: z.number().nonnegative().optional(),
-  note: z.string().optional(),
+  note: z.string().nullable().optional(),
 });
 
 productRouter.get('/', async (req: Request, res: Response, next: NextFunction) => {

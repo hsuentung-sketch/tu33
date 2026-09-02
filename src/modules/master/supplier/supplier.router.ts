@@ -21,13 +21,21 @@ const docUpload = multer({
 
 const SUPPLIER_DOC_TYPES = ['BANKBOOK', 'CONTRACT', 'OTHER'] as const;
 
-// 匯款帳戶欄位（v2.14.0+），create / update 共用。
+// 匯款帳戶欄位（v2.14.0+）
 const bankFields = {
   bankCode: z.string().optional(),
   bankName: z.string().optional(),
   bankBranch: z.string().optional(),
   bankAccount: z.string().optional(),
   bankAccountName: z.string().optional(),
+};
+
+const bankFieldsUpdate = {
+  bankCode: z.string().nullable().optional(),
+  bankName: z.string().nullable().optional(),
+  bankBranch: z.string().nullable().optional(),
+  bankAccount: z.string().nullable().optional(),
+  bankAccountName: z.string().nullable().optional(),
 };
 
 // SALES 完全沒供應商權限（讀寫都擋）。
@@ -51,15 +59,17 @@ const createSchema = z.object({
 
 const updateSchema = z.object({
   name: z.string().min(1).optional(),
-  type: z.string().optional(),
-  contactName: z.string().optional(),
-  taxId: z.string().optional(),
-  phone: z.string().optional(),
-  zipCode: z.string().optional(),
-  address: z.string().optional(),
+  type: z.string().nullable().optional(),
+  contactName: z.string().nullable().optional(),
+  taxId: z.string().nullable().optional(),
+  phone: z.string().nullable().optional(),
+  zipCode: z.string().nullable().optional(),
+  address: z.string().nullable().optional(),
   paymentDays: z.number().int().nonnegative().optional(),
-  email: z.string().email().optional(),
-  ...bankFields,
+  email: z.union([z.string().email(), z.literal(''), z.null()])
+    .optional()
+    .transform((v) => v === '' ? null : v),
+  ...bankFieldsUpdate,
 });
 
 supplierRouter.get('/', async (req: Request, res: Response, next: NextFunction) => {
