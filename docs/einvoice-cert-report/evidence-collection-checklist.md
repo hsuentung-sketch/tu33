@@ -74,17 +74,11 @@ E0402 空白字軌回報為排程自動執行，無需 EINV 平台查詢。
 
 ---
 
-## D. 穩定性佐證（3 張）
+## D. 穩定性佐證 ✓ 已完成 (2026-09-06)
 
-- [ ] `phase-d/D-systemd-status.png`
-  ```bash
-  ssh runtong@172.104.74.184 "systemctl status turnkey"
-  ```
-- [ ] `phase-d/D-recon-notify.png` — LINE 對帳通知截圖（若已有告警記錄）
-- [ ] `phase-d/D-r2-crontab.png` — Linode crontab 顯示 rclone 排程
-  ```bash
-  ssh runtong@172.104.74.184 "crontab -l"
-  ```
+- [x] `phase-d/D1-systemd-turnkey.png` — Turnkey daemon 常駐 4 天 active running，systemd enable 開機自動起
+- [x] `phase-d/D2-linode-crontab.png` — rclone R2 sync 兩條 `*/5 * * * *` 排程
+- [x] `phase-d/D3-recon-alert.jpg` — 對帳結果 + 告警訊息（同 Phase A 儀表板 A3+A4，複用）
 
 ---
 
