@@ -110,9 +110,9 @@
 | B07 | B2B 應稅標準 | F0401 | JZ50075661（後 B13 作廢）| <!-- TODO --> | <!-- TODO --> |
 | B08 | B2B 零稅率 | F0401 | ~~JZ50075662~~ → **JZ50075678**（重測，見 5.6）| <!-- TODO --> | <!-- TODO --> |
 | B09 | B2B 免稅 | F0401 | JZ50075663 | <!-- TODO --> | <!-- TODO --> |
-| B10 | 部分品項折讓 | G0401 | AL20260813001（原 B07）| <!-- TODO --> | <!-- TODO --> |
-| B11 | 全額折讓 | G0401 | AL20260813002（原 B08）| <!-- TODO --> | <!-- TODO --> |
-| B12 | 作廢折讓 | G0501 | AL20260813002 voided | <!-- TODO --> | <!-- TODO --> |
+| B10 | 部分品項折讓 | G0401 | ~~AL20260813001~~ → **AL20260816005**（V05 修正版 EINV 確認）| <!-- TODO --> | <!-- TODO --> |
+| B11 | 全額折讓 | G0401 | ~~AL20260813002~~ → **AL20260906001**（V07 補測 EINV 確認）| <!-- TODO --> | <!-- TODO --> |
+| B12 | 作廢折讓 | G0501 | ~~AL20260813002 voided~~ → **AL20260906001 voided**（EINV「作廢已確認」）| <!-- TODO --> | <!-- TODO --> |
 | B13 | 當期作廢發票 | F0501 | ~~JZ50075661 voided~~ → **JZ50075670 voided**（重測，見 5.6）| <!-- TODO --> | <!-- TODO --> |
 | B14 | 註銷發票 | F0701 | ~~JZ50075655 nullified~~ → **JZ50075672 nullified**（重測，見 5.6）| <!-- TODO --> | <!-- TODO --> |
 | B15 | 註銷後重開 | F0401 | JZ50075664 | <!-- TODO --> | <!-- TODO --> |
@@ -272,6 +272,28 @@ CancelDate, CancelTime, CancelReason, ...' is expected.
 1. Turnkey XSD 層 defense-in-depth 有效（第一時間攔截 3 張中文字串誤入，避免污染 EINV）
 2. 系統可迭代修正：發現問題 → 修 xml-builder → deploy → 補測驗證，全流程 30 分鐘
 3. 檢測本身即為漏洞發現機會 — 若不做壓測與資料比對，此 bug 會潛藏至上線後真實客戶開零稅率時才炸
+
+### 5.6.c G0501 端到端補測（B12 補齊）
+
+**背景**：8/16 首次 G0401/G0501 測試時，AL20260816005 的 G0401 XML 順利到 EINV（「折讓已確認」），但同期產出的 G0501 XML 因當時 flat 結構修正（commit `a785735`）尚未 deploy → 落 Linode `UpCast/G0501/ERR/`。DB 該筆 status='voided' 但 EINV 端仍為「折讓已確認」，兩端不一致。
+
+**8/18 補測嘗試**：使用者按 UI「作廢」→ 後端 `voidAllowance()` 服務因 `row.status === 'voided'` guard 直接 throw 「此折讓單已作廢」→ **無新 XML 產出**（Fly→R2 無新檔）。
+
+**2026-09-06 補測方案**：Fresh 新開折讓 + 作廢，避開已 void state 的 guard：
+
+1. 對 JZ50075669 開新 G0401 折讓 → **AL20260906001**（100 元 + 5 稅）
+2. 立即作廢 AL20260906001 → 產出新 G0501 XML
+3. Turnkey 依序處理：G0401 → UpCast/BAK → SendFile/BAK → EINV 對帳
+4. G0501 → UpCast/BAK → SendFile/BAK → EINV 對帳
+
+**結果**：兩份 XML 均通過 Turnkey XSD 進 BAK，並被 SFTP 送出至 EINV：
+
+| 訊息 | UpCast/BAK | SendFile/BAK | ReceiveFile ProcessResult | EINV 端狀態 |
+|---|---|---|---|---|
+| G0401_AL20260906001 | ✓ | ✓ | ✓ 已收 | 折讓已確認 |
+| G0501_AL20260906001 | ✓ | ✓ | ✓ 已收 | **作廢已確認** |
+
+**里程碑**：MIG 4.1 六類訊息（F0401 / F0501 / F0701 / G0401 / G0501 / E0402）**全數通過端到端驗證**。EINV 折讓查詢頁截圖與匯出 Excel 均已存 evidence。
 
 ### 5.7 佐證檔案
 

@@ -4,13 +4,11 @@
 
 ---
 
-## A. Phase A 系統面截圖（3 張）
+## A. Phase A 系統面截圖 ✓ 已完成 (2026-09-06)
 
-到 https://erp-line-bot.fly.dev/admin/#invoices/einvoice-cert 潤樋後台：
-
-- [ ] `phase-a/A-dashboard.png` — 檢測儀表板主頁
-- [ ] `phase-a/A-pool.png` — 字軌配號池管理
-- [ ] `phase-a/A-recon.png` — 對帳結果 + 告警訊息（已有 `字軌池表格+重號檢核狀態.jpg` 可用）
+- [x] `phase-a/A1-A2-pool-and-duplicate-check.jpg` — 字軌配號池 (A1) + 重號檢核 (A2) + 7 天狀態
+- [x] `phase-a/A3-A4-recon-and-alert.jpg` — 每日對帳 (A3) + 告警訊息 (A4)
+- [x] `phase-a/A-verify-cli.txt` — verify-phase-a CLI 輸出（補充佐證）
 
 ---
 
