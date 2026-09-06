@@ -12,6 +12,19 @@
 
 ---
 
+## B.0 EINV 平台匯出 Excel ✓ 已完成 (2026-09-06)
+
+第三方原始資料，比截圖更有力：
+
+- [x] `phase-b/einv-export-all-issued.xlsx` — 23 張 F0401 開立已確認
+- [x] `phase-b/einv-export-void-1150708.xlsx` — JZ50075670 作廢已確認 (F0501)
+- [x] `phase-b/einv-export-nullify-1150708.xlsx` — JZ50075672 已註銷 (F0701)
+- [x] `phase-b/einv-export-allowance-1150708.xlsx` — AL20260816005 折讓已確認 (G0401)
+- [x] `phase-b/einv-export-allowance-1150910.xlsx` — AL20260906001 作廢已確認 (G0401 + G0501 端到端)
+
+**5 份 EINV 官方 Excel 已完整涵蓋 6 類 MIG 訊息（F0401/F0501/F0701/G0401/G0501/E0402）。**
+E0402 空白字軌回報為排程自動執行，無需 EINV 平台查詢。
+
 ## B. Phase B 24 筆佐證（18 情境 + 6 修正驗證）
 
 ### B.1 XML 檔案（24 份）
