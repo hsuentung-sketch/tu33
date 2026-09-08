@@ -366,6 +366,9 @@ model SalesOrder {
   taxAmount    Decimal     @db.Decimal(12, 2)
   totalAmount  Decimal     @db.Decimal(12, 2)
   status       SalesStatus @default(PENDING)
+  // 保留給 Neon DB 既有 70 筆資料（來源: 外部 push 或 fork 環境）。
+  // 本 repo 未實際使用此欄位，刪除會 data-loss 中止 deploy。
+  orderType    String?
   orderDate    DateTime    @default(now())
   deliveryDate DateTime?
   deliveredBy  String?
@@ -599,6 +602,11 @@ enum InventoryReason {
   PURCHASE_IN
   ADJUSTMENT
   INITIAL
+  // 下列 3 個保留給潤樋 Neon DB 既有資料（來源: 外部 push 或 fork 環境），
+  // 本 repo 未使用；刪除會導致 db push data-loss 中止 deploy。
+  IMPORT_IN
+  STOCK_ISSUE_OUT
+  STOCK_ISSUE_RETURN
 }
 
 // ============================================================
