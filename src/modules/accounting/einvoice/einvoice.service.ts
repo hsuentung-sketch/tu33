@@ -350,9 +350,8 @@ export async function issue(tenantId: string, input: IssueInput) {
       throw new ValidationError('B2B（有統編）不可使用載具或捐贈碼');
     }
   }
-  if (input.carrierType && input.npoban) {
-    throw new ValidationError('載具與捐贈碼只能擇一');
-  }
+  // MIG 4.1 允許載具+捐贈同時（如「載入載具但當下決定捐贈」情境，EINV 檢測項次 9/12/14）。
+  // 若同時填則 XML builder 兩欄都寫入。
   validateCarrier(input.carrierType, carrierId1);
   if (carrierId2 && carrierId2 !== carrierId1) validateCarrier(input.carrierType, carrierId2);
   validateNpoban(input.npoban);

@@ -3047,13 +3047,13 @@ async function openEinvoiceIssueModal(ar, onSaved) {
   npobanInput.addEventListener('input', () => { state.npoban = npobanInput.value.trim(); });
   const b2cBox = el('div', { style: state.buyerType === 'B2C' ? '' : 'display:none;' },
     el('hr'),
-    el('div', { style: 'font-size:12px;color:var(--muted);margin-bottom:4px;' }, 'B2C 載具 / 捐贈（擇一）'),
+    el('div', { style: 'font-size:12px;color:var(--muted);margin-bottom:4px;' }, 'B2C 載具 / 捐贈（可並用；MIG 4.1）'),
     el('div', { class: 'field row', style: 'gap:6px;' },
       wrapField('載具類別', carrierTypeSelect, 140),
       wrapField('載具 ID', carrierIdInput, 200),
     ),
     el('div', { class: 'field row', style: 'gap:6px;' },
-      wrapField('或 捐贈碼（愛心碼）', npobanInput, 160),
+      wrapField('捐贈碼（愛心碼）', npobanInput, 160),
     ),
   );
 
@@ -3158,10 +3158,12 @@ async function openEinvoiceIssueModal(ar, onSaved) {
           if (state.customsClearanceMark) payload.customsClearanceMark = state.customsClearanceMark;
           if (state.zeroTaxRateReason.trim()) payload.zeroTaxRateReason = state.zeroTaxRateReason.trim();
           if (state.buyerType === 'B2C') {
+            // MIG 4.1 允許載具+捐贈同時（EINV 檢測項次 9/12/14）
             if (state.carrierType && state.carrierId) {
               payload.carrierType = state.carrierType;
               payload.carrierId = state.carrierId;
-            } else if (state.npoban) {
+            }
+            if (state.npoban) {
               payload.npoban = state.npoban;
             }
           }
