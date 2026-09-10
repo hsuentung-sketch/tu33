@@ -345,9 +345,16 @@ export async function issue(tenantId: string, input: IssueInput) {
   // Backward-compat: 舊呼叫端傳 carrierId → 映射到 carrierId1
   const carrierId1 = input.carrierId1 ?? input.carrierId;
   const carrierId2 = input.carrierId2 ?? carrierId1;
-  if (input.carrierType || carrierId1 || input.npoban) {
-    if (input.buyerTaxId) {
-      throw new ValidationError('B2B（有統編）不可使用載具或捐贈碼');
+  // MIG 4.1 規則：
+  //   B2C（無統編）：可用任何載具 / 捐贈碼 / 兩者並用
+  //   B2B（有統編）：不可捐贈；載具僅允許手機條碼 (3J0002)
+  //     ← EINV 檢測項次 10「F0401 手機條碼報核作業」情境
+  if (input.buyerTaxId) {
+    if (input.npoban) {
+      throw new ValidationError('B2B（有統編）不可使用捐贈碼');
+    }
+    if (input.carrierType && input.carrierType !== '3J0002') {
+      throw new ValidationError('B2B（有統編）載具僅允許手機條碼（3J0002）');
     }
   }
   // MIG 4.1 允許載具+捐贈同時（如「載入載具但當下決定捐贈」情境，EINV 檢測項次 9/12/14）。

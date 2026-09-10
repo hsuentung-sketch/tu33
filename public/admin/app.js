@@ -3024,7 +3024,8 @@ async function openEinvoiceIssueModal(ar, onSaved) {
     state.buyerType = typeSelect.value;
     taxIdInput.disabled = state.buyerType === 'B2C';
     if (state.buyerType === 'B2C') taxIdInput.value = '';
-    b2cBox.style.display = state.buyerType === 'B2C' ? '' : 'none';
+    // 載具 / 捐贈段：B2C 完整顯示；B2B 也顯示（項次 10「B2B 有統編 + 手機條碼」）
+    b2cBox.style.display = '';
   });
   const taxIdInput = el('input', { type: 'text', value: state.buyerTaxId, placeholder: '8 碼數字' });
   taxIdInput.disabled = state.buyerType === 'B2C';
@@ -3045,7 +3046,7 @@ async function openEinvoiceIssueModal(ar, onSaved) {
   carrierIdInput.addEventListener('input', () => { state.carrierId = carrierIdInput.value.trim(); });
   const npobanInput = el('input', { type: 'text', placeholder: '3-7 碼愛心碼' });
   npobanInput.addEventListener('input', () => { state.npoban = npobanInput.value.trim(); });
-  const b2cBox = el('div', { style: state.buyerType === 'B2C' ? '' : 'display:none;' },
+  const b2cBox = el('div', { style: '' },
     el('hr'),
     el('div', { style: 'font-size:12px;color:var(--muted);margin-bottom:4px;' }, 'B2C 載具 / 捐贈（可並用；MIG 4.1）'),
     el('div', { class: 'field row', style: 'gap:6px;' },
@@ -3157,15 +3158,14 @@ async function openEinvoiceIssueModal(ar, onSaved) {
           if (state.mainRemark.trim()) payload.mainRemark = state.mainRemark.trim();
           if (state.customsClearanceMark) payload.customsClearanceMark = state.customsClearanceMark;
           if (state.zeroTaxRateReason.trim()) payload.zeroTaxRateReason = state.zeroTaxRateReason.trim();
-          if (state.buyerType === 'B2C') {
-            // MIG 4.1 允許載具+捐贈同時（EINV 檢測項次 9/12/14）
-            if (state.carrierType && state.carrierId) {
-              payload.carrierType = state.carrierType;
-              payload.carrierId = state.carrierId;
-            }
-            if (state.npoban) {
-              payload.npoban = state.npoban;
-            }
+          // 載具：B2C 全部載具 / B2B 僅手機條碼 (3J0002)（EINV 檢測項次 10）
+          if (state.carrierType && state.carrierId) {
+            payload.carrierType = state.carrierType;
+            payload.carrierId = state.carrierId;
+          }
+          // 捐贈碼：只 B2C 可用（EINV 檢測項次 9/12/14 = 載具+捐贈並用）
+          if (state.buyerType === 'B2C' && state.npoban) {
+            payload.npoban = state.npoban;
           }
           await api.post('/einvoices/issue', payload);
           toast('已開立', 'ok');
