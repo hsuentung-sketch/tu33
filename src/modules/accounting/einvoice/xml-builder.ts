@@ -445,27 +445,28 @@ function yearMonthTo5Char(yearMonth: string): string {
 }
 
 export function buildE0402(input: XmlBlankRangeInput): string {
-  // MIG 4.1 E0402 XSD（2026-09-10 實測 XSD error 一路揭露的正確結構）：
-  //   1. 根元素 <BranchTrackBlank>（非 BlankInvoiceNumber）
-  //   2. Main + Details/BranchTrackBlankItem 巢狀
-  //   3. Main 內元素 HeadBan / BranchBan / YearMonth（YearMonth 非 InvoiceYearMonth）
-  //   4. YearMonth 5 碼 pattern: \d{3}0[2|4|6|8]|\d{3}1[0|2] (民國年 3 + 期別末月 2)
-  //      → 7 碼 1150708 應轉 5 碼 11508
+  // MIG 4.1 E0402 XSD（2026-09-10 從 Turnkey einvoice-tky-gateway-api-3.1.3.jar
+  // 抽出 xsd/v41/E0402.xsd 讀出正確結構）：
+  //   Root <BranchTrackBlank>
+  //   Main: HeadBan / BranchBan / InvoiceType / YearMonth / InvoiceTrack (5 元素, xsd:all)
+  //   Details: <BranchTrackBlankItem> minOccurs=1 maxOccurs=10000
+  //     BranchTrackBlankItem: InvoiceBeginNo / InvoiceEndNo (只 2 元素)
+  //   YearMonth: 5 碼 pattern \d{3}0[2|4|6|8]|\d{3}1[0|2] (民國年 3 + 期別末月 2)
+  //   ★ 注意：XSD 無 BlankReason 欄位（input.reason 保留在 API 供未來相容但不寫 XML）
   const ym5 = yearMonthTo5Char(input.yearMonth);
   return `<?xml version="1.0" encoding="UTF-8"?>
 <BranchTrackBlank xmlns="urn:GEINV:eInvoiceMessage:E0402:4.1">
   <Main>
     <HeadBan>${esc(input.seller.identifier)}</HeadBan>
     <BranchBan>${esc(input.seller.identifier)}</BranchBan>
+    <InvoiceType>07</InvoiceType>
     <YearMonth>${esc(ym5)}</YearMonth>
+    <InvoiceTrack>${esc(input.trackAlpha)}</InvoiceTrack>
   </Main>
   <Details>
     <BranchTrackBlankItem>
-      <InvoiceType>07</InvoiceType>
-      <InvoiceTrack>${esc(input.trackAlpha)}</InvoiceTrack>
       <InvoiceBeginNo>${esc(input.startNumber)}</InvoiceBeginNo>
       <InvoiceEndNo>${esc(input.endNumber)}</InvoiceEndNo>
-      <BlankReason>${esc(input.reason)}</BlankReason>
     </BranchTrackBlankItem>
   </Details>
 </BranchTrackBlank>
