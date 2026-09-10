@@ -436,20 +436,26 @@ export interface XmlBlankRangeInput {
 }
 
 export function buildE0402(input: XmlBlankRangeInput): string {
+  // MIG 4.1 E0402 XSD 期望根元素 <BranchTrackBlank>（非 BlankInvoiceNumber），
+  // 結構 Main + Details/BranchTrackBlankItem 巢狀（2026-09-10 實測 XSD error 揭露）：
+  //   unexpected BlankInvoiceNumber. Expected: BranchTrackBlank / BranchTrackBlankItem / Details / Main
   return `<?xml version="1.0" encoding="UTF-8"?>
-<BlankInvoiceNumber xmlns="urn:GEINV:eInvoiceMessage:E0402:4.1">
+<BranchTrackBlank xmlns="urn:GEINV:eInvoiceMessage:E0402:4.1">
   <Main>
-    <Seller>
-      <Identifier>${esc(input.seller.identifier)}</Identifier>
-      <Name>${esc(input.seller.name)}</Name>
-    </Seller>
-    <InvoiceTrack>${esc(input.trackAlpha)}</InvoiceTrack>
-    <InvoiceBeginNo>${esc(input.startNumber)}</InvoiceBeginNo>
-    <InvoiceEndNo>${esc(input.endNumber)}</InvoiceEndNo>
+    <HeadBan>${esc(input.seller.identifier)}</HeadBan>
+    <BranchBan>${esc(input.seller.identifier)}</BranchBan>
     <InvoiceYearMonth>${esc(input.yearMonth)}</InvoiceYearMonth>
-    <BlankReason>${esc(input.reason)}</BlankReason>
   </Main>
-</BlankInvoiceNumber>
+  <Details>
+    <BranchTrackBlankItem>
+      <InvoiceType>07</InvoiceType>
+      <InvoiceTrack>${esc(input.trackAlpha)}</InvoiceTrack>
+      <InvoiceBeginNo>${esc(input.startNumber)}</InvoiceBeginNo>
+      <InvoiceEndNo>${esc(input.endNumber)}</InvoiceEndNo>
+      <BlankReason>${esc(input.reason)}</BlankReason>
+    </BranchTrackBlankItem>
+  </Details>
+</BranchTrackBlank>
 `;
 }
 
