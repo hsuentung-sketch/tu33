@@ -435,16 +435,29 @@ export interface XmlBlankRangeInput {
   reason: '1' | '2' | '3';
 }
 
+/** 期別 7 碼（如 1150708）→ E0402 用 5 碼末月（11508）。若已是 5 碼直接回傳。 */
+function yearMonthTo5Char(yearMonth: string): string {
+  if (/^\d{5}$/.test(yearMonth)) return yearMonth;
+  // 7 碼 = 民國年 3 + 起月 2 + 末月 2 → 取民國年 3 + 末月 2
+  const m = /^(\d{3})(\d{2})(\d{2})$/.exec(yearMonth);
+  if (m) return `${m[1]}${m[3]}`;
+  return yearMonth; // 讓 XSD 攔錯而非靜默塞
+}
+
 export function buildE0402(input: XmlBlankRangeInput): string {
-  // MIG 4.1 E0402 XSD 期望根元素 <BranchTrackBlank>（非 BlankInvoiceNumber），
-  // 結構 Main + Details/BranchTrackBlankItem 巢狀（2026-09-10 實測 XSD error 揭露）：
-  //   unexpected BlankInvoiceNumber. Expected: BranchTrackBlank / BranchTrackBlankItem / Details / Main
+  // MIG 4.1 E0402 XSD（2026-09-10 實測 XSD error 一路揭露的正確結構）：
+  //   1. 根元素 <BranchTrackBlank>（非 BlankInvoiceNumber）
+  //   2. Main + Details/BranchTrackBlankItem 巢狀
+  //   3. Main 內元素 HeadBan / BranchBan / YearMonth（YearMonth 非 InvoiceYearMonth）
+  //   4. YearMonth 5 碼 pattern: \d{3}0[2|4|6|8]|\d{3}1[0|2] (民國年 3 + 期別末月 2)
+  //      → 7 碼 1150708 應轉 5 碼 11508
+  const ym5 = yearMonthTo5Char(input.yearMonth);
   return `<?xml version="1.0" encoding="UTF-8"?>
 <BranchTrackBlank xmlns="urn:GEINV:eInvoiceMessage:E0402:4.1">
   <Main>
     <HeadBan>${esc(input.seller.identifier)}</HeadBan>
     <BranchBan>${esc(input.seller.identifier)}</BranchBan>
-    <InvoiceYearMonth>${esc(input.yearMonth)}</InvoiceYearMonth>
+    <YearMonth>${esc(ym5)}</YearMonth>
   </Main>
   <Details>
     <BranchTrackBlankItem>
