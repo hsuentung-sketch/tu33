@@ -84,11 +84,13 @@ export async function issueAllowance(tenantId: string, input: IssueAllowanceInpu
   });
 
   // MIG 4.1 稅別分區：折讓金額也要按 taxType 拆 Sales/FreeTax/ZeroTax。
-  const breakdown = computeTaxBreakdown(prepared, taxRate, inv.taxType ?? '1');
+  // B2C（原發票無買方統編）稅內含：SalesAmount 含稅、TaxAmount=0。
+  const isB2C = !inv.buyerTaxId || !inv.buyerTaxId.trim();
+  const breakdown = computeTaxBreakdown(prepared, taxRate, inv.taxType ?? '1', inv.buyerTaxId);
   const { salesAmount, freeTaxSalesAmount, zeroTaxSalesAmount } = breakdown;
-  // taxAmount 直接沿用 items 累加（每筆的 taxAmount 由 issuer 決定或依 taxType 自動），
-  // 而非 breakdown.taxAmount（那是重新計算）——這樣支援 issuer 手動微調每筆稅額。
-  const taxAmount = prepared.reduce((s, it) => s + it.taxAmount, 0);
+  // B2B：taxAmount 沿用 items 累加以支援 issuer 手動微調每筆稅額。
+  // B2C：稅內含 → 折讓 taxAmount = 0（已合併於 salesAmount）。
+  const taxAmount = isB2C ? 0 : prepared.reduce((s, it) => s + it.taxAmount, 0);
   const totalAmount = salesAmount + freeTaxSalesAmount + zeroTaxSalesAmount + taxAmount;
 
   if (totalAmount > Number(inv.totalAmount)) {

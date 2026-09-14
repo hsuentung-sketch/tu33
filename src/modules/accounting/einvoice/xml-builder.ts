@@ -499,14 +499,20 @@ export interface TaxBreakdown {
  *  - 免稅（3）→ SalesAmount=0, FreeTax>0, ZeroTax=0, TaxAmount=0
  *  - 混稅（9）→ 至少兩種同時 >0；本 helper 自動偵測並回傳 overallTaxType='9'
  *
+ * B2C（無買方統編）稅內含規則（EINV 檢測要求）：
+ *  應稅部分：SalesAmount=含稅金額（原稅前 + TaxAmount），TaxAmount=0，
+ *  TotalAmount 不變。零稅/免稅欄位不受影響。
+ *
  * @param items 每筆需含 amount 與 taxType
  * @param taxRate 應稅稅率，預設 0.05
  * @param fallbackTaxType 若品項未填 taxType 時的預設值
+ * @param buyerTaxId 買方統編；null/undefined/空 → B2C 稅內含
  */
 export function computeTaxBreakdown(
   items: Array<{ amount: number; taxType?: string }>,
   taxRate: number,
   fallbackTaxType: string,
+  buyerTaxId?: string | null,
 ): TaxBreakdown {
   let sales = 0;
   let free = 0;
@@ -519,7 +525,6 @@ export function computeTaxBreakdown(
     else if (t === '2') zero += it.amount;
     else if (t === '3') free += it.amount;
     else {
-      // 未知 taxType 一律歸應稅（安全 fallback）
       sales += it.amount;
       seen.add('1');
     }
@@ -527,6 +532,20 @@ export function computeTaxBreakdown(
   const taxAmount = Math.round(sales * taxRate);
   const totalAmount = sales + free + zero + taxAmount;
   const overallTaxType = seen.size > 1 ? '9' : ([...seen][0] ?? fallbackTaxType);
+
+  const isB2C = !buyerTaxId || !buyerTaxId.trim();
+  if (isB2C) {
+    // 應稅金額改含稅（原 sales + tax），TaxAmount=0
+    return {
+      salesAmount: Math.round(sales + taxAmount),
+      freeTaxSalesAmount: Math.round(free),
+      zeroTaxSalesAmount: Math.round(zero),
+      taxAmount: 0,
+      totalAmount: Math.round(totalAmount),
+      overallTaxType,
+    };
+  }
+
   return {
     salesAmount: Math.round(sales),
     freeTaxSalesAmount: Math.round(free),

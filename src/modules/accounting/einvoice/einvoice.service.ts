@@ -425,7 +425,8 @@ export async function issue(tenantId: string, input: IssueInput) {
 
   // MIG 4.1 稅別分區：依品項 taxType 自動計算 SalesAmount / FreeTaxSalesAmount / ZeroTaxSalesAmount。
   // 若品項有多種 taxType，overallTaxType 自動變 '9' 混稅。
-  const breakdown = computeTaxBreakdown(preparedItems, taxRate, taxType);
+  // B2C（無買方統編）稅內含：SalesAmount 含稅、TaxAmount=0（EINV 檢測要求）。
+  const breakdown = computeTaxBreakdown(preparedItems, taxRate, taxType, input.buyerTaxId);
   const overallTaxType = breakdown.overallTaxType;
   const { salesAmount, freeTaxSalesAmount, zeroTaxSalesAmount, taxAmount, totalAmount } = breakdown;
 
