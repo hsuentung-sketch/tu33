@@ -16,6 +16,8 @@ export interface SalesItemInput {
   unitPrice: number;
   note?: string;
   sortOrder?: number;
+  /** MIG 4.1 品項課稅別（v2.19.0+）：'1' 應稅、'2' 零稅、'3' 免稅。省略/空值 → '1' 應稅。 */
+  taxType?: string;
 }
 
 export interface SalesOrderCreateInput {
@@ -113,7 +115,7 @@ export async function create(tenantId: string, data: SalesOrderCreateInput) {
   const priceMap = await resolveItemPriceSnapshots(tenantId, data.items);
 
   const { subtotal, taxAmount, totalAmount } = calculateTotals(
-    data.items.map((i) => ({ quantity: i.quantity, unitPrice: i.unitPrice })),
+    data.items.map((i) => ({ quantity: i.quantity, unitPrice: i.unitPrice, taxType: i.taxType })),
     settings.taxRate,
   );
 
@@ -151,6 +153,7 @@ export async function create(tenantId: string, data: SalesOrderCreateInput) {
             amount: i.quantity * i.unitPrice,
             salePriceAtSale: priceMap.get(i.productName)?.salePrice ?? null,
             costAtSale: priceMap.get(i.productName)?.costPrice ?? null,
+            taxType: i.taxType ?? '1',
             note: i.note,
             sortOrder: i.sortOrder ?? idx,
           })),
@@ -278,6 +281,7 @@ export async function edit(tenantId: string, id: string, input: SalesOrderEditIn
             amount: i.quantity * i.unitPrice,
             salePriceAtSale: priceMap.get(i.productName)?.salePrice ?? null,
             costAtSale: priceMap.get(i.productName)?.costPrice ?? null,
+            taxType: i.taxType ?? '1',
             note: i.note,
             sortOrder: i.sortOrder ?? idx,
           })),

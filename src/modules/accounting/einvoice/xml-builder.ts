@@ -179,18 +179,26 @@ export function buildF0401(input: XmlInvoiceInput): string {
   const randomCode = input.randomCode ?? '0000';
   const printFlag = input.printFlag ?? 'Y';
 
-  // 每品項 TaxType（無填則沿用全發票 taxType），支援混合稅率。
-  const itemsXml = input.items.map((it) => `
+  // B2C（無買方統編）稅內含：應稅品項 Amount 含稅，符合 EINV 檢測「TOTAL_AMOUNT = sum(item Amount)」規則。
+  // computeTaxBreakdown 已在 service 層以未稅 amount 計算完 SalesAmount 等，僅 XML 輸出的 item Amount 需含稅。
+  const isB2CItem = !input.buyer.identifier || !input.buyer.identifier.trim();
+  const itemsXml = input.items.map((it) => {
+    const itTaxType = it.taxType ?? input.taxType;
+    const outAmount = (isB2CItem && itTaxType === '1')
+      ? it.amount + Math.round(it.amount * taxRate)
+      : it.amount;
+    return `
     <ProductItem>
       <Description>${esc(it.description)}</Description>
       <Quantity>${amt(it.quantity, 4)}</Quantity>
       ${it.unit ? `<Unit>${esc(it.unit)}</Unit>` : ''}
       <UnitPrice>${amt(it.unitPrice, 4)}</UnitPrice>
-      <TaxType>${esc(it.taxType ?? input.taxType)}</TaxType>
-      <Amount>${amt(it.amount, 0)}</Amount>
+      <TaxType>${esc(itTaxType)}</TaxType>
+      <Amount>${amt(outAmount, 0)}</Amount>
       <SequenceNumber>${it.sequence}</SequenceNumber>${it.remark ? `
       <Remark>${esc(it.remark)}</Remark>` : ''}
-    </ProductItem>`).join('');
+    </ProductItem>`;
+  }).join('');
 
   // 載具區塊：CarrierId1=顯碼、CarrierId2=隱碼（若未提供隱碼則沿用顯碼）
   let carrierBlock = '';

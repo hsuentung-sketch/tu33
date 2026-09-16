@@ -19,6 +19,8 @@ const itemSchema = z.object({
   unit: z.string().optional(),
   unitPrice: z.number().nonnegative(),
   amount: z.number().nonnegative().optional(),
+  // MIG 4.1 品項課稅別（v2.19.0+）：'1' 應稅、'2' 零稅、'3' 免稅。混稅時後端 overallTaxType='9' 自動判斷。
+  taxType: z.enum(['1', '2', '3']).optional(),
 });
 
 const issueSchema = z.object({

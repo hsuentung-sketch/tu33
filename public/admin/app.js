@@ -1538,9 +1538,10 @@ async function openOrderEditor(kind, orderId, onSaved) {
           productName: it.productName,
           quantity: it.quantity,
           unitPrice: Number(it.unitPrice),
+          taxType: it.taxType ?? '1',
           note: it.note ?? '',
         }))
-      : [{ productName: '', quantity: 1, unitPrice: 0, note: '' }],
+      : [{ productName: '', quantity: 1, unitPrice: 0, taxType: '1', note: '' }],
     reason: '',
   };
 
@@ -1671,6 +1672,7 @@ async function openOrderEditor(kind, orderId, onSaved) {
     el('th', { class: 'num' }, '數量'),
     el('th', { class: 'num' }, '單價'),
     el('th', { class: 'num' }, '小計'),
+    el('th', { style: 'text-align:center;width:56px;' }, '免稅'),
     el('th', {}, '備註'),
     el('th', {}, ''),
   ));
@@ -1683,8 +1685,14 @@ async function openOrderEditor(kind, orderId, onSaved) {
   /** 只更新底部小計/營業稅/總計，不重建 DOM（避免輸入焦點遺失）。 */
   function updateTotals() {
     let sub = 0;
-    state.items.forEach((it) => { sub += (it.quantity || 0) * (it.unitPrice || 0); });
-    const tax = Math.round(sub * 0.05);
+    let taxable = 0;
+    state.items.forEach((it) => {
+      const line = (it.quantity || 0) * (it.unitPrice || 0);
+      sub += line;
+      // 免稅品項 (taxType='3') 不列入應稅
+      if ((it.taxType ?? '1') === '1') taxable += line;
+    });
+    const tax = Math.round(taxable * 0.05);
     totalsDiv.textContent = `小計 ${fmtMoney(sub)}　營業稅 ${fmtMoney(tax)}　總計 ${fmtMoney(sub + tax)}`;
   }
   function renderItems() {
@@ -1794,11 +1802,22 @@ async function openOrderEditor(kind, orderId, onSaved) {
       const removeBtn = el('button', { class: 'btn small danger', onClick: () => {
         state.items.splice(idx, 1); renderItems();
       } }, '刪');
+      // 免稅勾選 (MIG 4.1 品項課稅別；勾 → taxType='3'，否則 '1')
+      const taxFreeChk = el('input', {
+        type: 'checkbox',
+        title: '勾選 = 免稅品項 (taxType=3)；不勾 = 應稅 (taxType=1)',
+      });
+      taxFreeChk.checked = (it.taxType ?? '1') === '3';
+      taxFreeChk.addEventListener('change', () => {
+        it.taxType = taxFreeChk.checked ? '3' : '1';
+        updateTotals();
+      });
       itemsBody.append(el('tr', {},
         nameCell,
         el('td', { class: 'num' }, qtyInp),
         el('td', { class: 'num' }, priceInp),
         lineCell,
+        el('td', { style: 'text-align:center;' }, taxFreeChk),
         el('td', {}, noteInp),
         el('td', {}, removeBtn),
       ));
@@ -1807,7 +1826,7 @@ async function openOrderEditor(kind, orderId, onSaved) {
   }
   renderItems();
   const addBtn = el('button', { class: 'btn small', onClick: () => {
-    state.items.push({ productName: '', quantity: 1, unitPrice: 0, note: '' }); renderItems();
+    state.items.push({ productName: '', quantity: 1, unitPrice: 0, taxType: '1', note: '' }); renderItems();
   } }, '+ 新增一列');
   itemsBox.append(addBtn, totalsDiv);
   body.append(itemsBox);
@@ -2967,6 +2986,9 @@ async function openEinvoiceIssueModal(ar, onSaved) {
     description: it.productName,
     quantity: Number(it.quantity),
     unitPrice: Number(it.unitPrice),
+    // v2.19.0+：帶入品項課稅別（銷貨單免稅勾選 → '3'；預設 '1' 應稅）。
+    // 品項 taxType 混合時，後端 computeTaxBreakdown 自動判斷 overallTaxType='9'。
+    taxType: it.taxType ?? '1',
   }));
 
   const state = {
@@ -3141,6 +3163,8 @@ async function openEinvoiceIssueModal(ar, onSaved) {
               description: it.description.trim(),
               quantity: it.quantity,
               unitPrice: it.unitPrice,
+              // v2.19.0+：品項課稅別（從銷貨單免稅勾選帶入；混稅時後端自動 overallTaxType='9'）
+              taxType: it.taxType ?? '1',
             }));
           if (!items.length) throw new Error('至少一個有效品項');
           if (state.taxType === '2' && !state.customsClearanceMark) {

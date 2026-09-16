@@ -415,6 +415,8 @@ model SalesItem {
   // 成交當下的產品進價快照（v2.16.0+）。業績獎金 =（unitPrice − costAtSale）× quantity − 營業稅。
   // 歷史資料或自由輸入品名（無對應產品）為 null → 報表 fallback 用當前 Product.costPrice。
   costAtSale   Decimal? @db.Decimal(12, 2)
+  // MIG 4.1 品項課稅別（v2.19.0+）：'1' 應稅、'2' 零稅、'3' 免稅。整張混稅時電子發票 XML 依此拆 Sales/FreeTax/ZeroTax。
+  taxType      String     @default("1")
   note         String?
   sortOrder    Int        @default(0)
 }

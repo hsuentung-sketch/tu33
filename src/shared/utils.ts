@@ -128,11 +128,16 @@ export function getOverdueStatus(
  * Calculate subtotal, tax, and total
  */
 export function calculateTotals(
-  items: Array<{ quantity: number; unitPrice: number }>,
+  items: Array<{ quantity: number; unitPrice: number; taxType?: string }>,
   taxRate: number = 0.05,
 ): { subtotal: number; taxAmount: number; totalAmount: number } {
   const subtotal = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
-  const taxAmount = Math.round(subtotal * taxRate);
+  // MIG 4.1 混稅：僅應稅品項 (taxType 未指定或 '1') 需加稅；零稅 '2' / 免稅 '3' 不加。
+  const taxableAmount = items.reduce((sum, item) => {
+    const t = item.taxType ?? '1';
+    return t === '1' ? sum + item.quantity * item.unitPrice : sum;
+  }, 0);
+  const taxAmount = Math.round(taxableAmount * taxRate);
   const totalAmount = subtotal + taxAmount;
   return { subtotal, taxAmount, totalAmount };
 }

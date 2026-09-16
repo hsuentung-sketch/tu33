@@ -14,6 +14,8 @@ const itemSchema = z.object({
   unitPrice: z.number().nonnegative(),
   note: z.string().optional(),
   sortOrder: z.number().int().optional(),
+  // MIG 4.1 品項課稅別（v2.19.0+）：'1' 應稅、'2' 零稅、'3' 免稅。省略 → '1'。
+  taxType: z.enum(['1', '2', '3']).optional(),
 });
 
 const createSchema = z.object({
@@ -192,6 +194,7 @@ salesOrderRouter.get('/:id/excel', async (req: Request, res: Response, next: Nex
         quantity: it.quantity,
         unitPrice: Number(it.unitPrice),
         amount: Number(it.amount),
+        taxType: (it as { taxType?: string }).taxType ?? '1',
         note: it.note,
       })),
       subtotal: Number(o.subtotal),
