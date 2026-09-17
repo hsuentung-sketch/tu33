@@ -637,7 +637,7 @@ async function viewProducts(main) {
         if (!v.code || !v.name) throw new Error('編號/名稱必填');
         const keys = ['code','name','category','salePrice','costPrice','note'];
         const body = p ? bodyForUpdate(v, keys) : cleanObj(v, keys);
-        if (p) { delete body.code; await api.put('/products/' + p.id, body); }
+        if (p) { await api.put('/products/' + p.id, body); }
         else await api.post('/products', body);
         toast(p ? '已更新' : '已新增', 'ok');
         reload();

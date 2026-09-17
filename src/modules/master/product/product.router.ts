@@ -51,6 +51,7 @@ const createSchema = z.object({
 });
 
 const updateSchema = z.object({
+  code: z.string().min(1).optional(),
   name: z.string().min(1).optional(),
   category: z.string().nullable().optional(),
   salePrice: z.number().nonnegative().optional(),
