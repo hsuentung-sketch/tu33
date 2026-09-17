@@ -113,7 +113,9 @@ async function runOne(tenantId: string, seq: number, invoiceDate: Date): Promise
   const unitPrice = randInt(100, 1000);
   const result = await issueInvoice(tenantId, {
     buyerName: '壓力測試買方',
-    // B2C 二聯式：buyerTaxId 留空
+    // EINV 檢測壓力測試僅計 B2B（有買受人統編）發票，故 buyerTaxId 帶
+    // 檢測用假統編 12345678。B2B 走 SalesAmount+TaxAmount 分列格式。
+    buyerTaxId: '12345678',
     items: [
       {
         description: `壓力測試品項 #${seq}`,
@@ -124,10 +126,7 @@ async function runOne(tenantId: string, seq: number, invoiceDate: Date): Promise
       },
     ],
     taxType: '1',
-    // MIG 4.1 規則：B2C 二聯式（InvoiceType=07）三選一：
-    //   printFlag=Y（列印證明聯）/ 有 carrier / 有 npoban
-    // 三者皆無 → Turnkey XSD 攔截落 ERR/（無獎金領取管道）。
-    // 壓測選最簡單的 printFlag=Y，避免 tool 需要維護 carrier 池。
+    // B2B 已無「B2C 三選一」限制，printFlag 保留 'Y' 為預設即可。
     printFlag: 'Y',
     invoiceDate,
   });
