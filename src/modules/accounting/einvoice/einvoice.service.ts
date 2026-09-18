@@ -397,7 +397,9 @@ export async function issue(tenantId: string, input: IssueInput) {
       include: { einvoice: true },
     });
     if (!ar) throw new NotFoundError('AccountReceivable', input.receivableId);
-    if (ar.einvoice && ar.einvoice.status !== 'voided') {
+    // 作廢 (voided) 或註銷 (nullified) 後允許同 AR 重開新發票 —
+    // 符合 F0701 chain「開→(廢→)註銷→重開」實務流程與 EINV 檢測要求。
+    if (ar.einvoice && ar.einvoice.status !== 'voided' && ar.einvoice.status !== 'nullified') {
       throw new ValidationError('此應收帳款已有有效電子發票');
     }
   }
@@ -709,6 +711,204 @@ export async function nullifyInvoice(tenantId: string, id: string, reason: strin
       tenantId, userId: actedBy,
       action: 'EINVOICE_NULLIFY', entity: 'Einvoice', entityId: id,
       detail: { invoiceNo: inv.invoiceNo, reason: reason.trim(), previousStatus: inv.status },
+    });
+  }
+
+  return updated;
+}
+
+// ----- reissue after nullify (F0701 chain 更正發票內容) -----
+
+/**
+ * F0701 更正發票內容：對 nullified 狀態發票，用「原發票號」重新產生 F0401 XML
+ * 送到 EINV，實現「發票開立 → (作廢) → 註銷 → 重新以同一號碼開立」流程。
+ *
+ * EINV 檢測項次 4 的 F0701 chain 要求整段流程使用**同一發票號碼**。
+ * 現有 issue() 會從 pool allocate 新號 → chain 中出現多號 → 檢測不通過。
+ *
+ * 本函式：
+ *  1. 驗證原發票 status='nullified'（必須先執行 nullifyInvoice）
+ *  2. 使用原發票的 invoiceNo（**不呼叫 allocateNumber**）
+ *  3. 生成新 F0401 XML，內容以 input 為主，缺欄位 fallback 原發票資料
+ *  4. 寫 Turnkey inbound
+ *  5. 更新原 Einvoice row：status→'issued'、xmlBody/xmlPath 覆蓋為新版；
+ *     nullifyXmlBody/nullifyXmlPath 保留為歷史稽核紀錄
+ *  6. 更新 items（先刪原 items，再建新 items）
+ */
+export async function reissueAfterNullify(
+  tenantId: string,
+  originalInvoiceId: string,
+  input: Partial<IssueInput>,
+  actedBy?: string,
+) {
+  const original = await prisma.einvoice.findFirst({
+    where: { id: originalInvoiceId, tenantId },
+    include: { items: { orderBy: { sequence: 'asc' } } },
+  });
+  if (!original) throw new NotFoundError('Einvoice', originalInvoiceId);
+  if (original.status !== 'nullified') {
+    throw new ValidationError(`此發票狀態（${original.status}）不可更正重開；僅 nullified 可執行`);
+  }
+
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+  if (!tenant) throw new NotFoundError('Tenant', tenantId);
+  const settings = getTenantSettings(tenant.settings);
+  const einvCfg = settings.einvoice;
+  if (!einvCfg.turnkeyInboundDir) {
+    throw new ValidationError('尚未設定 Turnkey 匯入目錄');
+  }
+  const sellerTaxId = tenant.taxId || '';
+  if (!/^\d{8}$/.test(sellerTaxId)) {
+    throw new ValidationError('Tenant.taxId 未設定或格式錯誤');
+  }
+  const sellerName = tenant.companyName;
+  const sellerAddress = tenant.address ?? undefined;
+
+  // Fallback to original when input 缺欄位
+  const invoiceNo = original.invoiceNo;
+  const invoiceDate = input.invoiceDate ?? original.invoiceDate;
+  const buyerTaxId = input.buyerTaxId ?? original.buyerTaxId ?? undefined;
+  const buyerName = input.buyerName ?? original.buyerName;
+  const buyerAddress = input.buyerAddress ?? original.buyerAddress ?? undefined;
+  const taxRate = settings.taxRate;
+  const taxType = input.taxType ?? original.taxType ?? '1';
+  const carrierType = input.carrierType ?? original.carrierType ?? undefined;
+  const carrierId1 = input.carrierId1 ?? input.carrierId ?? original.carrierId ?? undefined;
+  const carrierId2 = input.carrierId2 ?? carrierId1;
+  const npoban = input.npoban ?? original.npoban ?? undefined;
+  const mainRemark = input.mainRemark ?? original.mainRemark ?? undefined;
+  const customsClearanceMark = input.customsClearanceMark ?? original.customsClearanceMark ?? undefined;
+  const zeroTaxRateReason = input.zeroTaxRateReason ?? original.zeroTaxRateReason ?? undefined;
+  const printFlag = input.printFlag
+    ?? ((carrierType || npoban) ? 'N' : (einvCfg.defaultPrintFlag || 'Y'));
+  const randomCode = randomFourDigits();
+
+  const rawItems = input.items && input.items.length > 0
+    ? input.items
+    : original.items.map((it) => ({
+        sequence: it.sequence,
+        description: it.description,
+        quantity: Number(it.quantity),
+        unit: it.unit ?? undefined,
+        unitPrice: Number(it.unitPrice),
+        amount: Number(it.amount),
+      }));
+
+  const preparedItems = rawItems.map((it, idx) => ({
+    sequence: it.sequence ?? idx + 1,
+    description: it.description,
+    quantity: it.quantity,
+    unit: it.unit,
+    unitPrice: it.unitPrice,
+    amount: it.amount ?? roundMoney(it.quantity * it.unitPrice),
+    taxType: (it as { taxType?: string }).taxType,
+  }));
+
+  const breakdown = computeTaxBreakdown(preparedItems, taxRate, taxType, buyerTaxId);
+  const overallTaxType = breakdown.overallTaxType;
+  const { salesAmount, freeTaxSalesAmount, zeroTaxSalesAmount, taxAmount, totalAmount } = breakdown;
+
+  if ((overallTaxType === '2' || zeroTaxSalesAmount > 0) && !customsClearanceMark) {
+    throw new ValidationError('零稅率必須填通關方式 customsClearanceMark');
+  }
+
+  const xml = buildF0401({
+    invoiceNo,
+    invoiceDate,
+    seller: {
+      identifier: sellerTaxId,
+      name: sellerName,
+      address: sellerAddress,
+      personInCharge: einvCfg.sellerPersonInCharge || undefined,
+      telephoneNumber: einvCfg.sellerTelephoneNumber || undefined,
+      facsimileNumber: einvCfg.sellerFacsimileNumber || undefined,
+    },
+    buyer: {
+      identifier: buyerTaxId?.trim() || null,
+      name: buyerName.trim(),
+      address: buyerAddress,
+    },
+    items: preparedItems,
+    salesAmount,
+    freeTaxSalesAmount,
+    zeroTaxSalesAmount,
+    taxAmount,
+    totalAmount,
+    taxType: overallTaxType,
+    taxRate,
+    randomCode,
+    carrierType,
+    carrierId1,
+    carrierId2,
+    npoban,
+    printFlag,
+    mainRemark,
+    customsClearanceMark,
+    zeroTaxRateReason,
+  });
+
+  const wrote = await writeIssueXml({
+    invoiceNo, xml,
+    env: {
+      backend: einvCfg.turnkeyBackend,
+      inboundDir: einvCfg.turnkeyInboundDir,
+      outboundDir: einvCfg.turnkeyOutboundDir,
+    },
+  });
+
+  const updated = await prisma.$transaction(async (tx) => {
+    await tx.einvoiceItem.deleteMany({ where: { invoiceId: originalInvoiceId } });
+    return tx.einvoice.update({
+      where: { id: originalInvoiceId },
+      data: {
+        status: 'issued',
+        invoiceDate,
+        buyerTaxId: buyerTaxId?.trim() || null,
+        buyerName: buyerName.trim(),
+        buyerAddress,
+        salesAmount,
+        taxAmount,
+        totalAmount,
+        taxType: overallTaxType,
+        xmlPath: wrote.absolutePath,
+        xmlBody: xml,
+        // 保留 nullifyXmlBody/Path 作為歷史稽核（不覆蓋）
+        mainRemark,
+        customsClearanceMark,
+        zeroTaxRateReason,
+        randomCode,
+        carrierType,
+        carrierId: carrierId1,
+        npoban,
+        printFlag,
+        items: {
+          create: preparedItems.map((it) => ({
+            sequence: it.sequence,
+            description: it.description,
+            quantity: it.quantity,
+            unit: it.unit,
+            unitPrice: it.unitPrice,
+            amount: it.amount,
+          })),
+        },
+      },
+      include: { items: { orderBy: { sequence: 'asc' } } },
+    });
+  });
+
+  // Back-fill AR.invoiceNo
+  if (original.receivableId) {
+    await prisma.accountReceivable.update({
+      where: { id: original.receivableId },
+      data: { invoiceNo },
+    }).catch(() => {});
+  }
+
+  if (actedBy) {
+    await writeAudit({
+      tenantId, userId: actedBy,
+      action: 'EINVOICE_REISSUE', entity: 'Einvoice', entityId: originalInvoiceId,
+      detail: { invoiceNo, note: 'F0701 chain 更正發票內容，沿用原發票號' },
     });
   }
 

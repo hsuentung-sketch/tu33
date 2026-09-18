@@ -216,6 +216,25 @@ einvoiceRouter.post('/:id/nullify', async (req: Request, res: Response, next: Ne
 });
 
 /**
+ * F0701 更正發票內容重開：對 nullified 發票用同一發票號重新開立 F0401。
+ * EINV 檢測項次 4 F0701 chain 要求整段流程使用同一發票號碼。
+ * Body: 可帶新的 items / buyer / carrier / npoban 等；未帶則沿用原發票資料。
+ */
+einvoiceRouter.post('/:id/reissue', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    requireAdmin(req, '僅 ADMIN 可執行 F0701 更正重開');
+    const parsed = issueSchema.partial().safeParse(req.body ?? {});
+    if (!parsed.success) {
+      throw new ValidationError(parsed.error.issues.map((i) => i.message).join(', '));
+    }
+    const reissued = await einvoiceService.reissueAfterNullify(
+      req.tenantId, String(req.params.id), parsed.data as any, req.employee.id,
+    );
+    res.json(reissued);
+  } catch (err) { next(err); }
+});
+
+/**
  * 檢測儀表板：字軌池狀態 + 過去 24h 對帳報告 + 告警訊息。
  * 提供給 EINV 檢測委員截圖佐證用（V4.8 前置檢測項次 1-4 對應）。
  */

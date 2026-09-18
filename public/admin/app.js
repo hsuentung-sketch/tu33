@@ -3277,6 +3277,15 @@ async function viewEinvoices(main) {
                 title: '註銷（F0701）— 跨期或需重開時使用；註銷後可重新開立',
               }, '註銷')
             : null,
+          // F0701 更正內容重開：nullified 狀態才可用，沿用同一發票號送新 F0401
+          e.status === 'nullified' && window.__session?.employee?.role === 'ADMIN' ? ' ' : null,
+          e.status === 'nullified' && window.__session?.employee?.role === 'ADMIN'
+            ? el('button', {
+                class: 'btn small primary',
+                onClick: () => reissueEinvoice(e, reload),
+                title: '更正內容重開（F0701 chain）— 沿用同一發票號送新 F0401',
+              }, '更正重開')
+            : null,
         ),
       ));
     }
@@ -3298,6 +3307,17 @@ async function viewEinvoices(main) {
     if (!reason || !reason.trim()) return;
     api.post(`/einvoices/${e.id}/nullify`, { reason: reason.trim() })
       .then(() => { toast('已註銷', 'ok'); return after(); })
+      .catch((err) => toast(err.message, 'err'));
+  }
+
+  function reissueEinvoice(e, after) {
+    const msg = `更正內容重開 ${e.invoiceNo}（F0701 chain）\n\n`
+      + '將沿用同一發票號 ${e.invoiceNo} 重送新 F0401 XML 到 EINV。\n'
+      + '（EINV 檢測要求 F0701 註銷後重開需用同一號）\n\n'
+      + '確定要以原發票內容重新送出嗎？（後續可再編輯 items / buyer）';
+    if (!window.confirm(msg.replace('${e.invoiceNo}', e.invoiceNo))) return;
+    api.post(`/einvoices/${e.id}/reissue`, {})
+      .then(() => { toast('已更正重開，同一發票號 ' + e.invoiceNo, 'ok'); return after(); })
       .catch((err) => toast(err.message, 'err'));
   }
 
