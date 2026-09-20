@@ -3630,12 +3630,94 @@ async function viewAccount(main, path, title, partyLabel) {
   const isReceivable = path === 'receivables';
   const partyIdKey = isReceivable ? 'customerId' : 'supplierId';
 
-  const partySelect = el('select', { style: 'font-size:13px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;' });
-  partySelect.append(el('option', { value: '' }, `全部${partyLabel}`));
+  // v2.19.1+：帳款頁改用「模糊搜尋 + dropdown」取代原生 <select>
+  // 全部客戶/供應商清單一次載入，前端本地 filter；輸入空 → 顯示全部；選中後觸發 reload。
+  let allParties = [];
   try {
-    const parties = await api.get(isReceivable ? '/customers' : '/suppliers');
-    for (const p of parties) partySelect.append(el('option', { value: p.id }, p.name));
+    allParties = await api.get(isReceivable ? '/customers' : '/suppliers');
   } catch (_) {}
+  const partyState = { partyId: '' };
+  const partyBox = el('div', { style: 'position:relative;display:inline-block;' });
+  const partyInp = el('input', {
+    type: 'text',
+    placeholder: `全部${partyLabel}（可搜尋）`,
+    autocomplete: 'off',
+    style: 'font-size:13px;padding:4px 28px 4px 8px;border:1px solid var(--border);border-radius:4px;width:200px;',
+  });
+  const clearBtn = el('button', {
+    type: 'button',
+    title: '清除，顯示全部',
+    style: 'position:absolute;right:4px;top:50%;transform:translateY(-50%);border:none;background:transparent;cursor:pointer;font-size:14px;color:#888;padding:2px 6px;',
+  }, '×');
+  const dropdown = el('div', {
+    style: 'position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #ccc;border-top:none;border-radius:0 0 4px 4px;max-height:280px;overflow-y:auto;display:none;z-index:100;box-shadow:0 4px 12px rgba(0,0,0,.1);',
+  });
+  partyBox.append(partyInp, clearBtn, dropdown);
+
+  function renderPartyDropdown(query) {
+    dropdown.innerHTML = '';
+    const q = (query ?? '').trim().toLowerCase();
+    const filtered = q
+      ? allParties.filter((p) => p.name.toLowerCase().includes(q))
+      : allParties;
+    if (!filtered.length) {
+      dropdown.append(el('div', { style: 'padding:8px 10px;color:#999;font-size:12px;' }, '無符合結果'));
+      dropdown.style.display = 'block';
+      return;
+    }
+    // 頂部「全部」項
+    if (!q) {
+      const allRow = el('div', {
+        style: 'padding:6px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid #eee;font-weight:600;color:#666;',
+        onClick: () => {
+          partyState.partyId = '';
+          partyInp.value = '';
+          dropdown.style.display = 'none';
+          reload();
+        },
+      }, `— 全部${partyLabel} —`);
+      dropdown.append(allRow);
+    }
+    for (const p of filtered.slice(0, 50)) {
+      const row = el('div', {
+        style: 'padding:6px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid #eee;',
+        onClick: () => {
+          partyState.partyId = p.id;
+          partyInp.value = p.name;
+          dropdown.style.display = 'none';
+          reload();
+        },
+      }, p.name);
+      row.addEventListener('mouseenter', () => { row.style.background = '#f5f5f5'; });
+      row.addEventListener('mouseleave', () => { row.style.background = '#fff'; });
+      dropdown.append(row);
+    }
+    if (filtered.length > 50) {
+      dropdown.append(el('div', { style: 'padding:6px 10px;font-size:11px;color:#999;text-align:center;' }, `... 共 ${filtered.length} 筆，繼續輸入以縮減`));
+    }
+    dropdown.style.display = 'block';
+  }
+  partyInp.addEventListener('focus', () => renderPartyDropdown(partyInp.value));
+  partyInp.addEventListener('input', () => {
+    if (!partyInp.value.trim() && partyState.partyId) {
+      partyState.partyId = '';
+      reload();
+    }
+    renderPartyDropdown(partyInp.value);
+  });
+  partyInp.addEventListener('blur', () => {
+    // 延遲關閉，讓 click 事件先觸發
+    setTimeout(() => { dropdown.style.display = 'none'; }, 150);
+  });
+  clearBtn.addEventListener('click', () => {
+    partyInp.value = '';
+    if (partyState.partyId) {
+      partyState.partyId = '';
+      reload();
+    }
+    partyInp.focus();
+    renderPartyDropdown('');
+  });
 
   const statusFilter = el('select', { style: 'font-size:13px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;margin-left:12px;' });
   statusFilter.append(el('option', { value: 'unpaid' }, '未結案'));
@@ -3672,7 +3754,7 @@ async function viewAccount(main, path, title, partyLabel) {
   }
 
   async function reload() {
-    const partyId = partySelect.value;
+    const partyId = partyState.partyId;
     const status = statusFilter.value;
     const params = new URLSearchParams();
     if (partyId) params.set(partyIdKey, partyId);
@@ -3802,10 +3884,9 @@ async function viewAccount(main, path, title, partyLabel) {
     });
   }
 
-  partySelect.addEventListener('change', reload);
   statusFilter.addEventListener('change', reload);
   main.append(el('div', { class: 'toolbar' },
-    partySelect,
+    partyBox,
     statusFilter,
   ), table);
   reload();
