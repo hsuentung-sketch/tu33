@@ -113,19 +113,45 @@ export async function createPool(tenantId: string, data: {
   if (data.rangeStart < 0 || data.rangeEnd <= data.rangeStart) {
     throw new ValidationError('起訖號碼錯誤');
   }
-  return prisma.einvoiceNumberPool.create({
-    data: {
+  // v2.19.2+ EINV 檢測: 字軌重複匯入檢核（同租戶 + 期別 + 字軌 + 起號 唯一）
+  // 除 DB unique constraint 外，先在 service 層做友善檢查給明確錯訊
+  const duplicate = await prisma.einvoiceNumberPool.findFirst({
+    where: {
       tenantId,
       yearMonth: data.yearMonth,
       trackAlpha: data.trackAlpha,
       rangeStart: data.rangeStart,
-      rangeEnd: data.rangeEnd,
-      nextNumber: data.rangeStart,
-      branchId: data.branchId ?? null,
-      note: data.note,
-      createdBy: data.createdBy,
     },
   });
+  if (duplicate) {
+    throw new ValidationError(
+      `此字軌區間已存在（期別 ${data.yearMonth}、字軌 ${data.trackAlpha}、起號 ${data.rangeStart}），不可重複匯入`,
+    );
+  }
+  try {
+    return await prisma.einvoiceNumberPool.create({
+      data: {
+        tenantId,
+        yearMonth: data.yearMonth,
+        trackAlpha: data.trackAlpha,
+        rangeStart: data.rangeStart,
+        rangeEnd: data.rangeEnd,
+        nextNumber: data.rangeStart,
+        branchId: data.branchId ?? null,
+        note: data.note,
+        createdBy: data.createdBy,
+      },
+    });
+  } catch (err) {
+    // DB unique constraint 兜底（防 race condition）
+    const e = err as { code?: string };
+    if (e.code === 'P2002') {
+      throw new ValidationError(
+        `此字軌區間已存在（期別 ${data.yearMonth}、字軌 ${data.trackAlpha}、起號 ${data.rangeStart}），DB unique constraint 攔截`,
+      );
+    }
+    throw err;
+  }
 }
 
 export async function updatePool(tenantId: string, id: string, data: { isActive?: boolean; note?: string | null }) {

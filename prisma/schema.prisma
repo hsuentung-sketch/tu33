@@ -691,6 +691,9 @@ model EinvoiceNumberPool {
 
   blankReports EinvoiceBlankReport[]
 
+  // v2.19.2+ EINV 檢測：字軌重複匯入防呆。同租戶 + 期別 + 字軌 + 起號 唯一。
+  // Prisma P2002 unique constraint violation → 前端顯示「此字軌區間已匯入過」。
+  @@unique([tenantId, yearMonth, trackAlpha, rangeStart])
   @@index([tenantId, isActive])
   @@index([tenantId, yearMonth, branchId])
 }
