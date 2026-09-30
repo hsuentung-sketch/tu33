@@ -1,6 +1,6 @@
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import 'dotenv/config';
+// Prisma 7 需 driver adapter，沿用 app 的共用 client（PrismaPg + audit extension）
+import { prisma } from '../src/shared/prisma.js';
 
 async function main() {
   // Demo tenant
