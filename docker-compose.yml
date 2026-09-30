@@ -1,0 +1,83 @@
+# 本機 Docker UAT / Demo 環境（app + postgres）— 非 production。
+#
+# 啟動：cp .env.docker.example .env.docker  （填 JWT_SECRET）
+#       docker compose --env-file .env.docker -p <slug> up -d --build
+# 關閉：docker compose -p <slug> down        （加 -v 連 DB 資料一起清）
+#
+# 多行業 / 多客戶 repo 並存：各自 .env.docker 設不同 COMPOSE_SLUG / APP_PORT / DB_PORT。
+# init 服務與 Fly release_command 同路徑（prisma db push），SEED_DEMO=true 時灌匿名 demo 資料（已有則略過）。
+# init / app 共用同一個 runner image（不另建 stage，Fly 用的 Dockerfile 不變）。
+name: ${COMPOSE_SLUG:-tu33}
+
+x-app-env: &app-env
+  DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-erp_demo}?schema=public
+  JWT_SECRET: ${JWT_SECRET:?請在 .env.docker 設定 JWT_SECRET（openssl rand -hex 32）}
+  PUBLIC_BASE_URL: http://localhost:${APP_PORT:-3000}
+  PORT: "3000"
+  TZ: Asia/Taipei
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-erp_demo}
+    ports:
+      - "127.0.0.1:${DB_PORT:-55433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  init:
+    build: .
+    image: ${COMPOSE_SLUG:-tu33}-app
+    environment:
+      <<: *app-env
+      NODE_ENV: development
+      SEED_DEMO: ${SEED_DEMO:-true}
+      DEMO_TENANT_NAME: ${DEMO_TENANT_NAME:-示範公司}
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        echo "[init] prisma db push"
+        node node_modules/prisma/build/index.js db push --url "$$DATABASE_URL"
+        if [ "$$SEED_DEMO" = "true" ]; then
+          echo "[init] demo seed"
+          node dist/scripts/seed-demo-all.js
+        else
+          echo "[init] SEED_DEMO=false，略過 demo seed"
+        fi
+        echo "[init] done"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  app:
+    build: .
+    image: ${COMPOSE_SLUG:-tu33}-app
+    environment:
+      <<: *app-env
+      # UAT 以 production 模式跑（鐵則 4 fail-fast 生效）；LINE 未接時留空，webhook 不可用但後台可登入
+      NODE_ENV: production
+      LINE_CHANNEL_ID: ${LINE_CHANNEL_ID:-}
+      LINE_CHANNEL_SECRET: ${LINE_CHANNEL_SECRET:-}
+      LINE_CHANNEL_ACCESS_TOKEN: ${LINE_CHANNEL_ACCESS_TOKEN:-}
+    ports:
+      - "127.0.0.1:${APP_PORT:-3000}:3000"
+    volumes:
+      - einvoice_data:/data
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  einvoice_data:

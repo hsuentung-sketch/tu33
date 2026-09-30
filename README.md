@@ -66,6 +66,20 @@ npm run build && npm start
 
 ---
 
+## 本機 Demo 啟動（Docker）
+
+一鍵起 app + Postgres + 匿名 demo 資料，給潛在客戶展示 / UAT 用（非 production）。
+
+```bash
+cp .env.docker.example .env.docker   # 填 JWT_SECRET（openssl rand -hex 32）
+docker compose --env-file .env.docker -p <slug> up -d --build
+```
+
+- 開 `http://localhost:<APP_PORT>/admin/`，登入 `E0001` / `demo1234`
+- 重跑 `up` 會略過 seed（demo 租戶已存在）；要重灌：`docker compose -p <slug> down -v` 再 `up`
+- 多個行業 repo 同時起：各自 `.env.docker` 設不同 `COMPOSE_SLUG` / `APP_PORT` / `DB_PORT`
+- demo 租戶名由 `DEMO_TENANT_NAME` 帶，只能用匿名名稱
+
 ## LINE Webhook 設定
 
 每個 tenant 有自己的 webhook 路徑：

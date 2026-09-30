@@ -217,7 +217,7 @@ demoRouter.get('/seed-config', (_req: Request, res: Response) => {
 
   res.json({
     tenantId: DEMO_TENANT_ID,
-    tenantName: '某環保公司',
+    tenantName: process.env.DEMO_TENANT_NAME || '示範公司',
     plans: [
       {
         name: 'Starter',

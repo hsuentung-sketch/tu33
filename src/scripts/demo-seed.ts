@@ -4,8 +4,8 @@ import 'dotenv/config';
  * Demo Seed Script
  * 初始化演示租戶與完整測試資料
  *
- * 租戶：某環保公司
- * 員工：20 人
+ * 租戶：DEMO_TENANT_NAME（env，預設「示範公司」；各行業 repo 在 .env.docker 設匿名行業名）
+ * 員工：20 人（E0001 = ADMIN）
  * 客戶：50 家
  * 計畫：3 個（展示不同功能差異）
  *
@@ -16,7 +16,7 @@ import { prisma } from '../shared/prisma.js';
 import { logger } from '../shared/logger.js';
 
 const DEMO_TENANT_ID = 'demo_eco_company_001';
-const DEMO_TENANT_NAME = '某環保公司';
+const DEMO_TENANT_NAME = process.env.DEMO_TENANT_NAME || '示範公司';
 
 // ============================================================
 // 計畫配置（3 個計畫，展示功能差異）
@@ -206,7 +206,7 @@ async function createDemoTenant(): Promise<any> {
       companyName: DEMO_TENANT_NAME,
       taxId: '11223344', // 假統編
       phone: '02-2345-6789',
-      email: 'demo@ecoco.com.tw',
+      email: 'demo@example.com',
       address: '台北市南港區某路 123 號',
       modules: ['sales', 'purchase', 'accounting', 'inventory'],
       isActive: true,
@@ -346,14 +346,14 @@ async function createEmployees(tenantId: string): Promise<any[]> {
   const roles = ['ADMIN', 'SALES', 'PURCHASING', 'ACCOUNTING'];
 
   for (let i = 1; i <= 20; i++) {
-    const role = roles[i % roles.length];
+    const role = roles[(i - 1) % roles.length];
     const employee = await prisma.employee.create({
       data: {
         id: `emp_demo_${i}`,
         tenantId,
         employeeId: `E${String(i).padStart(4, '0')}`,
         name: `員工 ${i}`,
-        email: `employee${i}@ecoco.demo`,
+        email: `employee${i}@demo.example`,
         phone: `09${String(i).padStart(8, '0')}`,
         role: role as any,
         isActive: true,

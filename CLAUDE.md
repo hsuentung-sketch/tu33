@@ -218,6 +218,15 @@ npx tsx src/tools/generate-binding-code.ts --list
 npx tsx src/tools/generate-binding-code.ts <員工編號>
 ```
 
+## Docker UAT / Demo（2026-09-30 起）
+
+- `docker-compose.yml`：db + init + app，init / app 共用 Fly 同一個 runner image（Dockerfile 不另開 stage）
+- init：`prisma db push`（與 Fly `release_command` 同路徑）→ `SEED_DEMO=true` 時跑 `dist/scripts/seed-demo-all.js`
+- `src/scripts/seed-demo-all.ts`：demo 租戶已存在就略過（`--force` 重跑），並設 E0001（ADMIN）密碼
+- `src/scripts/demo-seed.ts` 會清全域 BillingPlan / VersionHistory，**只能對專用 demo DB 跑**，不可指向 Neon 正式庫
+- app 以 `NODE_ENV=production` 跑（鐵則 4 fail-fast），compose 補 `PUBLIC_BASE_URL`；LINE 留空時 webhook 不可用
+- 行業 repo merge upstream 後只需自己的 `.env.docker`（`COMPOSE_SLUG` / port / `DEMO_TENANT_NAME`）
+
 ## Schema 變更 SOP
 - **本機開發**：`npx prisma db push`（用 .env 的 DATABASE_URL）
 - **Fly 生產**：fly.toml 設有 `release_command`，每次 `fly deploy` 會自動跑 `prisma db push`：
