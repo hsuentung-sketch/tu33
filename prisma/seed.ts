@@ -9,10 +9,10 @@ async function main() {
     update: {},
     create: {
       id: 'demo-tenant',
-      companyName: '潤樋實業股份有限公司',
+      companyName: '示範公司',
       address: '台灣',
       phone: '02-0000-0000',
-      email: 'contact@runtong.example.com',
+      email: 'contact@demo.example',
       modules: ['sales', 'purchase', 'accounting'],
       settings: {
         taxRate: 0.05,
@@ -22,7 +22,7 @@ async function main() {
         purchasePrefix: 'P',
         defaultPaymentDays: 30,
         overdueAlertDays: 15,
-        companyHeader: '潤樋實業股份有限公司',
+        companyHeader: '示範公司',
         pdfFooter: '感謝您的支持',
       },
     },
@@ -38,15 +38,15 @@ async function main() {
       name: '系統管理員',
       role: 'ADMIN',
       phone: '0900-000-000',
-      email: 'admin@runtong.example.com',
+      email: 'admin@demo.example',
     },
   });
 
   // Sample products
   const products = [
-    { code: 'EK-SS-6280', name: 'EK-SS-6280 1/200', category: '半合成切削液', salePrice: 4800, costPrice: 3200 },
-    { code: 'EK-SS-6336', name: 'EK-SS-6336 1/200', category: '半合成切削液', salePrice: 5200, costPrice: 3600 },
-    { code: 'EK-C-215', name: 'EK-C-215', category: '切削液', salePrice: 17200, costPrice: 12000 },
+    { code: 'DEMO-P001', name: '示範商品 A', category: '示範分類', salePrice: 4800, costPrice: 3200 },
+    { code: 'DEMO-P002', name: '示範商品 B', category: '示範分類', salePrice: 5200, costPrice: 3600 },
+    { code: 'DEMO-P003', name: '示範商品 C', category: '示範分類', salePrice: 17200, costPrice: 12000 },
   ];
   for (const p of products) {
     await prisma.product.upsert({
@@ -58,11 +58,11 @@ async function main() {
 
   // Sample customer
   await prisma.customer.upsert({
-    where: { tenantId_name: { tenantId: tenant.id, name: '毅金精密股份有限公司' } },
+    where: { tenantId_name: { tenantId: tenant.id, name: '示範客戶股份有限公司' } },
     update: {},
     create: {
       tenantId: tenant.id,
-      name: '毅金精密股份有限公司',
+      name: '示範客戶股份有限公司',
       contactName: '王先生',
       phone: '02-1234-5678',
       address: '新北市',
@@ -77,7 +77,7 @@ async function main() {
     create: {
       tenantId: tenant.id,
       name: '示範供應商有限公司',
-      type: '切削液原料',
+      type: '示範原料',
       contactName: '李小姐',
       phone: '03-1111-2222',
       paymentDays: 60,

@@ -47,7 +47,7 @@ npx prisma migrate dev --name init
 # 產生 Prisma client
 npm run db:generate
 
-# 塞入 demo 資料（潤樋實業、示範客戶/供應商/產品、管理員員工）
+# 塞入 demo 資料（匿名示範公司、示範客戶/供應商/產品、管理員員工）
 npm run db:seed
 ```
 
