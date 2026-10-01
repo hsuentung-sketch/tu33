@@ -232,6 +232,16 @@ npx tsx src/tools/generate-binding-code.ts <員工編號>
 - **Fly 生產**：fly.toml 設有 `release_command`，每次 `fly deploy` 會自動跑 `prisma db push`：
   - 新增 table / column → 自動套用，deploy 成功
   - 刪除 / 改名 column（data loss） → release_command 失敗 → deploy 中止 → 手動 review 後加 `--accept-data-loss` 單次執行
+  - **新增 `@@unique` 也算 data loss 警告**，同樣會中止 deploy。舊版繼續跑、`fly deploy` 看似結束，實際沒上線（2026-09-30 v152–v155 連續失敗未察覺）
+  - 每次 deploy 後必 `curl /api/version` 確認 `commit` 與 `deployedAt` 已更新；`fly releases -a <app>` 出現 `failed` 即代表沒上線
+  - 單次套用流程（先唯讀查重複值，確認無重複再做）：
+    ```bash
+    export MSYS_NO_PATHCONV=1   # Git Bash 必加，否則 /tmp 被改寫成 Windows 路徑
+    curl https://<app>.fly.dev/api/version   # 叫醒 suspended machine
+    fly ssh sftp put prisma/schema.prisma /tmp/schema-new.prisma -a <app>
+    fly ssh console -a <app> -C 'sh -c "cd /app && node node_modules/prisma/build/index.js db push --schema /tmp/schema-new.prisma --url $DATABASE_URL --accept-data-loss"'
+    fly deploy -a <app> --build-arg GIT_COMMIT=$(git rev-parse HEAD)
+    ```
   - Prisma CLI 保留在 Dockerfile runner stage（prune 前備份）
 - 程式端加 try/catch P2022 fallback，保護滾動部署期間的短暫不一致期（見 `customer.service.ts` / `media.handler.ts`）
 - DB 已遷至 Neon（不再使用 Supabase），CONNECTION 走 pooler endpoint
