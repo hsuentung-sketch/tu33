@@ -61,10 +61,12 @@ function validateLines(lines: JournalLineInput[]) {
   return { totalDebit, totalCredit };
 }
 
-async function nextEntryNo(tenantId: string, entryDate: Date): Promise<string> {
+type EntryNoClient = Pick<typeof prisma, 'journalEntry'>;
+
+async function nextEntryNo(tenantId: string, entryDate: Date, client: EntryNoClient = prisma): Promise<string> {
   const yyyymmdd = `${entryDate.getFullYear()}${String(entryDate.getMonth() + 1).padStart(2, '0')}${String(entryDate.getDate()).padStart(2, '0')}`;
   const prefix = `JE-${yyyymmdd}-`;
-  const last = await prisma.journalEntry.findFirst({
+  const last = await client.journalEntry.findFirst({
     where: { tenantId, entryNo: { startsWith: prefix } },
     orderBy: { entryNo: 'desc' },
     select: { entryNo: true },
@@ -73,17 +75,32 @@ async function nextEntryNo(tenantId: string, entryDate: Date): Promise<string> {
   return `${prefix}${String(next).padStart(3, '0')}`;
 }
 
+/**
+ * 「讀最大號 +1 再寫入」非原子：自動傳票由事件並行觸發時會撞 (tenantId, entryNo)。
+ * 撞號（P2002）就重新取號再試。
+ */
+async function withEntryNoRetry<T>(fn: () => Promise<T>, maxAttempts = 8): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if ((err as { code?: string }).code !== 'P2002' || attempt >= maxAttempts) throw err;
+      await new Promise((r) => setTimeout(r, Math.random() * 30 * attempt));
+    }
+  }
+}
+
 export async function create(tenantId: string, createdBy: string | null, input: JournalEntryInput) {
   validateLines(input.lines);
   const period = await periodService.findPeriodForDate(tenantId, input.entryDate);
   if (!period) throw new ValidationError('找不到對應的會計期間，請先建立');
   if (period.status === 'closed') throw new ValidationError('該期間已關閉，無法新增傳票');
 
-  const entryNo = await nextEntryNo(tenantId, input.entryDate);
   const status = input.status === 'posted' ? 'posted' : 'pending';
-  return prisma.journalEntry.create({
+  return withEntryNoRetry(async () => prisma.journalEntry.create({
     data: {
-      tenantId, entryNo,
+      tenantId,
+      entryNo: await nextEntryNo(tenantId, input.entryDate),
       entryDate: input.entryDate,
       periodId: period.id,
       description: input.description,
@@ -109,7 +126,7 @@ export async function create(tenantId: string, createdBy: string | null, input: 
       },
     },
     include: { lines: { orderBy: { sequence: 'asc' } } },
-  });
+  }));
 }
 
 export async function list(tenantId: string, opts: {
@@ -186,20 +203,12 @@ export async function post(tenantId: string, id: string, postedBy: string) {
 export async function reverse(tenantId: string, id: string, reversedBy: string, reason?: string) {
   const orig = await getById(tenantId, id);
   if (orig.status !== 'posted') throw new ValidationError('只能反沖已過帳的傳票');
-  return prisma.$transaction(async (tx) => {
+  return withEntryNoRetry(() => prisma.$transaction(async (tx) => {
     // 建紅字傳票（debit/credit 對調）
     const period = await periodService.findPeriodForDate(tenantId, new Date());
     if (!period) throw new ValidationError('當日無對應期間');
     if (period.status === 'closed') throw new ValidationError('當期已關閉，無法產生反沖');
-    const yyyymmdd = `${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}${String(new Date().getDate()).padStart(2, '0')}`;
-    const prefix = `JE-${yyyymmdd}-`;
-    const last = await tx.journalEntry.findFirst({
-      where: { tenantId, entryNo: { startsWith: prefix } },
-      orderBy: { entryNo: 'desc' },
-      select: { entryNo: true },
-    });
-    const next = last ? Number(last.entryNo.split('-')[2]) + 1 : 1;
-    const newNo = `${prefix}${String(next).padStart(3, '0')}`;
+    const newNo = await nextEntryNo(tenantId, new Date(), tx);
 
     const reversal = await tx.journalEntry.create({
       data: {
@@ -223,8 +232,8 @@ export async function reverse(tenantId: string, id: string, reversedBy: string, 
       },
       include: { lines: true },
     });
-    await tx.journalEntry.update({
-      where: { id: orig.id },
+    const marked = await tx.journalEntry.updateMany({
+      where: { id: orig.id, status: 'posted' },
       data: {
         status: 'reversed',
         reversedAt: new Date(),
@@ -232,8 +241,9 @@ export async function reverse(tenantId: string, id: string, reversedBy: string, 
         reversedById: reversal.id,
       },
     });
+    if (marked.count === 0) throw new ValidationError('此傳票已被反沖');
     return reversal;
-  });
+  }));
 }
 
 export async function updateVatType(tenantId: string, id: string, data: {

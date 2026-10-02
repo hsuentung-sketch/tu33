@@ -35,7 +35,8 @@ const AUDITED_MODELS = new Set([
   'Product',
 ]);
 
-const WRITE_OPS = new Set(['create', 'update', 'delete', 'upsert']);
+// updateMany：應收/應付收款用「條件式更新」防重複入帳，仍需留稽核紀錄。
+const WRITE_OPS = new Set(['create', 'update', 'updateMany', 'delete', 'upsert']);
 
 // A dedicated raw client for writing audit rows. Kept separate from the
 // app-facing extended client to avoid recursion through the extension.

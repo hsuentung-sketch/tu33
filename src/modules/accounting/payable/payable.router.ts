@@ -74,7 +74,7 @@ payableRouter.put('/:id', async (req: Request, res: Response, next: NextFunction
     if (!parsed.success) {
       throw new ValidationError(parsed.error.issues.map((i) => i.message).join(', '));
     }
-    const result = await payableService.update(req.tenantId, String(req.params.id), parsed.data);
+    const result = await payableService.update(req.tenantId, String(req.params.id), parsed.data, req.employee.id);
     res.json(result);
   } catch (err) {
     next(err);

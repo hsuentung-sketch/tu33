@@ -81,7 +81,7 @@ receivableRouter.put('/:id', blockSalesWrite, async (req: Request, res: Response
     if (!parsed.success) {
       throw new ValidationError(parsed.error.issues.map((i) => i.message).join(', '));
     }
-    const result = await receivableService.update(req.tenantId, String(req.params.id), parsed.data);
+    const result = await receivableService.update(req.tenantId, String(req.params.id), parsed.data, req.employee.id);
     res.json(result);
   } catch (err) {
     next(err);

@@ -44,18 +44,16 @@ export async function getById(tenantId: string, id: string) {
 export async function markPaid(
   tenantId: string,
   id: string,
-  data: { paidDate?: Date; invoiceNo?: string; note?: string },
+  data: { paidDate?: Date; invoiceNo?: string | null; note?: string },
 ) {
   const existing = await prisma.accountPayable.findFirst({
     where: { id, tenantId },
   });
   if (!existing) throw new NotFoundError('AccountPayable', id);
-  if (existing.isPaid) {
-    throw new ValidationError('Payable already marked paid');
-  }
 
-  const updated = await prisma.accountPayable.update({
-    where: { id },
+  // 以 isPaid=false 為條件更新：同時兩次付款只有一次成立，避免重複入帳。
+  const r = await prisma.accountPayable.updateMany({
+    where: { id, tenantId, isPaid: false },
     data: {
       isPaid: true,
       paidDate: data.paidDate ?? new Date(),
@@ -63,8 +61,10 @@ export async function markPaid(
       note: data.note,
     },
   });
+  if (r.count === 0) throw new ValidationError('此應付帳款已付款');
+  const updated = await prisma.accountPayable.findUniqueOrThrow({ where: { id } });
 
-  eventBus.emit('payment:received', {
+  await eventBus.emitAsync('payment:received', {
     tenantId,
     paymentId: updated.id,
     invoiceId: updated.id,
@@ -87,6 +87,7 @@ export async function update(
     invoiceNo?: string | null;
     note?: string | null;
   },
+  actorId?: string,
 ) {
   const existing = await prisma.accountPayable.findFirst({ where: { id, tenantId } });
   if (!existing) throw new NotFoundError('AccountPayable', id);
@@ -104,12 +105,20 @@ export async function update(
     patch.paidDate = null;
   }
 
-  const updated = await prisma.accountPayable.update({ where: { id }, data: patch });
+  // 以原 isPaid 為條件：期間被別人改過狀態就拒絕，避免付款/取消付款傳票錯亂。
+  const r = await prisma.accountPayable.updateMany({
+    where: { id, tenantId, isPaid: existing.isPaid },
+    data: patch,
+  });
+  if (r.count === 0) throw new ValidationError('付款狀態已被其他人變更，請重新整理後再試');
+  const updated = await prisma.accountPayable.findUniqueOrThrow({ where: { id } });
 
   if (!existing.isPaid && updated.isPaid) {
-    eventBus.emit('payment:received', {
+    await eventBus.emitAsync('payment:received', {
       tenantId, paymentId: updated.id, invoiceId: updated.id, amount: Number(updated.amount),
     });
+  } else if (existing.isPaid && !updated.isPaid) {
+    await eventBus.emitAsync('payment:unpaid', { tenantId, paymentId: updated.id, actorId });
   }
   return updated;
 }

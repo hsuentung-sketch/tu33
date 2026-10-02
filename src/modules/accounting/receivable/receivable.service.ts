@@ -47,18 +47,16 @@ export async function getById(tenantId: string, id: string) {
 export async function markPaid(
   tenantId: string,
   id: string,
-  data: { paidDate?: Date; invoiceNo?: string; note?: string },
+  data: { paidDate?: Date; invoiceNo?: string | null; note?: string },
 ) {
   const existing = await prisma.accountReceivable.findFirst({
     where: { id, tenantId },
   });
   if (!existing) throw new NotFoundError('AccountReceivable', id);
-  if (existing.isPaid) {
-    throw new ValidationError('Receivable already marked paid');
-  }
 
-  const updated = await prisma.accountReceivable.update({
-    where: { id },
+  // 以 isPaid=false 為條件更新：同時兩次收款只有一次成立，避免重複入帳。
+  const r = await prisma.accountReceivable.updateMany({
+    where: { id, tenantId, isPaid: false },
     data: {
       isPaid: true,
       paidDate: data.paidDate ?? new Date(),
@@ -66,8 +64,10 @@ export async function markPaid(
       note: data.note,
     },
   });
+  if (r.count === 0) throw new ValidationError('此應收帳款已收款');
+  const updated = await prisma.accountReceivable.findUniqueOrThrow({ where: { id } });
 
-  eventBus.emit('invoice:paid', {
+  await eventBus.emitAsync('invoice:paid', {
     tenantId,
     invoiceId: updated.id,
     amount: Number(updated.amount),
@@ -91,6 +91,7 @@ export async function update(
     invoiceType?: string | null;
     note?: string | null;
   },
+  actorId?: string,
 ) {
   const existing = await prisma.accountReceivable.findFirst({ where: { id, tenantId } });
   if (!existing) throw new NotFoundError('AccountReceivable', id);
@@ -111,13 +112,20 @@ export async function update(
     patch.paidDate = null;
   }
 
-  const updated = await prisma.accountReceivable.update({ where: { id }, data: patch });
+  // 以原 isPaid 為條件：期間被別人改過狀態就拒絕，避免收款/取消收款傳票錯亂。
+  const r = await prisma.accountReceivable.updateMany({
+    where: { id, tenantId, isPaid: existing.isPaid },
+    data: patch,
+  });
+  if (r.count === 0) throw new ValidationError('收款狀態已被其他人變更，請重新整理後再試');
+  const updated = await prisma.accountReceivable.findUniqueOrThrow({ where: { id } });
 
-  // Emit paid event on transition false→true so downstream hooks still fire.
   if (!existing.isPaid && updated.isPaid) {
-    eventBus.emit('invoice:paid', {
+    await eventBus.emitAsync('invoice:paid', {
       tenantId, invoiceId: updated.id, amount: Number(updated.amount),
     });
+  } else if (existing.isPaid && !updated.isPaid) {
+    await eventBus.emitAsync('invoice:unpaid', { tenantId, invoiceId: updated.id, actorId });
   }
   return updated;
 }

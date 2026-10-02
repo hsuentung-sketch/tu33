@@ -186,6 +186,35 @@ async function onPaymentReceived(payload: ERPEventMap['payment:received']) {
 }
 
 // ────────────────────────────────────────────────────────────
+// 5. 單據修改 / 刪除 / 取消收付款 → 反沖原自動傳票（已過帳傳票不直接改）
+// ────────────────────────────────────────────────────────────
+/** 反沖某單據所有仍有效的自動傳票，回傳反沖張數。 */
+async function reverseSourceEntries(
+  tenantId: string, source: string, sourceId: string, actorId: string | undefined, reason: string,
+): Promise<number> {
+  const entries = await prisma.journalEntry.findMany({
+    where: { tenantId, source, sourceId, status: 'posted' },
+    select: { id: true },
+  });
+  for (const e of entries) {
+    await journalService.reverse(tenantId, e.id, actorId ?? 'system', reason);
+  }
+  if (entries.length) logger.info('Auto journal: reversed', { tenantId, source, sourceId, count: entries.length });
+  return entries.length;
+}
+
+// 只有原本已入帳的單據才重開傳票；會計啟用前建立的單據維持不入帳。
+async function onSalesOrderUpdated(p: ERPEventMap['salesOrder:updated']) {
+  const n = await reverseSourceEntries(p.tenantId, 'sales', p.salesOrderId, p.actorId, '銷貨單修改');
+  if (n > 0) await onSalesOrderCreated({ tenantId: p.tenantId, salesOrderId: p.salesOrderId });
+}
+
+async function onPurchaseOrderUpdated(p: ERPEventMap['purchaseOrder:updated']) {
+  const n = await reverseSourceEntries(p.tenantId, 'purchase', p.purchaseOrderId, p.actorId, '進貨單修改');
+  if (n > 0) await onPurchaseOrderCreated({ tenantId: p.tenantId, purchaseOrderId: p.purchaseOrderId, supplierId: '' });
+}
+
+// ────────────────────────────────────────────────────────────
 // 註冊所有 handler
 // ────────────────────────────────────────────────────────────
 export function registerAutoJournalHandlers(): void {
@@ -193,5 +222,19 @@ export function registerAutoJournalHandlers(): void {
   eventBus.on('invoice:paid', onInvoicePaid);
   eventBus.on('purchaseOrder:created', onPurchaseOrderCreated);
   eventBus.on('payment:received', onPaymentReceived);
+  eventBus.on('salesOrder:updated', onSalesOrderUpdated);
+  eventBus.on('purchaseOrder:updated', onPurchaseOrderUpdated);
+  eventBus.on('salesOrder:deleted', async (p) => {
+    await reverseSourceEntries(p.tenantId, 'sales', p.salesOrderId, p.actorId, '銷貨單刪除');
+  });
+  eventBus.on('purchaseOrder:deleted', async (p) => {
+    await reverseSourceEntries(p.tenantId, 'purchase', p.purchaseOrderId, p.actorId, '進貨單刪除');
+  });
+  eventBus.on('invoice:unpaid', async (p) => {
+    await reverseSourceEntries(p.tenantId, 'receipt', p.invoiceId, p.actorId, '取消收款');
+  });
+  eventBus.on('payment:unpaid', async (p) => {
+    await reverseSourceEntries(p.tenantId, 'payment', p.paymentId, p.actorId, '取消付款');
+  });
   logger.info('Auto journal handlers registered');
 }

@@ -29,7 +29,6 @@ const createSchema = z.object({
   internalStaff: z.string().min(1),
   staffPhone: z.string().nullable().optional(),
   deliveryNote: z.string().nullable().optional(),
-  createdBy: z.string().min(1),
   items: z.array(itemSchema).min(1),
 });
 
@@ -81,7 +80,8 @@ purchaseOrderRouter.post('/', async (req: Request, res: Response, next: NextFunc
     if (!parsed.success) {
       throw new ValidationError(parsed.error.issues.map((i) => i.message).join(', '));
     }
-    const result = await purchaseOrderService.create(req.tenantId, parsed.data);
+    // 建單人一律取登入者；前端送的 createdBy 會被 zod 剝除。
+    const result = await purchaseOrderService.create(req.tenantId, { ...parsed.data, createdBy: req.employee.id });
     res.status(201).json(result);
   } catch (err) {
     next(err);

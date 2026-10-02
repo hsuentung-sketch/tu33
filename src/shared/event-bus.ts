@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { logger } from './logger.js';
+import { writeErrorLog } from './error-log.js';
 
 // ─── Event payload map ───────────────────────────────────────────────
 // Add new domain events here so listeners and emitters stay type-safe.
@@ -17,12 +18,16 @@ export interface ERPEventMap {
   'salesOrder:shipped': { tenantId: string; salesOrderId: string; shipmentId: string };
   'salesOrder:completed': { tenantId: string; salesOrderId: string };
   'salesOrder:cancelled': { tenantId: string; salesOrderId: string; reason: string };
+  'salesOrder:updated': { tenantId: string; salesOrderId: string; actorId: string };
+  'salesOrder:deleted': { tenantId: string; salesOrderId: string; actorId: string };
 
   // Purchase
   'purchaseOrder:created': { tenantId: string; purchaseOrderId: string; supplierId: string };
   'purchaseOrder:approved': { tenantId: string; purchaseOrderId: string; approvedBy: string };
   'purchaseOrder:completed': { tenantId: string; purchaseOrderId: string };
   'purchaseOrder:cancelled': { tenantId: string; purchaseOrderId: string; reason: string };
+  'purchaseOrder:updated': { tenantId: string; purchaseOrderId: string; actorId: string };
+  'purchaseOrder:deleted': { tenantId: string; purchaseOrderId: string; actorId: string };
 
   // Inventory
   'inventory:adjusted': {
@@ -41,9 +46,26 @@ export interface ERPEventMap {
   'invoice:created': { tenantId: string; invoiceId: string; salesOrderId?: string };
   'invoice:paid': { tenantId: string; invoiceId: string; amount: number };
   'payment:received': { tenantId: string; paymentId: string; invoiceId: string; amount: number };
+  /** 應收由已收改回未收（invoiceId = AR id） */
+  'invoice:unpaid': { tenantId: string; invoiceId: string; actorId?: string };
+  /** 應付由已付改回未付（paymentId = AP id） */
+  'payment:unpaid': { tenantId: string; paymentId: string; actorId?: string };
 }
 
 export type ERPEvent = keyof ERPEventMap;
+
+// 事件處理失敗不中斷主流程，但要留在後台「錯誤紀錄」，否則自動傳票等副作用會無聲遺失。
+function reportHandlerError(event: ERPEvent, payload: unknown, err: unknown): void {
+  logger.error(`Event handler error [${event}]`, { error: err });
+  const e = err as Error;
+  void writeErrorLog({
+    source: `event:${event}`,
+    message: e?.message ?? String(err),
+    stack: e?.stack ?? null,
+    tenantId: (payload as { tenantId?: string })?.tenantId ?? null,
+    context: { payload: payload as Record<string, unknown> },
+  });
+}
 
 // ─── Typed event bus ─────────────────────────────────────────────────
 
@@ -64,7 +86,7 @@ export class ERPEventBus {
       try {
         await handler(payload);
       } catch (err) {
-        logger.error(`Event handler error [${event}]`, { error: err });
+        reportHandlerError(event, payload, err);
       }
     };
     this.emitter.on(event, wrapped as (...args: unknown[]) => void);
@@ -81,7 +103,7 @@ export class ERPEventBus {
       try {
         await handler(payload);
       } catch (err) {
-        logger.error(`Event handler error [${event}]`, { error: err });
+        reportHandlerError(event, payload, err);
       }
     };
     this.emitter.once(event, wrapped as (...args: unknown[]) => void);

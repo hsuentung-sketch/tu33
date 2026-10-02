@@ -251,7 +251,7 @@ export async function edit(tenantId: string, id: string, input: SalesOrderEditIn
   const priceMap = await resolveItemPriceSnapshots(tenantId, input.items);
 
   const { subtotal, taxAmount, totalAmount } = calculateTotals(
-    input.items.map((i) => ({ quantity: i.quantity, unitPrice: i.unitPrice })),
+    input.items.map((i) => ({ quantity: i.quantity, unitPrice: i.unitPrice, taxType: i.taxType })),
     settings.taxRate,
   );
 
@@ -302,6 +302,7 @@ export async function edit(tenantId: string, id: string, input: SalesOrderEditIn
   // then re-emit the confirmed event so new lines are decremented.
   await reverseInventory(tenantId, id, oldItems, 'SALES_OUT', input.editedBy);
   await eventBus.emitAsync('salesOrder:confirmed', { tenantId, salesOrderId: id });
+  await eventBus.emitAsync('salesOrder:updated', { tenantId, salesOrderId: id, actorId: input.editedBy });
 
   return updated;
 }
@@ -333,6 +334,7 @@ export async function softDelete(
     });
   });
   await reverseInventory(tenantId, id, oldItems, 'SALES_OUT', deletedBy);
+  await eventBus.emitAsync('salesOrder:deleted', { tenantId, salesOrderId: id, actorId: deletedBy });
   return { ok: true };
 }
 

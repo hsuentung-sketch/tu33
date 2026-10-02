@@ -231,6 +231,7 @@ export async function edit(tenantId: string, id: string, input: PurchaseOrderEdi
 
   await reverseInventory(tenantId, id, oldItems, 'PURCHASE_IN', input.editedBy);
   await eventBus.emitAsync('purchaseOrder:completed', { tenantId, purchaseOrderId: id });
+  await eventBus.emitAsync('purchaseOrder:updated', { tenantId, purchaseOrderId: id, actorId: input.editedBy });
 
   return updated;
 }
@@ -258,6 +259,7 @@ export async function softDelete(
     });
   });
   await reverseInventory(tenantId, id, oldItems, 'PURCHASE_IN', deletedBy);
+  await eventBus.emitAsync('purchaseOrder:deleted', { tenantId, purchaseOrderId: id, actorId: deletedBy });
   return { ok: true };
 }
 
@@ -306,10 +308,9 @@ export async function complete(tenantId: string, id: string) {
   if (order.status !== 'RECEIVED') {
     throw new ValidationError(`Cannot complete order in status ${order.status}`);
   }
-  const updated = await prisma.purchaseOrder.update({
+  // 入庫已在建單時觸發（見 create），這裡只改狀態；再發 purchaseOrder:completed 會重複入庫。
+  return prisma.purchaseOrder.update({
     where: { id },
     data: { status: 'COMPLETED' },
   });
-  eventBus.emit('purchaseOrder:completed', { tenantId, purchaseOrderId: id });
-  return updated;
 }

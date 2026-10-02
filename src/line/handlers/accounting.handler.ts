@@ -1,6 +1,8 @@
 import { logger } from '../../shared/logger.js';
 import { prisma } from '../../shared/prisma.js';
 import { runWithAuditContext } from '../../shared/audit.js';
+import * as receivableService from '../../modules/accounting/receivable/receivable.service.js';
+import * as payableService from '../../modules/accounting/payable/payable.service.js';
 import * as session from '../session.js';
 
 /**
@@ -226,19 +228,14 @@ export async function handleAccountingText(text: string, ctx: any): Promise<bool
   const invoiceNo = text === '無' ? null : text.trim();
 
   try {
+    // 走 service 才會觸發收/付款事件（自動傳票），並帶 tenantId 隔離。
     if (flow === 'ar:pay') {
       await runWithAuditContext({ tenantId, userId: employee.id }, () =>
-        prisma.accountReceivable.update({
-          where: { id },
-          data: { isPaid: true, paidDate: new Date(), invoiceNo },
-        }),
+        receivableService.markPaid(tenantId, id, { invoiceNo }),
       );
     } else {
       await runWithAuditContext({ tenantId, userId: employee.id }, () =>
-        prisma.accountPayable.update({
-          where: { id },
-          data: { isPaid: true, paidDate: new Date(), invoiceNo },
-        }),
+        payableService.markPaid(tenantId, id, { invoiceNo }),
       );
     }
     session.clear(tenantId, lineUserId);

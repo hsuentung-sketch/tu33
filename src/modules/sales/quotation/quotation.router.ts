@@ -27,8 +27,6 @@ const createSchema = z.object({
   paymentTerms: z.string().nullable().optional(),
   validUntil: z.string().nullable().optional(),
   note: z.string().nullable().optional(),
-  // createdBy is injected server-side from the authenticated employee.
-  createdBy: z.string().min(1).optional(),
   items: z.array(itemSchema).min(1),
 });
 
@@ -65,9 +63,6 @@ const statusSchema = z.object({
   reason: z.string().optional(),
 });
 
-const convertSchema = z.object({
-  createdBy: z.string().min(1),
-});
 
 quotationRouter.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -106,7 +101,8 @@ quotationRouter.post('/', async (req: Request, res: Response, next: NextFunction
     if (!parsed.success) {
       throw new ValidationError(parsed.error.issues.map((i) => i.message).join(', '));
     }
-    const payload = { ...parsed.data, createdBy: parsed.data.createdBy ?? req.employee.id };
+    // 建單人一律取登入者，不接受前端指定。
+    const payload = { ...parsed.data, createdBy: req.employee.id };
     const result = await quotationService.create(req.tenantId, payload);
     const pdfUrl = await buildPdfShortUrl({
       tenantId: req.tenantId,
@@ -192,14 +188,10 @@ quotationRouter.post('/:id/status', async (req: Request, res: Response, next: Ne
 
 quotationRouter.post('/:id/convert', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const parsed = convertSchema.safeParse(req.body);
-    if (!parsed.success) {
-      throw new ValidationError(parsed.error.issues.map((i) => i.message).join(', '));
-    }
     const result = await quotationService.convertToSalesOrder(
       req.tenantId,
       String(req.params.id),
-      parsed.data.createdBy,
+      req.employee.id,
     );
     res.status(201).json(result);
   } catch (err) {
