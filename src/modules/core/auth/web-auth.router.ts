@@ -10,7 +10,7 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
+import { signSessionToken, verifySessionToken } from './session-token.js';
 import { prisma } from '../../../shared/prisma.js';
 import { UnauthorizedError, ValidationError } from '../../../shared/errors.js';
 import { config } from '../../../config/index.js';
@@ -72,10 +72,9 @@ webAuthRouter.post('/login', async (req: Request, res: Response, next: NextFunct
       throw new UnauthorizedError('帳號或密碼錯誤');
     }
 
-    const token = jwt.sign(
+    const token = signSessionToken(
       { employeeId: emp.id, tenantId: emp.tenantId, role: emp.role },
-      config.jwt.secret,
-      { expiresIn: `${SESSION_TTL_HOURS}h` },
+      SESSION_TTL_HOURS,
     );
     res.cookie(SESSION_COOKIE, token, {
       httpOnly: true,
@@ -108,8 +107,8 @@ webAuthRouter.post('/logout', (req: Request, res: Response) => {
   // Best-effort audit: decode existing cookie to find who logged out.
   try {
     const token = (req as any).cookies?.[SESSION_COOKIE];
-    if (token) {
-      const decoded = jwt.verify(token, config.jwt.secret) as { employeeId: string; tenantId: string };
+    const decoded = token ? verifySessionToken(token) : null;
+    if (decoded) {
       void writeAudit({
         tenantId: decoded.tenantId,
         userId: decoded.employeeId,
@@ -129,7 +128,8 @@ webAuthRouter.get('/session', async (req: Request, res: Response) => {
   const token = (req as any).cookies?.[SESSION_COOKIE];
   if (!token) { res.status(401).json({ ok: false }); return; }
   try {
-    const decoded = jwt.verify(token, config.jwt.secret) as { employeeId: string; tenantId: string };
+    const decoded = verifySessionToken(token);
+    if (!decoded) { res.status(401).json({ ok: false }); return; }
     const emp = await prisma.employee.findFirst({
       where: { id: decoded.employeeId, tenantId: decoded.tenantId, isActive: true },
       include: { tenant: true },

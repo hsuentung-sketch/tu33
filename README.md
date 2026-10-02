@@ -105,7 +105,7 @@ https://<your-domain>/webhook/<tenantId>
 
 ## 員工綁定流程
 
-1. 管理員呼叫 `POST /api/auth/bind/code`（header: `x-tenant-id`, `x-employee-id`；body: `{ employeeId: "001" }`）
+1. 管理員在後台「員工」頁按「綁定碼」，或呼叫 `POST /api/auth/bind/code`（server-to-server 需 header: `x-tenant-id`, `x-employee-id`, `x-internal-key`，且須設定 `INTERNAL_API_KEY`；body: `{ employeeId: "001" }`）
 2. 系統回傳 6 位綁定碼（10 分鐘有效）
 3. 員工在 LINE 輸入「綁定 XXXXXX」
 4. 綁定成功後即可使用所有指令
@@ -132,11 +132,14 @@ https://<your-domain>/webhook/<tenantId>
 curl -X POST https://<your-domain>/api/statements/run \
   -H "x-tenant-id: <tenantId>" \
   -H "x-employee-id: <adminEmployeeId>" \
+  -H "x-internal-key: <INTERNAL_API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{"year": 2026, "month": 3}'
 ```
 
 系統會對該月所有 AR/AP 產生 PDF 並 Email 給對應客戶／供應商。
+
+> `x-tenant-id` / `x-employee-id` 只是識別碼，不是憑證；未設定 `INTERNAL_API_KEY` 時這條 header 驗證路徑整個停用（預設）。
 
 ---
 

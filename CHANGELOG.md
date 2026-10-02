@@ -3,6 +3,25 @@
 All notable changes to this project will be documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · semver.
 
+## [2.18.1] - 2026-10-02
+
+### Security -- 認證修補（無使用者可見的行為變更）
+
+- **JWT 型別混淆（跨租戶接管）**：PDF／文件下載連結與後台 session cookie 共用 `JWT_SECRET` 且未區分用途。
+  PDF token 放進 `ep_session` cookie 時，payload 缺 `employeeId`／`tenantId`，Prisma 忽略 undefined 條件，
+  查詢退化為 `findFirst({ isActive: true })`，回傳資料庫第一位在職員工（常為 ADMIN，且可跨租戶）。
+  - 新增 `src/shared/typed-jwt.ts`：token 帶 `typ`（session / pdf / doc），驗證端只收自己的類型，固定 `HS256`，
+    並檢查 payload 形狀（非空字串）。session 驗證不通過直接 401，不再進資料庫查詢。
+  - 相容：沒有 `typ` 的舊 token 在形狀完全相符時仍接受（已發出的 LINE 連結 7 天、session 12 小時不失效）。
+    舊 PDF／文件 token 當 session 使用時形狀不符，照樣被擋。2026-10-12 後可移除舊 token 相容分支。
+- **header 驗證收緊**：`x-tenant-id` + `x-employee-id` 只是識別碼，不是憑證，原本單靠這兩個 header 即可冒充任一員工。
+  現在需再帶 `x-internal-key`（常數時間比對 `INTERNAL_API_KEY`）；未設定 `INTERNAL_API_KEY`（預設）時此路徑整個停用。
+
+### Added
+
+- 環境變數 `INTERNAL_API_KEY`（選填，見 `.env.example`）。
+- 回歸測試：`tests/typed-jwt.test.ts`、`tests/auth-session-confusion.test.ts`、`tests/auth-header-auth.test.ts`。
+
 ## [2.18.0] - 2026-07-24
 
 ### Added -- 電子發票 MIG 4.1 全面升級（EINV V4.8 檢測就緒）

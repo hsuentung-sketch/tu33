@@ -5,8 +5,7 @@
  * pdf-link.ts: a short-lived JWT carries (tenantId, kind, docId) and the
  * public /doc endpoint verifies it before streaming the file.
  */
-import jwt from 'jsonwebtoken';
-import { config } from '../config/index.js';
+import { signTyped, verifyTyped } from '../shared/typed-jwt.js';
 
 export type DocKind = 'product' | 'supplier' | 'bank-doc';
 
@@ -18,6 +17,8 @@ interface DocTokenPayload {
 
 const DEFAULT_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
 
+const nonEmptyString = (v: unknown): boolean => typeof v === 'string' && v.length > 0;
+
 export function signDocToken(
   tenantId: string,
   kind: DocKind,
@@ -25,17 +26,15 @@ export function signDocToken(
   ttlSeconds: number = DEFAULT_TTL_SECONDS,
 ): string {
   const payload: DocTokenPayload = { t: tenantId, k: kind, i: id };
-  return jwt.sign(payload, config.jwt.secret, { expiresIn: ttlSeconds });
+  return signTyped('doc', { ...payload }, ttlSeconds);
 }
 
 export function verifyDocToken(token: string): DocTokenPayload | null {
-  try {
-    const decoded = jwt.verify(token, config.jwt.secret) as DocTokenPayload;
-    if (!decoded.t || !decoded.k || !decoded.i) return null;
-    return decoded;
-  } catch {
-    return null;
-  }
+  return verifyTyped<DocTokenPayload & Record<string, unknown>>(
+    'doc',
+    token,
+    (p) => nonEmptyString(p.t) && nonEmptyString(p.k) && nonEmptyString(p.i),
+  );
 }
 
 /**

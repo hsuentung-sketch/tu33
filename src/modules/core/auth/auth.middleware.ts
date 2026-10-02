@@ -1,13 +1,14 @@
 import type { Request, Response, NextFunction } from 'express';
 import type { Role } from '@prisma/client';
-import jwt from 'jsonwebtoken';
 import { prisma } from '../../../shared/prisma.js';
 import { UnauthorizedError, ForbiddenError } from '../../../shared/errors.js';
 import { getTenantSettings, type TenantSettings } from '../../../shared/utils.js';
 import { runWithAuditContext } from '../../../shared/audit.js';
 import { updateRequestContext } from '../../../shared/error-log.js';
 import { liffAuthMiddleware } from './liff-auth.middleware.js';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { config } from '../../../config/index.js';
+import { verifySessionToken } from './session-token.js';
 
 const SESSION_COOKIE = 'ep_session';
 
@@ -31,7 +32,9 @@ declare global {
 /**
  * Primary request auth. Accepts either:
  *   - `Authorization: Bearer <LIFF ID token>` (LIFF browser clients)
- *   - `x-tenant-id` + `x-employee-id` headers (server-to-server / admin tools)
+ *   - web console `ep_session` cookie
+ *   - `x-tenant-id` + `x-employee-id` + `x-internal-key` headers (server-to-server; disabled unless
+ *     INTERNAL_API_KEY is set — the two ids alone are identifiers, not credentials)
  *
  * LIFF is tried first because that's the default path for LINE clients.
  */
@@ -55,12 +58,9 @@ async function cookieAuthMiddleware(req: Request, _res: Response, next: NextFunc
   try {
     const token = (req as any).cookies?.[SESSION_COOKIE];
     if (!token) throw new UnauthorizedError('Missing session cookie');
-    let decoded: { employeeId: string; tenantId: string };
-    try {
-      decoded = jwt.verify(token, config.jwt.secret) as typeof decoded;
-    } catch {
-      throw new UnauthorizedError('Session expired, please re-login');
-    }
+    // Typed + shape-checked: a PDF/doc download token must never pass as a session.
+    const decoded = verifySessionToken(token);
+    if (!decoded) throw new UnauthorizedError('Session expired, please re-login');
     const employee = await prisma.employee.findFirst({
       where: { id: decoded.employeeId, tenantId: decoded.tenantId, isActive: true },
       include: { tenant: true },
@@ -87,8 +87,20 @@ async function cookieAuthMiddleware(req: Request, _res: Response, next: NextFunc
   }
 }
 
+/** Constant-time compare (both sides hashed first so length differences leak nothing). */
+function internalKeyMatches(provided: string | undefined): boolean {
+  const expected = config.internalApiKey;
+  if (!expected || !provided) return false;
+  const a = createHash('sha256').update(provided).digest();
+  const b = createHash('sha256').update(expected).digest();
+  return timingSafeEqual(a, b);
+}
+
 async function headerAuthMiddleware(req: Request, _res: Response, next: NextFunction) {
   try {
+    if (!internalKeyMatches(req.header('x-internal-key'))) {
+      throw new UnauthorizedError('Missing or invalid credentials');
+    }
     const tenantId = req.headers['x-tenant-id'] as string | undefined;
     const employeeId = req.headers['x-employee-id'] as string | undefined;
 

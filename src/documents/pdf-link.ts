@@ -5,8 +5,7 @@
  * needing the LIFF id-token flow. Tokens are JWTs signed with JWT_SECRET
  * and carry the tenant + document kind/id + expiry.
  */
-import jwt from 'jsonwebtoken';
-import { config } from '../config/index.js';
+import { signTyped, verifyTyped } from '../shared/typed-jwt.js';
 
 export type PdfKind = 'quotation' | 'sales-order' | 'purchase-order';
 
@@ -18,6 +17,8 @@ interface PdfTokenPayload {
 
 const DEFAULT_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
 
+const nonEmptyString = (v: unknown): boolean => typeof v === 'string' && v.length > 0;
+
 export function signPdfToken(
   tenantId: string,
   kind: PdfKind,
@@ -25,17 +26,15 @@ export function signPdfToken(
   ttlSeconds: number = DEFAULT_TTL_SECONDS,
 ): string {
   const payload: PdfTokenPayload = { t: tenantId, k: kind, i: id };
-  return jwt.sign(payload, config.jwt.secret, { expiresIn: ttlSeconds });
+  return signTyped('pdf', { ...payload }, ttlSeconds);
 }
 
 export function verifyPdfToken(token: string): PdfTokenPayload | null {
-  try {
-    const decoded = jwt.verify(token, config.jwt.secret) as PdfTokenPayload;
-    if (!decoded.t || !decoded.k || !decoded.i) return null;
-    return decoded;
-  } catch {
-    return null;
-  }
+  return verifyTyped<PdfTokenPayload & Record<string, unknown>>(
+    'pdf',
+    token,
+    (p) => nonEmptyString(p.t) && nonEmptyString(p.k) && nonEmptyString(p.i),
+  );
 }
 
 /**

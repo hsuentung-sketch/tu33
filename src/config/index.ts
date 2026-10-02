@@ -24,6 +24,9 @@ const databaseUrl = requireInProd('DATABASE_URL', 'postgresql://erp:erp_dev_pass
 export const config = {
   port: parseInt(process.env.PORT || '3000', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
+  // Shared secret for server-to-server calls that identify the caller by x-tenant-id/x-employee-id.
+  // Unset (default) = that auth path is disabled. Never reuse JWT_SECRET here.
+  internalApiKey: process.env.INTERNAL_API_KEY || '',
   databaseUrl,
   publicBaseUrl,
 
