@@ -1,13 +1,14 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
-import { ValidationError } from '../../../shared/errors.js';
-import { requireAdmin as requireAdminBase } from '../auth/require-admin.js';
+import { ForbiddenError, ValidationError } from '../../../shared/errors.js';
 import * as employeeService from './employee.service.js';
 
 export const employeeRouter = Router();
 
-function requireAdmin(req: Request) {
-  requireAdminBase(req, '僅 ADMIN 可操作員工密碼');
+// 員工異動（含角色、密碼、停用）一律限 ADMIN；否則任何人可把自己升為 ADMIN。
+function adminOnly(req: Request, _res: Response, next: NextFunction) {
+  if (req.employee?.role !== 'ADMIN') return next(new ForbiddenError('沒權限：僅 ADMIN 可異動員工資料'));
+  next();
 }
 
 const passwordSchema = z.string().min(8, '密碼至少 8 碼');
@@ -66,14 +67,12 @@ employeeRouter.get('/:id', async (req: Request, res: Response, next: NextFunctio
   }
 });
 
-employeeRouter.post('/', async (req: Request, res: Response, next: NextFunction) => {
+employeeRouter.post('/', adminOnly, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const parsed = createSchema.safeParse(req.body);
     if (!parsed.success) {
       throw new ValidationError(parsed.error.issues.map((i) => i.message).join(', '));
     }
-    // Only ADMIN may set a password on creation; non-ADMIN silently omits it.
-    if (parsed.data.password !== undefined) requireAdmin(req);
     const employee = await employeeService.create(req.tenantId, parsed.data);
     res.status(201).json(employee);
   } catch (err) {
@@ -81,7 +80,7 @@ employeeRouter.post('/', async (req: Request, res: Response, next: NextFunction)
   }
 });
 
-employeeRouter.put('/:id', async (req: Request, res: Response, next: NextFunction) => {
+employeeRouter.put('/:id', adminOnly, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const parsed = updateSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -94,9 +93,7 @@ employeeRouter.put('/:id', async (req: Request, res: Response, next: NextFunctio
     if (Object.keys(rest).length) {
       await employeeService.update(req.tenantId, String(req.params.id), rest);
     }
-    // Password mutation is gated to ADMIN only.
     if (password !== undefined) {
-      requireAdmin(req);
       if (password === null) {
         await employeeService.clearPassword(req.tenantId, String(req.params.id));
       } else {
@@ -110,7 +107,7 @@ employeeRouter.put('/:id', async (req: Request, res: Response, next: NextFunctio
   }
 });
 
-employeeRouter.delete('/:id', async (req: Request, res: Response, next: NextFunction) => {
+employeeRouter.delete('/:id', adminOnly, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const employee = await employeeService.deactivate(req.tenantId, String(req.params.id));
     res.json(employee);
@@ -119,7 +116,7 @@ employeeRouter.delete('/:id', async (req: Request, res: Response, next: NextFunc
   }
 });
 
-employeeRouter.post('/:id/activate', async (req: Request, res: Response, next: NextFunction) => {
+employeeRouter.post('/:id/activate', adminOnly, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const employee = await employeeService.activate(req.tenantId, String(req.params.id));
     res.json(employee);

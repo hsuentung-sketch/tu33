@@ -32,6 +32,7 @@ import { announcementRouter } from '../modules/core/announcement/announcement.ro
 import { dashboardRouter } from './dashboard.router.js';
 import { VERSION_INFO } from '../shared/version.js';
 import { prisma } from '../shared/prisma.js';
+import { ForbiddenError } from '../shared/errors.js';
 
 export const apiRouter = Router();
 
@@ -49,6 +50,14 @@ apiRouter.get('/version', (_req, res) => {
 apiRouter.use('/demo', demoRouter);
 
 apiRouter.use(authMiddleware);
+
+// VIEWER 為唯讀帳號：所有寫入請求一律擋下（各模組不必各自判斷）。
+apiRouter.use((req, _res, next) => {
+  if (req.employee?.role === 'VIEWER' && !['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+    return next(new ForbiddenError('唯讀帳號不可修改資料'));
+  }
+  next();
+});
 
 // Identity helper for LIFF clients — returns the authenticated employee.
 apiRouter.get('/me', async (req, res, next) => {
